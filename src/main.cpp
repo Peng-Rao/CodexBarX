@@ -64,6 +64,9 @@ static void fileMessageHandler(QtMsgType type, const QMessageLogContext& context
 }
 
 #include "app/SettingsStore.h"
+#include "app/TrayViewModel.h"
+#include "app/UiFreezeWatchdog.h"
+#include "app/UsageDetailsViewModel.h"
 #include "app/UsageStore.h"
 #include "app/LanguageManager.h"
 #include "app/SessionQuotaNotifications.h"
@@ -73,6 +76,7 @@ static void fileMessageHandler(QtMsgType type, const QMessageLogContext& context
 #include "util/CostUsageScanner.h"
 #include "providers/ProviderBootstrap.h"
 #include "account/TokenAccountStore.h"
+#include "runtime/ProviderRuntimeManager.h"
 
 #ifdef Q_OS_WIN
 static void applyRoundedWindowRegion(QWindow* window, int radius) {
@@ -111,9 +115,12 @@ public:
     QQuickView* settingsView = nullptr;
     QQuickView* trayView = nullptr;
     QQuickView* usageView = nullptr;
+    std::function<void()> ensureSettingsLoaded;
 
     Q_INVOKABLE void openSettings() {
+        UiFreezeWatchdog::PhaseScope phase(QStringLiteral("settings.open"));
         if (!settingsView) return;
+        if (ensureSettingsLoaded) ensureSettingsLoaded();
         settingsView->show();
         settingsView->raise();
         settingsView->requestActivate();
@@ -155,6 +162,7 @@ public:
     }
 
     Q_INVOKABLE void openUsage() {
+        UiFreezeWatchdog::PhaseScope phase(QStringLiteral("usage.open"));
         if (!usageView) return;
         if (usageView->source().isEmpty()) {
             usageView->setSource(QUrl("qrc:/qml/UsageWindow.qml"));
@@ -173,6 +181,7 @@ public:
     }
 
     Q_INVOKABLE void toggleUsage() {
+        UiFreezeWatchdog::PhaseScope phase(QStringLiteral("usage.toggle"));
         if (!usageView) return;
         if (usageView->isVisible()) {
             usageView->hide();
@@ -205,6 +214,7 @@ public:
     }
 
     Q_INVOKABLE void toggleSettings() {
+        UiFreezeWatchdog::PhaseScope phase(QStringLiteral("settings.toggle"));
         if (!settingsView) return;
         if (settingsView->isVisible()) {
             settingsView->hide();
@@ -291,6 +301,9 @@ int main(int argc, char* argv[]) {
     }
 
     QApplication app(argc, argv);
+    auto* uiFreezeWatchdog = new UiFreezeWatchdog(&app);
+    uiFreezeWatchdog->start();
+
     app.setApplicationName("WinCodexBar");
     app.setOrganizationName("CodexBar");
     app.setQuitOnLastWindowClosed(false);
@@ -303,7 +316,10 @@ int main(int argc, char* argv[]) {
     }
     const bool showSettingsOnStartup = appArgs.contains("--show-settings");
 
-    ProviderBootstrap::registerAllProviders();
+    {
+        UiFreezeWatchdog::PhaseScope phase(QStringLiteral("bootstrap.registerProviders"));
+        ProviderBootstrap::registerAllProviders();
+    }
 
     // Increase global thread pool to handle concurrent provider refreshes
     // without exhausting workers. Default is QThread::idealThreadCount().
@@ -317,9 +333,12 @@ int main(int argc, char* argv[]) {
 
     // Initialize TokenAccountStore: load existing accounts or migrate from legacy config
     TokenAccountStore* tokenStore = TokenAccountStore::instance();
-    tokenStore->loadFromDisk();
-    tokenStore->migrateFromLegacy(settings);
-    tokenStore->saveToDisk();
+    {
+        UiFreezeWatchdog::PhaseScope phase(QStringLiteral("bootstrap.tokenAccounts"));
+        tokenStore->loadFromDisk();
+        tokenStore->migrateFromLegacy(settings);
+        tokenStore->saveToDisk();
+    }
 
     QObject::connect(usageStore, &UsageStore::codexAccountsChanged, [usageStore]() {
         // Refresh Codex data when accounts change
@@ -331,6 +350,10 @@ int main(int argc, char* argv[]) {
 
     qmlRegisterSingletonInstance("CodexBar", 1, 0, "SettingsStore", settings);
     qmlRegisterSingletonInstance("CodexBar", 1, 0, "UsageStore", usageStore);
+    auto* trayViewModel = new TrayViewModel(usageStore, &app);
+    qmlRegisterSingletonInstance("CodexBar", 1, 0, "TrayViewModel", trayViewModel);
+    auto* usageDetailsViewModel = new UsageDetailsViewModel(usageStore, &app);
+    qmlRegisterSingletonInstance("CodexBar", 1, 0, "UsageDetailsViewModel", usageDetailsViewModel);
 
     AppController* appController = new AppController(&app);
     qmlRegisterSingletonInstance("CodexBar", 1, 0, "AppController", appController);
@@ -342,8 +365,18 @@ int main(int argc, char* argv[]) {
         langMgr.setLanguage(settings->language());
     });
 
-    ProviderBootstrap::applyStoredProviderEnabledStates(settings, usageStore);
-    ProviderBootstrap::syncEnabledProviderRuntimes();
+    {
+        UiFreezeWatchdog::PhaseScope phase(QStringLiteral("bootstrap.providerState"));
+        ProviderBootstrap::applyStoredProviderEnabledStates(settings, usageStore);
+        ProviderBootstrap::syncEnabledProviderRuntimes();
+    }
+    QObject::connect(ProviderRuntimeManager::instance(),
+                     &ProviderRuntimeManager::backgroundRefreshRequested,
+                     usageStore,
+                     [usageStore](const QString& providerId) {
+                         usageStore->refreshProvider(providerId);
+                     },
+                     Qt::QueuedConnection);
 
     StatusItemController trayCtrl(usageStore, settings);
     if (!trayCtrl.initialize()) {
@@ -389,7 +422,10 @@ int main(int argc, char* argv[]) {
 
     appController->trayView = &trayView;
 
-    trayView.setSource(QUrl("qrc:/qml/TrayPanel.qml"));
+    {
+        UiFreezeWatchdog::PhaseScope phase(QStringLiteral("tray.setSource"));
+        trayView.setSource(QUrl("qrc:/qml/TrayPanel.qml"));
+    }
 
     auto positionPanel = [&]() {
         QRect rect = trayCtrl.trayIconRect();
@@ -496,9 +532,15 @@ int main(int argc, char* argv[]) {
             : messages.join(QLatin1Char('\n'));
         qWarning() << "Failed to load settings window:" << detail;
     });
-    settingsView.setSource(QUrl("qrc:/qml/SettingsWindow.qml"));
 
     appController->settingsView = &settingsView;
+    bool settingsSourceLoaded = false;
+    appController->ensureSettingsLoaded = [&settingsView, &settingsSourceLoaded]() {
+        if (settingsSourceLoaded) return;
+        UiFreezeWatchdog::PhaseScope phase(QStringLiteral("settings.setSource"));
+        settingsSourceLoaded = true;
+        settingsView.setSource(QUrl("qrc:/qml/SettingsWindow.qml"));
+    };
     QObject::connect(&settingsView, &QWindow::windowStateChanged, appController,
                      [appController]() {
                          emit appController->settingsMaximizedChanged();

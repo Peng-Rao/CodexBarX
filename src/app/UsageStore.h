@@ -17,6 +17,7 @@
 #include "SessionQuotaNotifications.h"
 #include "../providers/IFetchStrategy.h"
 #include "../providers/ProviderFetchContext.h"
+#include "../providers/ProviderFetchResult.h"
 #include "../providers/codex/CodexConsumerProjection.h"
 #include "../providers/codex/CodexCreditsFetcher.h"
 
@@ -25,6 +26,9 @@ class ProviderPipeline;
 class SettingsStore;
 class PlanUtilizationHistoryStore;
 class BatchUpdateController;
+class UsageBackend;
+struct UsageBackendResult;
+struct ProviderLoginStartPayload;
 
 class UsageStore : public QObject {
     Q_OBJECT
@@ -37,6 +41,7 @@ class UsageStore : public QObject {
     Q_PROPERTY(QVariantMap codexAccountState READ codexAccountState NOTIFY codexAccountStateChanged)
     Q_PROPERTY(QVariantList codexFetchAttempts READ codexFetchAttempts NOTIFY codexFetchAttemptsChanged)
     Q_PROPERTY(QString lastKnownSessionWindowSource READ lastKnownSessionWindowSource NOTIFY lastKnownSessionWindowSourceChanged)
+    Q_PROPERTY(QVariantMap tokenAccountOperationState READ tokenAccountOperationState NOTIFY tokenAccountOperationStateChanged)
 
 public:
     explicit UsageStore(QObject* parent = nullptr);
@@ -55,6 +60,8 @@ public:
     Q_INVOKABLE void moveProvider(int fromIndex, int toIndex);
     Q_INVOKABLE QVariantList providerSettingsFields(const QString& id) const;
     Q_INVOKABLE QVariantMap providerDescriptorData(const QString& id) const;
+    Q_INVOKABLE void requestProviderList();
+    Q_INVOKABLE void requestProviderDescriptor(const QString& providerId);
     Q_INVOKABLE void setProviderSetting(const QString& providerId, const QString& key, const QVariant& value);
     Q_INVOKABLE QVariantMap providerSecretStatus(const QString& providerId, const QString& key) const;
     Q_INVOKABLE bool setProviderSecret(const QString& providerId, const QString& key, const QString& value);
@@ -72,6 +79,7 @@ public:
 
     Q_INVOKABLE void refreshCostUsage();
     Q_INVOKABLE void ensureCostUsageEnabled();
+    Q_INVOKABLE void requestCostUsageViewData();
     Q_INVOKABLE void releaseCostUsageViewCaches() const;
     Q_INVOKABLE QVariantMap costUsageData() const;
     Q_INVOKABLE QVariantList providerCostUsageList() const;
@@ -103,6 +111,13 @@ public:
     Q_INVOKABLE bool setTokenAccountSourceMode(const QString& accountId, int sourceMode);
     Q_INVOKABLE bool setDefaultTokenAccount(const QString& providerId, const QString& accountId);
     Q_INVOKABLE QString defaultTokenAccount(const QString& providerId) const;
+    Q_INVOKABLE QVariantMap tokenAccountOperationState() const;
+    Q_INVOKABLE QString requestAddTokenAccount(const QString& providerId, const QString& displayName, int sourceMode);
+    Q_INVOKABLE QString requestAddTokenAccountWithApiKey(const QString& providerId, const QString& displayName, int sourceMode, const QString& apiKey);
+    Q_INVOKABLE QString requestRemoveTokenAccount(const QString& accountId);
+    Q_INVOKABLE QString requestSetTokenAccountVisibility(const QString& accountId, int visibility);
+    Q_INVOKABLE QString requestSetTokenAccountSourceMode(const QString& accountId, int sourceMode);
+    Q_INVOKABLE QString requestSetDefaultTokenAccount(const QString& providerId, const QString& accountId);
 
     QThreadPool* threadPool() const { return m_threadPool; }
     void shutdown();
@@ -148,7 +163,14 @@ signals:
     void providerLoginStateChanged(const QString& providerId);
     void providerStatusChanged(const QString& providerId);
     void providerSecretChanged(const QString& providerId, const QString& key);
+    void providerListModelChanged();
+    void providerDescriptorChanged(const QString& providerId);
     void tokenAccountsChanged(const QString& providerId);
+    void tokenAccountOperationStateChanged();
+    void tokenAccountOperationFinished(const QString& operationId,
+                                       const QString& providerId,
+                                       bool success,
+                                       const QString& message);
     void statusRevisionChanged();
 
     // Codex multi-account signals
@@ -166,15 +188,44 @@ signals:
     void lastKnownSessionWindowSourceChanged();
 
 private:
+    struct CodexAccountRefreshGuard {
+        QString source;  // "liveSystem" or "managedAccount"
+        QString identity;
+        QString accountKey;
+
+        bool operator==(const CodexAccountRefreshGuard& other) const {
+            return source == other.source && identity == other.identity && accountKey == other.accountKey;
+        }
+        bool operator!=(const CodexAccountRefreshGuard& other) const {
+            return !(*this == other);
+        }
+        bool isEmpty() const {
+            return source.isEmpty() && identity.isEmpty() && accountKey.isEmpty();
+        }
+    };
+
     std::optional<ProviderSettingsDescriptor> settingDescriptor(const QString& providerId,
                                                                 const QString& key) const;
+    QVariantList buildProviderListNow() const;
+    QVariantMap buildProviderDescriptorDataNow(const QString& id) const;
     void setProviderLoginState(const QString& providerId, const QVariantMap& state);
     void setProviderConnectionTest(const QString& providerId, const QVariantMap& state);
     void setProviderStatus(const QString& providerId, const QVariantMap& status);
     void setProviderStatuses(const QHash<QString, QVariantMap>& statuses);
     void refreshProviderWithPool(const QString& providerId, QThreadPool* pool);
+    void applyProviderRefreshResult(const QString& providerId, const ProviderFetchResult& result);
+    void completeProviderRefresh();
+    void applyProviderConnectionTestResult(const QString& providerId,
+                                           const ProviderFetchResult& result,
+                                           qint64 startedAt);
+    void handleBackendResult(const UsageBackendResult& result);
     void configureStatusPolling();
     void queueCredentialStatusCheck(const QString& providerId, const QString& key, const QString& target) const;
+    QHash<QString, QString> codexCreditsEnvironment() const;
+    void dispatchCodexCreditsRefresh(const QHash<QString, QString>& env,
+                                     const CodexAccountRefreshGuard& expectedGuard);
+    void dispatchProviderLoginPoll(const ProviderLoginStartPayload& startPayload,
+                                   const QSharedPointer<QAtomicInt>& cancelFlag);
 
     QTimer m_refreshTimer;
     QTimer m_statusTimer;
@@ -196,6 +247,7 @@ private:
     CostUsageSnapshot m_costUsage;
     QHash<QString, CostUsageSnapshot> m_perProviderCostUsage;
     QVector<ProviderCostUsageSnapshot> m_allProviderCostUsage;
+    UsageBackend* m_backend = nullptr;
     ProviderPipeline* m_pipeline = nullptr;
     QThreadPool* m_interactiveThreadPool = nullptr;
     SettingsStore* m_settingsStore = nullptr;
@@ -228,10 +280,22 @@ private:
     mutable QVariantList m_providerCostUsageListCache;
     mutable bool m_costUsageDataCacheValid = false;
     mutable bool m_providerCostUsageListCacheValid = false;
+    mutable bool m_costUsageViewDataBuildQueued = false;
+    mutable int m_costUsageViewDataBuildGeneration = 0;
+    int m_costUsageRefreshGeneration = 0;
 
     // providerList() result cache — invalidated on providerIDsChanged / snapshotRevisionChanged / statusRevisionChanged
     mutable QVariantList m_providerListCache;
     mutable bool m_providerListCacheValid = false;
+    mutable bool m_providerListRefreshQueued = false;
+    int m_providerListRefreshGeneration = 0;
+    mutable QHash<QString, QVariantMap> m_providerDescriptorDataCache;
+    mutable QSet<QString> m_providerDescriptorRefreshQueued;
+    QHash<QString, int> m_providerDescriptorRefreshGenerations;
+    int m_providerStatusRefreshGeneration = 0;
+    QHash<QString, QString> m_backendRequestProviderIds;
+    QHash<QString, CodexAccountRefreshGuard> m_backendCodexCreditGuards;
+    QHash<QString, QByteArray> m_backendSecretValues;
 
     // Codex credits cache
     struct CodexCreditsCache {
@@ -243,22 +307,6 @@ private:
     };
     CodexCreditsCache m_codexCreditsCache;
 
-    // Codex account refresh guard
-    struct CodexAccountRefreshGuard {
-        QString source;  // "liveSystem" or "managedAccount"
-        QString identity;
-        QString accountKey;
-
-        bool operator==(const CodexAccountRefreshGuard& other) const {
-            return source == other.source && identity == other.identity && accountKey == other.accountKey;
-        }
-        bool operator!=(const CodexAccountRefreshGuard& other) const {
-            return !(*this == other);
-        }
-        bool isEmpty() const {
-            return source.isEmpty() && identity.isEmpty() && accountKey.isEmpty();
-        }
-    };
     CodexAccountRefreshGuard m_lastCodexRefreshGuard;
 
     CodexAccountRefreshGuard currentCodexAccountRefreshGuard() const;
@@ -288,9 +336,21 @@ private:
 
     void onBatchUpdateReady(const QStringList& providerIds);
     void onBatchFinished();
+    QString beginTokenAccountOperation(const QString& kind, const QString& providerId, const QString& targetId);
+    void finishTokenAccountOperation(const QString& operationId,
+                                     const QString& providerId,
+                                     bool success,
+                                     const QString& message,
+                                     bool refreshProviderOnSuccess);
+    void rebuildTokenAccountOperationState();
+    void saveTokenAccountStoreAsync(const QString& operationId,
+                                    const QString& providerId,
+                                    bool refreshProviderOnSuccess);
 
     bool m_codexCreditsRefreshing = false;
     int m_pendingCreditsRefresh = 0;
+    QHash<QString, QVariantMap> m_tokenAccountOperations;
+    QVariantMap m_tokenAccountOperationState;
 
     // Test injection point for credits fetching (mirrors original _test_codexCreditsLoaderOverride)
     std::function<std::optional<CreditsSnapshot>()> _test_codexCreditsLoaderOverride;

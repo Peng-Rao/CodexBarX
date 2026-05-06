@@ -255,10 +255,13 @@ Rectangle {
                             selectedProviderError: ""
                             selectedUsageSnapshot: null
 
+                            Component.onCompleted: UsageStore.requestProviderList()
+
                             function reloadProvider(providerId) {
                                 if (providerId === "") return
                                 providersPane.selectedProvider = providerId
                                 providersPane.selectedDescriptor = UsageStore.providerDescriptorData(providerId)
+                                UsageStore.requestProviderDescriptor(providerId)
                                 providersPane.selectedConnectionTest = UsageStore.providerConnectionTest(providerId)
                                 providersPane.selectedProviderStatus = UsageStore.providerStatus(providerId)
                                 providersPane.selectedProviderError = UsageStore.providerError(providerId)
@@ -292,7 +295,7 @@ Rectangle {
                                 id: providerListRefreshTimer
                                 interval: 80
                                 repeat: false
-                                onTriggered: providersPane.providers = UsageStore.providerList()
+                                onTriggered: UsageStore.requestProviderList()
                             }
 
                             onProviderSelected: function(providerId) {
@@ -300,8 +303,8 @@ Rectangle {
                             }
                             onProviderEnabled: function(providerId, enabled) {
                                 UsageStore.setProviderEnabled(providerId, enabled)
-                                providersPane.providers = UsageStore.providerList()
                                 reloadProvider(providerId)
+                                UsageStore.requestProviderList()
                             }
                             onTestConnection: function(providerId) {
                                 UsageStore.testProviderConnection(providerId)
@@ -324,7 +327,13 @@ Rectangle {
                                 enabled: settingsWindow.visible
                                 target: UsageStore
                                 function onProviderIDsChanged() {
+                                    UsageStore.requestProviderList()
+                                }
+                                function onProviderListModelChanged() {
                                     providersPane.providers = UsageStore.providerList()
+                                }
+                                function onProviderDescriptorChanged(providerId) {
+                                    providersPane.refreshSelectedDescriptor(providerId)
                                 }
                                 function onProviderConnectionTestChanged(providerId) {
                                     providersPane.refreshSelectedConnection(providerId)

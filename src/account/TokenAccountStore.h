@@ -28,12 +28,22 @@ public:
 
     // CRUD
     QString addAccount(const TokenAccount& account);
+    QString addAccountMetadata(const TokenAccount& account);
     bool updateAccount(const QString& accountId, const TokenAccount& account);
+    bool updateAccountMetadata(const QString& accountId, const TokenAccount& account);
     bool removeAccount(const QString& accountId);
+    bool removeAccountMetadata(const QString& accountId);
+
+    // Loads credentials from WinCred. Do not call this from QML-facing UI paths.
     std::optional<TokenAccount> account(const QString& accountId) const;
+    std::optional<TokenAccount> accountWithCredentials(const QString& accountId) const;
+
+    // Metadata-only lookups. Safe for QML-facing UI paths.
+    std::optional<TokenAccount> accountMetadata(const QString& accountId) const;
 
     // Queries
     QList<TokenAccount> accountsForProvider(const QString& providerId) const;
+    QList<TokenAccount> accountsForProviderMetadata(const QString& providerId) const;
     QList<TokenAccount> visibleAccountsForProvider(const QString& providerId) const;
     QList<TokenAccount> allAccounts() const;
     QStringList accountIdsForProvider(const QString& providerId) const;

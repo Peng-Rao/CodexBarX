@@ -8,28 +8,12 @@ Rectangle {
     id: root
     color: AppTheme.bgPrimary
 
-    property var costData: ({})
-    property var tokenProviderList: []
-    property var appProviderList: []
-    property var providerRows: []
+    property var costData: UsageDetailsViewModel.costData
+    property var providerRows: UsageDetailsViewModel.providerRows
     property int rev: LanguageManager.translationRevision
 
-    Component.onCompleted: {
-        UsageStore.ensureCostUsageEnabled()
-        refreshData()
-    }
-    Component.onDestruction: UsageStore.releaseCostUsageViewCaches()
-
-    Connections {
-        target: UsageStore
-
-        function onCostUsageChanged() { root.refreshData() }
-        function onCostUsageRefreshingChanged() { root.refreshData() }
-        function onCostUsageEnabledChanged() { root.refreshData() }
-        function onProviderIDsChanged() { root.refreshData() }
-        function onSnapshotRevisionChanged() { root.refreshData() }
-        function onStatusRevisionChanged() { root.refreshData() }
-    }
+    Component.onCompleted: UsageDetailsViewModel.activate()
+    Component.onDestruction: UsageDetailsViewModel.deactivate()
 
     ScrollView {
         id: scroll
@@ -68,18 +52,18 @@ Rectangle {
                 }
 
                 StatusPill {
-                    text: !UsageStore.costUsageEnabled
+                    text: !UsageDetailsViewModel.costUsageEnabled
                         ? qsTr("Off")
-                        : UsageStore.costUsageRefreshing ? qsTr("Scanning") : qsTr("Last 30 days")
-                    toneColor: !UsageStore.costUsageEnabled
+                        : UsageDetailsViewModel.costUsageRefreshing ? qsTr("Scanning") : qsTr("Last 30 days")
+                    toneColor: !UsageDetailsViewModel.costUsageEnabled
                         ? AppTheme.textTertiary
-                        : UsageStore.costUsageRefreshing ? AppTheme.statusDegraded : AppTheme.statusOk
+                        : UsageDetailsViewModel.costUsageRefreshing ? AppTheme.statusDegraded : AppTheme.statusOk
                 }
 
                 SmallButton {
-                    text: UsageStore.costUsageRefreshing ? qsTr("Scanning") : qsTr("Refresh")
-                    enabled: UsageStore.costUsageEnabled && !UsageStore.costUsageRefreshing
-                    onClicked: UsageStore.refreshCostUsage()
+                    text: UsageDetailsViewModel.costUsageRefreshing ? qsTr("Scanning") : qsTr("Refresh")
+                    enabled: UsageDetailsViewModel.costUsageEnabled && !UsageDetailsViewModel.costUsageRefreshing
+                    onClicked: UsageDetailsViewModel.refreshCostUsage()
                 }
             }
 
@@ -129,7 +113,7 @@ Rectangle {
 
                         SummaryMetric {
                             title: qsTr("Providers")
-                            value: root.tokenProviderCount().toString()
+                            value: UsageDetailsViewModel.tokenProviderCount.toString()
                             detail: qsTr("token sources")
                             accentColor: AppTheme.statusDegraded
                             Layout.fillWidth: true
@@ -212,125 +196,10 @@ Rectangle {
         }
     }
 
-    function refreshData() {
-        root.costData = UsageStore.costUsageData()
-        root.tokenProviderList = UsageStore.providerCostUsageList()
-        root.appProviderList = UsageStore.providerList()
-        root.providerRows = root.buildProviderRows()
-    }
-
-    function buildProviderRows() {
-        var providerById = {}
-        var rows = []
-        var seen = {}
-
-        for (var i = 0; i < root.appProviderList.length; ++i) {
-            var provider = root.appProviderList[i]
-            providerById[provider.id] = provider
-        }
-
-        for (var j = 0; j < root.tokenProviderList.length; ++j) {
-            var token = root.tokenProviderList[j]
-            var tokenId = token.providerId || token.id
-            rows.push(root.makeTokenRow(tokenId, token, providerById[tokenId]))
-            seen[tokenId] = true
-        }
-
-        for (var k = 0; k < root.appProviderList.length; ++k) {
-            var appProvider = root.appProviderList[k]
-            if (seen[appProvider.id]) continue
-            if (appProvider.enabled === false) continue
-
-            var kind = root.providerUsageKind(appProvider)
-            if (kind === "") continue
-
-            if (kind === "token") {
-                rows.push(root.makeTokenRow(appProvider.id, ({}), appProvider))
-            } else {
-                rows.push(root.makeQuotaRow(appProvider, kind))
-            }
-        }
-
-        return rows
-    }
-
-    function makeTokenRow(providerId, token, provider) {
-        return {
-            "providerId": providerId,
-            "displayName": root.displayNameFor(providerId, provider),
-            "brandColor": root.providerColor(providerId, provider),
-            "kind": "token",
-            "kindLabel": qsTr("Token"),
-            "hasTokenData": true,
-            "sessionTokens": Number(token.sessionTokens || 0),
-            "sessionCostUSD": Number(token.sessionCostUSD || 0),
-            "last30DaysTokens": Number(token.last30DaysTokens || 0),
-            "last30DaysCostUSD": Number(token.last30DaysCostUSD || 0),
-            "models": token.models || [],
-            "daily": token.daily || [],
-            "enabled": !provider || provider.enabled !== false
-        }
-    }
-
-    function makeQuotaRow(provider, kind) {
-        return {
-            "providerId": provider.id,
-            "displayName": root.displayNameFor(provider.id, provider),
-            "brandColor": root.providerColor(provider.id, provider),
-            "kind": kind,
-            "kindLabel": root.kindLabel(kind),
-            "hasTokenData": false,
-            "sessionTokens": 0,
-            "sessionCostUSD": 0,
-            "last30DaysTokens": 0,
-            "last30DaysCostUSD": 0,
-            "models": [],
-            "daily": [],
-            "enabled": provider.enabled !== false
-        }
-    }
-
-    function providerUsageKind(provider) {
-        if (!provider || !provider.id) return ""
-        var id = provider.id
-        if (id === "codex" || id === "claude" || id === "opencodego" || id === "opencode") return "token"
-        if (id === "kimi" || id === "kimik2") return "credit"
-        if (id === "copilot" || id === "cursor") return "quota"
-        if (provider.supportsCredits === true) return "credit"
-        return ""
-    }
-
     function kindLabel(kind) {
         if (kind === "credit") return qsTr("Credit")
         if (kind === "quota") return qsTr("Quota")
         return qsTr("Token")
-    }
-
-    function displayNameFor(providerId, provider) {
-        if (provider && provider.name) return provider.name
-        var names = {
-            "codex": "Codex",
-            "claude": "Claude",
-            "opencodego": "OpenCode Go",
-            "kimi": "Kimi",
-            "kimik2": "Kimi K2",
-            "copilot": "Copilot",
-            "cursor": "Cursor"
-        }
-        return names[providerId] || providerId
-    }
-
-    function providerColor(providerId, provider) {
-        if (provider && provider.brandColor) return provider.brandColor
-        return root.brandColorFor(providerId)
-    }
-
-    function tokenProviderCount() {
-        var count = 0
-        for (var i = 0; i < root.providerRows.length; ++i) {
-            if (root.providerRows[i].hasTokenData) count++
-        }
-        return count
     }
 
     function lastItems(items, count) {
@@ -358,7 +227,7 @@ Rectangle {
     }
 
     function usageSummary(provider, costKey, tokenKey) {
-        if (!provider || !provider.hasTokenData) return provider ? provider.kindLabel : ""
+        if (!provider || !provider.hasTokenData) return provider ? root.kindLabel(provider.kind || "token") : ""
         return "$" + root.formatCost(provider[costKey] || 0)
             + " · " + root.fmtNum(provider[tokenKey] || 0) + " " + qsTr("tokens")
     }
@@ -643,7 +512,7 @@ Rectangle {
                     }
 
                     StatusPill {
-                        text: card.provider.kindLabel || qsTr("Token")
+                        text: root.kindLabel(card.provider.kind || "token")
                         toneColor: card.accentColor
                     }
 

@@ -183,11 +183,7 @@ void ProviderRuntimeManager::startBackgroundRefresh()
             for (auto it = m_runtimes.begin(); it != m_runtimes.end(); ++it) {
                 IProviderRuntime* runtime = it.value();
                 if (runtime && runtime->isEnabled() && runtime->state() == RuntimeState::Running) {
-                    ProviderFetchContext ctx;
-                    ctx.providerId = it.key();
-                    ctx.isAppRuntime = true;
-                    ctx.allowInteractiveAuth = false;
-                    runtime->fetch(ctx);
+                    emit backgroundRefreshRequested(it.key());
                 }
             }
         });

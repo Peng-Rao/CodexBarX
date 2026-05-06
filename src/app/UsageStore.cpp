@@ -3,6 +3,8 @@
 #include "Localization.h"
 #include "PlanUtilizationHistoryStore.h"
 #include "SessionQuotaNotifications.h"
+#include "UsageBackend.h"
+#include "UsageBackendTypes.h"
 #include "../providers/ProviderRegistry.h"
 #include "../providers/ProviderPipeline.h"
 #include "../providers/ProviderFetchContext.h"
@@ -30,7 +32,7 @@
 #include <QThread>
 #include <QUrl>
 #include <QUrlQuery>
-#include <QtConcurrent>
+#include <QUuid>
 #include <QFutureWatcher>
 #include <QElapsedTimer>
 
@@ -178,10 +180,261 @@ CostUsageSnapshot mergeCostUsageSnapshots(const QVector<CostUsageSnapshot>& snap
     return merged;
 }
 
+QVariantMap costUsageSnapshotToVariantMap(const CostUsageSnapshot& snapshot)
+{
+    QVariantMap m;
+    m["sessionTokens"] = snapshot.sessionTokens;
+    m["sessionCostUSD"] = snapshot.sessionCostUSD;
+    m["last30DaysTokens"] = snapshot.last30DaysTokens;
+    m["last30DaysCostUSD"] = snapshot.last30DaysCostUSD;
+    m["updatedAt"] = snapshot.updatedAt.toMSecsSinceEpoch();
+    m["hasData"] = snapshot.last30DaysTokens > 0;
+
+    QVariantList dailyList;
+    for (const auto& d : snapshot.daily) {
+        if (d.totalTokens() == 0) continue;
+        QVariantMap dm;
+        dm["date"] = d.date;
+        dm["totalTokens"] = d.totalTokens();
+        dm["costUSD"] = d.costUSD;
+
+        QVariantList models;
+        for (const auto& md : d.models) {
+            QVariantMap mm;
+            mm["name"] = md.modelName;
+            mm["tokens"] = md.totalTokens();
+            mm["costUSD"] = md.costUSD;
+            models.append(mm);
+        }
+        dm["models"] = models;
+        dailyList.append(dm);
+    }
+    m["daily"] = dailyList;
+    return m;
+}
+
+QVariantList providerCostUsageSnapshotsToVariantList(const QVector<ProviderCostUsageSnapshot>& providers)
+{
+    QVariantList result;
+    for (const auto& pcs : providers) {
+        QVariantMap m;
+        m["providerId"] = pcs.providerId;
+        m["sessionTokens"] = pcs.snapshot.sessionTokens;
+        m["sessionCostUSD"] = pcs.snapshot.sessionCostUSD;
+        m["last30DaysTokens"] = pcs.snapshot.last30DaysTokens;
+        m["last30DaysCostUSD"] = pcs.snapshot.last30DaysCostUSD;
+
+        QVariantList models;
+        for (const auto& model : pcs.modelSummary) {
+            QVariantMap mm;
+            mm["name"] = model.modelName;
+            mm["tokens"] = model.totalTokens();
+            mm["costUSD"] = model.costUSD;
+            models.append(mm);
+        }
+        m["models"] = models;
+
+        QVariantList daily;
+        for (const auto& d : pcs.snapshot.daily) {
+            if (d.totalTokens() == 0) continue;
+            QVariantMap dm;
+            dm["date"] = d.date;
+            dm["totalTokens"] = d.totalTokens();
+            dm["costUSD"] = d.costUSD;
+            daily.append(dm);
+        }
+        m["daily"] = daily;
+        result.append(m);
+    }
+    return result;
+}
+
+struct ProviderListBuildItem {
+    QString id;
+    bool enabled = false;
+    QString name;
+    QString sessionLabel;
+    QString weeklyLabel;
+    bool supportsCredits = false;
+    QString dashboardURL;
+    QString statusPageURL;
+    QString statusLinkURL;
+    QString statusWorkspaceProductID;
+    QString brandColor;
+    QVector<QString> sourceModes;
+    bool supportsMultipleAccounts = false;
+    QVector<QString> requiredCredentialTypes;
+    QString defaultTokenAccount;
+    int tokenAccountCount = 0;
+    bool hasUsage = false;
+    double usagePercent = 0.0;
+    QString status;
+};
+
+QVariantList buildProviderListFromItems(QVector<ProviderListBuildItem> items,
+                                        const QStringList& order)
+{
+    if (!order.isEmpty()) {
+        std::sort(items.begin(), items.end(), [&](const ProviderListBuildItem& a,
+                                                  const ProviderListBuildItem& b) {
+            int idxA = order.indexOf(a.id);
+            int idxB = order.indexOf(b.id);
+            if (idxA == -1 && idxB == -1) return a.id < b.id;
+            if (idxA == -1) return false;
+            if (idxB == -1) return true;
+            return idxA < idxB;
+        });
+    } else {
+        std::sort(items.begin(), items.end(), [](const ProviderListBuildItem& a,
+                                                 const ProviderListBuildItem& b) {
+            return a.id < b.id;
+        });
+    }
+
+    QVariantList list;
+    for (const auto& item : items) {
+        QVariantMap entry;
+        entry[QStringLiteral("id")] = item.id;
+        entry[QStringLiteral("enabled")] = item.enabled;
+        entry[QStringLiteral("name")] = item.name;
+        entry[QStringLiteral("sessionLabel")] = Localization::providerLabel(item.sessionLabel);
+        entry[QStringLiteral("weeklyLabel")] = Localization::providerLabel(item.weeklyLabel);
+        entry[QStringLiteral("supportsCredits")] = item.supportsCredits;
+        entry[QStringLiteral("dashboardURL")] = item.dashboardURL;
+        entry[QStringLiteral("statusPageURL")] = item.statusPageURL;
+        entry[QStringLiteral("statusLinkURL")] = item.statusLinkURL;
+        entry[QStringLiteral("statusWorkspaceProductID")] = item.statusWorkspaceProductID;
+        entry[QStringLiteral("brandColor")] = item.brandColor;
+
+        QVariantList sourceModes;
+        for (const auto& mode : item.sourceModes) sourceModes.append(mode);
+        entry[QStringLiteral("sourceModes")] = sourceModes;
+
+        QVariantMap tokenAccount;
+        tokenAccount[QStringLiteral("supportsMultipleAccounts")] = item.supportsMultipleAccounts;
+        QVariantList requiredCredentials;
+        for (const auto& credential : item.requiredCredentialTypes) {
+            requiredCredentials.append(credential);
+        }
+        tokenAccount[QStringLiteral("requiredCredentialTypes")] = requiredCredentials;
+        entry[QStringLiteral("tokenAccount")] = tokenAccount;
+        entry[QStringLiteral("defaultTokenAccount")] = item.defaultTokenAccount;
+        entry[QStringLiteral("tokenAccountCount")] = item.tokenAccountCount;
+
+        if (item.hasUsage) {
+            QVariantMap usage;
+            usage[QStringLiteral("percent")] = item.usagePercent;
+            usage[QStringLiteral("remaining")] = 100.0 - item.usagePercent;
+            entry[QStringLiteral("usage")] = usage;
+        }
+
+        if (!item.status.isEmpty()) {
+            entry[QStringLiteral("status")] = item.status;
+        }
+
+        list.append(entry);
+    }
+    return list;
+}
+
+struct ProviderSettingFieldBuildInput {
+    ProviderSettingsDescriptor descriptor;
+    QVariant value;
+    QVariantMap secretStatus;
+};
+
+QVariantList buildProviderSettingsFieldsFromInputs(const QVector<ProviderSettingFieldBuildInput>& inputs)
+{
+    QVariantList list;
+    for (const auto& input : inputs) {
+        const auto& d = input.descriptor;
+        QVariantMap field;
+        field[QStringLiteral("key")] = d.key;
+        field[QStringLiteral("label")] = Localization::providerSettingLabel(d.label);
+        field[QStringLiteral("type")] = d.type;
+        field[QStringLiteral("defaultValue")] = d.defaultValue;
+        field[QStringLiteral("value")] = d.sensitive ? QVariant() : input.value;
+        field[QStringLiteral("credentialTarget")] = d.credentialTarget;
+        field[QStringLiteral("envVar")] = d.envVar;
+        field[QStringLiteral("placeholder")] = d.placeholder;
+        field[QStringLiteral("helpText")] = d.helpText;
+        field[QStringLiteral("multiline")] = d.multiline;
+        field[QStringLiteral("sensitive")] = d.sensitive;
+        if (d.sensitive) {
+            field[QStringLiteral("secretStatus")] = input.secretStatus;
+        }
+
+        QVariantList options;
+        for (const auto& option : d.options) {
+            QVariantMap opt;
+            opt[QStringLiteral("value")] = option.value;
+            opt[QStringLiteral("label")] = Localization::providerSettingLabel(option.label);
+            options.append(opt);
+        }
+        field[QStringLiteral("options")] = options;
+        list.append(field);
+    }
+    return list;
+}
+
+struct ProviderDescriptorBuildInput {
+    QString providerId;
+    bool hasDescriptor = false;
+    ProviderDescriptor descriptor;
+    bool enabled = false;
+    QString brandColor;
+    QString statusURL;
+    QString defaultTokenAccount;
+    int tokenAccountCount = 0;
+    QVector<ProviderSettingFieldBuildInput> settingsFields;
+};
+
+QVariantMap buildProviderDescriptorFromInput(const ProviderDescriptorBuildInput& input)
+{
+    QVariantMap data;
+    if (!input.hasDescriptor) return data;
+
+    const auto& desc = input.descriptor;
+    data[QStringLiteral("id")] = desc.id;
+    data[QStringLiteral("displayName")] = desc.metadata.displayName;
+    data[QStringLiteral("sessionLabel")] = Localization::providerLabel(desc.metadata.sessionLabel);
+    data[QStringLiteral("weeklyLabel")] = Localization::providerLabel(desc.metadata.weeklyLabel);
+    data[QStringLiteral("dashboardURL")] = desc.metadata.dashboardURL;
+    data[QStringLiteral("subscriptionDashboardURL")] = desc.metadata.subscriptionDashboardURL;
+    data[QStringLiteral("statusPageURL")] = desc.metadata.statusPageURL;
+    data[QStringLiteral("statusLinkURL")] = desc.metadata.statusLinkURL;
+    data[QStringLiteral("statusWorkspaceProductID")] = desc.metadata.statusWorkspaceProductID;
+    data[QStringLiteral("statusURL")] = input.statusURL;
+    data[QStringLiteral("supportsCredits")] = desc.metadata.supportsCredits;
+    data[QStringLiteral("cliName")] = desc.metadata.cliName;
+    data[QStringLiteral("enabled")] = input.enabled;
+    data[QStringLiteral("settingsFields")] = buildProviderSettingsFieldsFromInputs(input.settingsFields);
+    data[QStringLiteral("brandColor")] = input.brandColor;
+
+    QVariantList modes;
+    for (const auto& mode : desc.fetchPlan.allowedSourceModes) modes.append(mode);
+    data[QStringLiteral("sourceModes")] = modes;
+    data[QStringLiteral("defaultSourceMode")] = desc.fetchPlan.defaultSourceMode;
+
+    QVariantMap tokenAccount;
+    tokenAccount[QStringLiteral("supportsMultipleAccounts")] = desc.tokenAccounts.supportsMultipleAccounts;
+    QVariantList requiredCredentials;
+    for (const auto& credential : desc.tokenAccounts.requiredCredentialTypes) {
+        requiredCredentials.append(credential);
+    }
+    tokenAccount[QStringLiteral("requiredCredentialTypes")] = requiredCredentials;
+    data[QStringLiteral("tokenAccount")] = tokenAccount;
+    data[QStringLiteral("supportsMultipleAccounts")] = desc.tokenAccounts.supportsMultipleAccounts;
+    data[QStringLiteral("defaultTokenAccount")] = input.defaultTokenAccount;
+    data[QStringLiteral("tokenAccountCount")] = input.tokenAccountCount;
+    return data;
+}
+
 } // namespace
 
 UsageStore::UsageStore(QObject* parent)
     : QObject(parent)
+    , m_backend(new UsageBackend(this))
     , m_pipeline(new ProviderPipeline(this))
     , m_historyStore(new PlanUtilizationHistoryStore(this))
     , m_threadPool(new QThreadPool(this))
@@ -191,6 +444,9 @@ UsageStore::UsageStore(QObject* parent)
     m_threadPool->setExpiryTimeout(30000);
     m_interactiveThreadPool->setMaxThreadCount(qMax(2, QThread::idealThreadCount() / 2));
     m_interactiveThreadPool->setExpiryTimeout(30000);
+    rebuildTokenAccountOperationState();
+    connect(m_backend, &UsageBackend::jobFinished,
+            this, &UsageStore::handleBackendResult);
 
     // Initialize batch update controller to avoid signal storm
     m_batchUpdater = new BatchUpdateController(this);
@@ -243,12 +499,18 @@ UsageStore::UsageStore(QObject* parent)
     QObject::connect(tokenStore, &TokenAccountStore::accountsChanged,
                      this, [this](const QString& providerId) {
         m_providerListCacheValid = false;
+        m_providerDescriptorDataCache.remove(providerId);
         emit tokenAccountsChanged(providerId);
     });
     QObject::connect(tokenStore, &TokenAccountStore::defaultAccountChanged,
                      this, [this](const QString& providerId, const QString&) {
         m_providerListCacheValid = false;
+        m_providerDescriptorDataCache.remove(providerId);
         emit tokenAccountsChanged(providerId);
+    });
+    QObject::connect(this, &UsageStore::providerSecretChanged,
+                     this, [this](const QString& providerId, const QString&) {
+        m_providerDescriptorDataCache.remove(providerId);
     });
 }
 
@@ -301,7 +563,9 @@ void UsageStore::setProviderEnabled(const QString& id, bool enabled) {
     if (m_settingsStore) {
         m_settingsStore->setProviderEnabled(id, enabled);
     }
+    m_providerDescriptorDataCache.remove(id);
     updateProviderIDs();
+    emit providerDescriptorChanged(id);
 }
 
 QString UsageStore::providerDisplayName(const QString& id) const {
@@ -481,7 +745,7 @@ ProviderFetchContext UsageStore::buildFetchContextForProvider(const QString& pro
         resolvedAccountId = accountStore->defaultAccountId(providerId);
     }
     if (!resolvedAccountId.isEmpty()) {
-        auto accOpt = accountStore->account(resolvedAccountId);
+        auto accOpt = accountStore->accountWithCredentials(resolvedAccountId);
         if (accOpt.has_value()) {
             const TokenAccount& acc = accOpt.value();
             ctx.accountID = acc.accountId;
@@ -782,6 +1046,30 @@ void UsageStore::releaseCostUsageViewCaches() const {
     m_providerCostUsageListCache.clear();
     m_costUsageDataCacheValid = false;
     m_providerCostUsageListCacheValid = false;
+    m_costUsageViewDataBuildQueued = false;
+    ++m_costUsageViewDataBuildGeneration;
+}
+
+void UsageStore::requestCostUsageViewData()
+{
+    if ((m_costUsageDataCacheValid && m_providerCostUsageListCacheValid)
+        || m_costUsageViewDataBuildQueued) {
+        return;
+    }
+
+    m_costUsageViewDataBuildQueued = true;
+    const int generation = ++m_costUsageViewDataBuildGeneration;
+    const CostUsageSnapshot costUsage = m_costUsage;
+    const QVector<ProviderCostUsageSnapshot> allProviders = m_allProviderCostUsage;
+
+    m_backend->dispatchValueJob(QStringLiteral("costUsageViewData"), generation,
+                                [costUsage, allProviders]() -> QVariant {
+        PERF_PROBE("costUsageViewData_worker", 5000);
+        CostUsageViewDataPayload payload;
+        payload.costData = costUsageSnapshotToVariantMap(costUsage);
+        payload.providerList = providerCostUsageSnapshotsToVariantList(allProviders);
+        return QVariant::fromValue(payload);
+    });
 }
 
 void UsageStore::refreshCostUsage() {
@@ -801,6 +1089,8 @@ void UsageStore::refreshCostUsage() {
         m_providerCostUsageListCache.clear();
         m_costUsageDataCacheValid = false;
         m_providerCostUsageListCacheValid = false;
+        m_costUsageViewDataBuildQueued = false;
+        ++m_costUsageViewDataBuildGeneration;
         if (hadData) {
             emit costUsageChanged();
         }
@@ -809,8 +1099,10 @@ void UsageStore::refreshCostUsage() {
 
     m_costUsageRefreshing = true;
     emit costUsageRefreshingChanged();
+    const int generation = ++m_costUsageRefreshGeneration;
 
-    QtConcurrent::run(m_threadPool, [this, plan]() {
+    m_backend->dispatchValueJob(QStringLiteral("costUsageRefresh"), generation,
+                                [plan]() -> QVariant {
         PERF_PROBE("refreshCostUsage_worker", 5000);
 
         CostUsageCache& cache = CostUsageCache::instance();
@@ -933,17 +1225,11 @@ void UsageStore::refreshCostUsage() {
                       return a.snapshot.last30DaysCostUSD > b.snapshot.last30DaysCostUSD;
                   });
 
-        QMetaObject::invokeMethod(this, [this, combined, perProvider, allProviders]() {
-            PERF_PROBE("refreshCostUsage_callback", 2000);
-            m_costUsage = combined;
-            m_perProviderCostUsage = perProvider;
-            m_allProviderCostUsage = allProviders;
-            m_costUsageRefreshing = false;
-            m_costUsageDataCacheValid = false;
-            m_providerCostUsageListCacheValid = false;
-            emit costUsageRefreshingChanged();
-            emit costUsageChanged();
-        }, Qt::QueuedConnection);
+        CostUsageRefreshPayload payload;
+        payload.combined = combined;
+        payload.perProvider = perProvider;
+        payload.allProviders = allProviders;
+        return QVariant::fromValue(payload);
     });
 }
 
@@ -952,37 +1238,10 @@ QVariantMap UsageStore::costUsageData() const {
     if (m_costUsageDataCacheValid) {
         return m_costUsageDataCache;
     }
-    QVariantMap m;
-    m["sessionTokens"] = m_costUsage.sessionTokens;
-    m["sessionCostUSD"] = m_costUsage.sessionCostUSD;
-    m["last30DaysTokens"] = m_costUsage.last30DaysTokens;
-    m["last30DaysCostUSD"] = m_costUsage.last30DaysCostUSD;
-    m["updatedAt"] = m_costUsage.updatedAt.toMSecsSinceEpoch();
-    m["hasData"] = m_costUsage.last30DaysTokens > 0;
-
-    QVariantList dailyList;
-    for (auto& d : m_costUsage.daily) {
-        if (d.totalTokens() == 0) continue;
-        QVariantMap dm;
-        dm["date"] = d.date;
-        dm["totalTokens"] = d.totalTokens();
-        dm["costUSD"] = d.costUSD;
-
-        QVariantList models;
-        for (auto& md : d.models) {
-            QVariantMap mm;
-            mm["name"] = md.modelName;
-            mm["tokens"] = md.totalTokens();
-            mm["costUSD"] = md.costUSD;
-            models.append(mm);
-        }
-        dm["models"] = models;
-        dailyList.append(dm);
-    }
-    m["daily"] = dailyList;
-    m_costUsageDataCacheValid = true;
-    m_costUsageDataCache = m;
-    return m;
+    QMetaObject::invokeMethod(const_cast<UsageStore*>(this),
+                              &UsageStore::requestCostUsageViewData,
+                              Qt::QueuedConnection);
+    return m_costUsageDataCache;
 }
 
 QVariantList UsageStore::providerCostUsageList() const {
@@ -990,40 +1249,363 @@ QVariantList UsageStore::providerCostUsageList() const {
     if (m_providerCostUsageListCacheValid) {
         return m_providerCostUsageListCache;
     }
-    QVariantList result;
-    for (auto& pcs : m_allProviderCostUsage) {
-        QVariantMap m;
-        m["providerId"] = pcs.providerId;
-        m["sessionTokens"] = pcs.snapshot.sessionTokens;
-        m["sessionCostUSD"] = pcs.snapshot.sessionCostUSD;
-        m["last30DaysTokens"] = pcs.snapshot.last30DaysTokens;
-        m["last30DaysCostUSD"] = pcs.snapshot.last30DaysCostUSD;
+    QMetaObject::invokeMethod(const_cast<UsageStore*>(this),
+                              &UsageStore::requestCostUsageViewData,
+                              Qt::QueuedConnection);
+    return m_providerCostUsageListCache;
+}
 
-        QVariantList models;
-        for (auto& model : pcs.modelSummary) {
-            QVariantMap mm;
-            mm["name"] = model.modelName;
-            mm["tokens"] = model.totalTokens();
-            mm["costUSD"] = model.costUSD;
-            models.append(mm);
+void UsageStore::handleBackendResult(const UsageBackendResult& result)
+{
+    if (result.kind == QLatin1String("providerRefresh")) {
+        const QString requestProviderId = m_backendRequestProviderIds.take(result.requestId);
+        if (!result.success) {
+            qWarning() << "Provider refresh backend job failed:" << requestProviderId << result.message;
+            if (!requestProviderId.isEmpty()) {
+                m_errors[requestProviderId] = result.message;
+                emit errorOccurred(requestProviderId, providerError(requestProviderId));
+            }
+            completeProviderRefresh();
+            return;
         }
-        m["models"] = models;
 
-        QVariantList daily;
-        for (auto& d : pcs.snapshot.daily) {
-            if (d.totalTokens() == 0) continue;
-            QVariantMap dm;
-            dm["date"] = d.date;
-            dm["totalTokens"] = d.totalTokens();
-            dm["costUSD"] = d.costUSD;
-            daily.append(dm);
-        }
-        m["daily"] = daily;
-        result.append(m);
+        const auto payload = result.payload.value<ProviderRefreshPayload>();
+        applyProviderRefreshResult(payload.providerId, payload.fetchResult);
+        return;
     }
-    m_providerCostUsageListCacheValid = true;
-    m_providerCostUsageListCache = result;
-    return result;
+
+    if (result.kind == QLatin1String("providerConnectionTest")) {
+        const QString requestProviderId = m_backendRequestProviderIds.take(result.requestId);
+        if (!result.success) {
+            qWarning() << "Provider connection test backend job failed:" << requestProviderId << result.message;
+            if (requestProviderId.isEmpty()) {
+                return;
+            }
+            const qint64 finishedAt = QDateTime::currentDateTime().toMSecsSinceEpoch();
+            setProviderConnectionTest(requestProviderId, {
+                {"state", "failed"},
+                {"message", result.message.isEmpty() ? QStringLiteral("Connection failed") : result.message},
+                {"details", result.message},
+                {"startedAt", 0},
+                {"finishedAt", finishedAt},
+                {"durationMs", 0}
+            });
+            return;
+        }
+
+        const auto payload = result.payload.value<ProviderConnectionTestPayload>();
+        applyProviderConnectionTestResult(payload.providerId, payload.fetchResult, payload.startedAt);
+        return;
+    }
+
+    if (result.kind == QLatin1String("providerStatuses")) {
+        if (result.generation != m_providerStatusRefreshGeneration) {
+            return;
+        }
+        if (!result.success) {
+            qWarning() << "Provider status backend job failed:" << result.message;
+            return;
+        }
+
+        const auto payload = result.payload.value<ProviderStatusesPayload>();
+        setProviderStatuses(payload.statuses);
+        return;
+    }
+
+    if (result.kind == QLatin1String("providerListModel")) {
+        if (result.generation != m_providerListRefreshGeneration) {
+            return;
+        }
+        m_providerListRefreshQueued = false;
+        if (!result.success) {
+            qWarning() << "Provider list backend job failed:" << result.message;
+            return;
+        }
+
+        const auto payload = result.payload.value<ProviderListPayload>();
+        m_providerListCache = payload.providers;
+        m_providerListCacheValid = true;
+        emit providerListModelChanged();
+        return;
+    }
+
+    if (result.kind == QLatin1String("providerDescriptorData")) {
+        const auto payload = result.payload.value<ProviderDescriptorDataPayload>();
+        const QString providerId = payload.providerId;
+        if (result.generation != m_providerDescriptorRefreshGenerations.value(providerId)) {
+            return;
+        }
+        m_providerDescriptorRefreshQueued.remove(providerId);
+        if (!result.success) {
+            qWarning() << "Provider descriptor backend job failed:" << providerId << result.message;
+            emit providerDescriptorChanged(providerId);
+            return;
+        }
+
+        if (!payload.descriptor.isEmpty()) {
+            m_providerDescriptorDataCache.insert(providerId, payload.descriptor);
+        }
+        emit providerDescriptorChanged(providerId);
+        return;
+    }
+
+    if (result.kind == QLatin1String("codexCreditsRefresh")) {
+        const CodexAccountRefreshGuard expectedGuard = m_backendCodexCreditGuards.take(result.requestId);
+        CodexCreditsFetcher::FetchResult fetchResult;
+        if (!result.success) {
+            fetchResult.success = false;
+            fetchResult.errorMessage = result.message;
+        } else {
+            fetchResult = result.payload.value<CodexCreditsRefreshPayload>().result;
+        }
+        m_codexCreditsRefreshing = false;
+        applyCodexCreditsFetchResult(fetchResult, expectedGuard);
+        return;
+    }
+
+    if (result.kind == QLatin1String("credentialStatusCheck")) {
+        const auto payload = result.payload.value<CredentialStatusPayload>();
+        {
+            QMutexLocker locker(&m_credentialCacheMutex);
+            m_credentialStatusInFlight.remove(payload.target);
+            if (result.success && payload.exists) {
+                m_credentialExisting.insert(payload.target);
+                m_credentialMissing.remove(payload.target);
+            } else {
+                m_credentialExisting.remove(payload.target);
+                m_credentialMissing[payload.target] = true;
+            }
+        }
+        emit providerSecretChanged(payload.providerId, payload.key);
+        return;
+    }
+
+    if (result.kind == QLatin1String("providerSecretWrite")
+        || result.kind == QLatin1String("providerSecretRemove")) {
+        const auto payload = result.payload.value<ProviderSecretResultPayload>();
+        const QByteArray secret = m_backendSecretValues.take(result.requestId);
+        if (result.success && payload.success) {
+            QMutexLocker locker(&m_credentialCacheMutex);
+            if (payload.removed) {
+                m_credentialCache.remove(payload.target);
+                m_credentialExisting.remove(payload.target);
+                m_credentialMissing[payload.target] = true;
+            } else {
+                m_credentialCache[payload.target] = {secret, QDateTime::currentDateTime()};
+                m_credentialExisting.insert(payload.target);
+                m_credentialMissing.remove(payload.target);
+            }
+            m_credentialStatusInFlight.remove(payload.target);
+        }
+        emit providerSecretChanged(payload.providerId, payload.key);
+        emit providerConnectionTestChanged(payload.providerId);
+        return;
+    }
+
+    if (result.kind == QLatin1String("providerLoginStart")) {
+        const auto payload = result.payload.value<ProviderLoginStartPayload>();
+        if (!result.success || !payload.success) {
+            setProviderLoginState(payload.providerId, {
+                {"state", "failed"},
+                {"message", payload.message.isEmpty()
+                    ? QStringLiteral("Could not start GitHub device login")
+                    : payload.message}
+            });
+            m_loginCancelFlags.remove(payload.providerId);
+            return;
+        }
+
+        setProviderLoginState(payload.providerId, {
+            {"state", "verification"},
+            {"message", "Enter the code in GitHub to authorize Copilot."},
+            {"userCode", payload.userCode},
+            {"verificationUri", payload.verificationUri},
+            {"expiresIn", payload.expiresIn}
+        });
+
+        dispatchProviderLoginPoll(payload, m_loginCancelFlags.value(payload.providerId));
+        return;
+    }
+
+    if (result.kind == QLatin1String("providerLoginPoll")) {
+        const auto payload = result.payload.value<ProviderLoginPollPayload>();
+        setProviderLoginState(payload.providerId, {
+            {"state", payload.state},
+            {"message", payload.message}
+        });
+        m_loginCancelFlags.remove(payload.providerId);
+        if (payload.triggerConnectionTest) {
+            testProviderConnection(payload.providerId);
+        }
+        return;
+    }
+
+    if (result.kind == QLatin1String("costUsageViewData")) {
+        if (result.generation != m_costUsageViewDataBuildGeneration) {
+            return;
+        }
+        m_costUsageViewDataBuildQueued = false;
+        if (!result.success) {
+            qWarning() << "Cost usage view data backend job failed:" << result.message;
+            return;
+        }
+
+        const auto payload = result.payload.value<CostUsageViewDataPayload>();
+        m_costUsageDataCache = payload.costData;
+        m_providerCostUsageListCache = payload.providerList;
+        m_costUsageDataCacheValid = true;
+        m_providerCostUsageListCacheValid = true;
+        emit costUsageChanged();
+        return;
+    }
+
+    if (result.kind == QLatin1String("costUsageRefresh")) {
+        if (result.generation != m_costUsageRefreshGeneration) {
+            return;
+        }
+        if (!result.success) {
+            qWarning() << "Cost usage refresh backend job failed:" << result.message;
+            m_costUsageRefreshing = false;
+            emit costUsageRefreshingChanged();
+            return;
+        }
+
+        PERF_PROBE("refreshCostUsage_callback", 2000);
+        const auto payload = result.payload.value<CostUsageRefreshPayload>();
+        m_costUsage = payload.combined;
+        m_perProviderCostUsage = payload.perProvider;
+        m_allProviderCostUsage = payload.allProviders;
+        m_costUsageRefreshing = false;
+        m_costUsageDataCacheValid = false;
+        m_providerCostUsageListCacheValid = false;
+        m_costUsageViewDataBuildQueued = false;
+        ++m_costUsageViewDataBuildGeneration;
+        emit costUsageRefreshingChanged();
+        emit costUsageChanged();
+        return;
+    }
+
+    if (result.kind.startsWith(QLatin1String("tokenAccount."))) {
+        const QVariantMap payload = result.payload.toMap();
+        const QString operationId = payload.value(QStringLiteral("operationId")).toString();
+        const QString providerId = payload.value(QStringLiteral("providerId")).toString();
+        const bool success = result.success
+            && payload.value(QStringLiteral("success"), true).toBool();
+        const QString message = result.success
+            ? payload.value(QStringLiteral("message")).toString()
+            : result.message;
+        const bool refreshProviderOnSuccess =
+            payload.value(QStringLiteral("refreshProviderOnSuccess")).toBool();
+        finishTokenAccountOperation(
+            operationId,
+            providerId,
+            success,
+            message,
+            refreshProviderOnSuccess);
+        return;
+    }
+}
+
+QHash<QString, QString> UsageStore::codexCreditsEnvironment() const
+{
+    QHash<QString, QString> env = cachedSystemEnv();
+    if (m_codexAccountService) {
+        QString managedHome = m_codexAccountService->activeManagedHomePath();
+        if (!managedHome.isEmpty()) {
+            env.insert(QStringLiteral("CODEX_HOME"), managedHome);
+        }
+    }
+    return env;
+}
+
+void UsageStore::dispatchCodexCreditsRefresh(const QHash<QString, QString>& env,
+                                             const CodexAccountRefreshGuard& expectedGuard)
+{
+    ++m_pendingCreditsRefresh;
+    m_codexCreditsRefreshing = true;
+    const UsageBackendRequest request = m_backend->dispatchValueJob(
+        QStringLiteral("codexCreditsRefresh"), 0, [env]() -> QVariant {
+        CodexCreditsFetcher fetcher(env);
+        CodexCreditsRefreshPayload payload;
+        payload.result = fetcher.fetchCreditsSync(ProviderPipeline::STRATEGY_TIMEOUT_MS);
+        return QVariant::fromValue(payload);
+    });
+    m_backendCodexCreditGuards.insert(request.requestId, expectedGuard);
+}
+
+void UsageStore::dispatchProviderLoginPoll(const ProviderLoginStartPayload& startPayload,
+                                           const QSharedPointer<QAtomicInt>& cancelFlag)
+{
+    if (!cancelFlag) {
+        ProviderLoginPollPayload payload;
+        payload.providerId = startPayload.providerId;
+        payload.state = QStringLiteral("cancelled");
+        payload.message = QStringLiteral("Login cancelled");
+        setProviderLoginState(payload.providerId, {
+            {"state", payload.state},
+            {"message", payload.message}
+        });
+        return;
+    }
+
+    m_backend->dispatchValueJob(QStringLiteral("providerLoginPoll"), 0,
+                                [startPayload, cancelFlag]() -> QVariant {
+        ProviderLoginPollPayload payload;
+        payload.providerId = startPayload.providerId;
+
+        int interval = qMax(1, startPayload.interval);
+        const QDateTime deadline = QDateTime::currentDateTimeUtc().addSecs(startPayload.expiresIn);
+        while (QDateTime::currentDateTimeUtc() < deadline) {
+            if (cancelFlag->loadAcquire() != 0) {
+                payload.state = QStringLiteral("cancelled");
+                payload.message = QStringLiteral("Login cancelled");
+                return QVariant::fromValue(payload);
+            }
+
+            QThread::sleep(static_cast<unsigned long>(qMax(1, interval)));
+
+            QUrlQuery tokenBody;
+            tokenBody.addQueryItem(QStringLiteral("client_id"), QStringLiteral("Iv1.b507a08c87ecfe98"));
+            tokenBody.addQueryItem(QStringLiteral("device_code"), startPayload.deviceCode);
+            tokenBody.addQueryItem(QStringLiteral("grant_type"),
+                                   QStringLiteral("urn:ietf:params:oauth:grant-type:device_code"));
+
+            QJsonObject tokenResp = NetworkManager::instance().postFormSync(
+                QUrl(QStringLiteral("https://github.com/login/oauth/access_token")),
+                tokenBody.toString(QUrl::FullyEncoded).toUtf8(),
+                {{QStringLiteral("Accept"), QStringLiteral("application/json")}});
+
+            const QString errorType = tokenResp.value(QStringLiteral("error")).toString();
+            if (errorType == QStringLiteral("authorization_pending")) continue;
+            if (errorType == QStringLiteral("slow_down")) {
+                interval += 5;
+                continue;
+            }
+            if (!errorType.isEmpty()) {
+                payload.state = QStringLiteral("failed");
+                payload.message = errorType;
+                return QVariant::fromValue(payload);
+            }
+
+            const QString accessToken = tokenResp.value(QStringLiteral("access_token")).toString();
+            if (!accessToken.isEmpty()) {
+                const bool ok = ProviderCredentialStore::write(
+                    QStringLiteral("com.codexbar.oauth.copilot"),
+                    {},
+                    accessToken.toUtf8());
+                payload.state = ok ? QStringLiteral("succeeded") : QStringLiteral("failed");
+                payload.message = ok
+                    ? QStringLiteral("Copilot login complete")
+                    : QStringLiteral("Could not save Copilot OAuth token");
+                payload.triggerConnectionTest = ok;
+                return QVariant::fromValue(payload);
+            }
+        }
+
+        payload.state = QStringLiteral("failed");
+        payload.message = QStringLiteral("GitHub device login expired");
+        return QVariant::fromValue(payload);
+    });
 }
 
 QVariantMap UsageStore::providerCostUsageData(const QString& providerId) const {
@@ -1117,59 +1699,15 @@ void UsageStore::doRefresh(const QStringList& ids) {
         return;
     }
 
-    QDateTime refreshStartedAt = QDateTime::currentDateTime();
-
     // Parallel credits refresh for Codex (mirrors original CodexBar behavior)
     if (ids.contains("codex") && isProviderEnabled("codex")) {
         auto expectedGuard = currentCodexAccountRefreshGuard();
         m_lastCodexRefreshGuard = expectedGuard;
 
-        // If identity is unresolved, wait for usage refresh to establish identity first
-        if (expectedGuard.identity.isEmpty()) {
-            ++m_pendingCreditsRefresh;
-            // Fire-and-forget delayed credits refresh after usage establishes identity
-            QtConcurrent::run(m_threadPool, [this, refreshStartedAt, expectedGuard]() mutable {
-                auto snap = waitForCodexSnapshot(refreshStartedAt, 3000);
-                if (!snap.updatedAt.isValid()) {
-                    // Usage refresh failed or timed out; still try credits with current guard
-                }
-                auto updatedGuard = currentCodexAccountRefreshGuard();
-                if (!updatedGuard.isEmpty()) {
-                    expectedGuard = updatedGuard;
-                }
-
-                QHash<QString, QString> creditsEnv = cachedSystemEnv();
-                if (m_codexAccountService) {
-                    QString managedHome = m_codexAccountService->activeManagedHomePath();
-                    if (!managedHome.isEmpty()) {
-                        creditsEnv.insert("CODEX_HOME", managedHome);
-                    }
-                }
-
-                CodexCreditsFetcher fetcher(creditsEnv);
-                auto result = fetcher.fetchCreditsSync(ProviderPipeline::STRATEGY_TIMEOUT_MS);
-                QMetaObject::invokeMethod(this, [this, result, expectedGuard]() {
-                    applyCodexCreditsFetchResult(result, expectedGuard);
-                }, Qt::QueuedConnection);
-            });
-        } else {
-            // Identity known; proceed immediately
-            QHash<QString, QString> creditsEnv = cachedSystemEnv();
-            if (m_codexAccountService) {
-                QString managedHome = m_codexAccountService->activeManagedHomePath();
-                if (!managedHome.isEmpty()) {
-                    creditsEnv.insert("CODEX_HOME", managedHome);
-                }
-            }
-
-            ++m_pendingCreditsRefresh;
-            QtConcurrent::run(m_threadPool, [this, creditsEnv, expectedGuard]() {
-                CodexCreditsFetcher fetcher(creditsEnv);
-                auto result = fetcher.fetchCreditsSync(ProviderPipeline::STRATEGY_TIMEOUT_MS);
-                QMetaObject::invokeMethod(this, [this, result, expectedGuard]() {
-                    applyCodexCreditsFetchResult(result, expectedGuard);
-                }, Qt::QueuedConnection);
-            });
+        // If identity is unresolved, the provider refresh callback will schedule credits
+        // after the usage snapshot establishes the account guard.
+        if (!expectedGuard.identity.isEmpty()) {
+            dispatchCodexCreditsRefresh(codexCreditsEnvironment(), expectedGuard);
         }
     }
 
@@ -1202,6 +1740,8 @@ void UsageStore::refreshProvider(const QString& providerId) {
 }
 
 void UsageStore::refreshProviderWithPool(const QString& providerId, QThreadPool* pool) {
+    Q_UNUSED(pool)
+
     // Ensure count is sane when called individually (outside doRefresh).
     if (m_pendingRefreshes <= 0) {
         m_batchRefreshInProgress = false;
@@ -1228,159 +1768,138 @@ void UsageStore::refreshProviderWithPool(const QString& providerId, QThreadPool*
         return;
     }
 
-    // buildFetchContextForProvider is moved into the worker thread to avoid
-    // blocking the main thread with WinCred API calls on cache miss.
-    QtConcurrent::run(pool ? pool : m_threadPool, [this, providerId, provider]() {
+    const UsageBackendRequest request = m_backend->dispatchValueJob(
+        QStringLiteral("providerRefresh"), 0, [this, providerId, provider]() {
         ProviderFetchContext ctx = buildFetchContextForProvider(providerId);
-
-        if (!isSourceModeAllowed(providerId, ctx.sourceMode)) {
-            ProviderFetchResult errResult;
-            errResult.success = false;
-            errResult.errorMessage = QString("unsupported source mode: %1")
-                .arg(sourceModeToString(ctx.sourceMode));
-            QMetaObject::invokeMethod(this, [this, providerId, errResult]() {
-                m_errors[providerId] = errResult.errorMessage;
-                emit errorOccurred(providerId, providerError(providerId));
-                m_pendingRefreshes--;
-                if (m_pendingRefreshes <= 0) {
-                    m_batchRefreshInProgress = false;
-                    m_isRefreshing = false;
-                    if (m_batchUpdater) {
-                        m_batchUpdater->endBatch();
-                    } else {
-                        emit snapshotRevisionChanged();
-                        emit refreshingChanged();
-                    }
-                }
-            }, Qt::QueuedConnection);
-            return;
-        }
-
         ProviderFetchResult result;
-        // Use ProviderRuntime if available (GenericRuntime is a thin wrapper around Pipeline)
-        bool usedRuntime = false;
-        if (ProviderRuntimeManager* rtMgr = ProviderRuntimeManager::instance()) {
-            if (IProviderRuntime* runtime = rtMgr->runtimeFor(providerId)) {
-                if (runtime->state() == RuntimeState::Running) {
-                    result = runtime->fetch(ctx);
-                    usedRuntime = true;
+        if (!isSourceModeAllowed(providerId, ctx.sourceMode)) {
+            result.success = false;
+            result.errorMessage = QString("unsupported source mode: %1")
+                .arg(sourceModeToString(ctx.sourceMode));
+        } else {
+            // Use ProviderRuntime if available (GenericRuntime is a thin wrapper around Pipeline).
+            bool usedRuntime = false;
+            if (ProviderRuntimeManager* rtMgr = ProviderRuntimeManager::instance()) {
+                if (IProviderRuntime* runtime = rtMgr->runtimeFor(providerId)) {
+                    if (runtime->state() == RuntimeState::Running) {
+                        result = runtime->fetch(ctx);
+                        usedRuntime = true;
+                    }
                 }
+            }
+
+            if (!usedRuntime) {
+                // Fall back to direct pipeline execution for backward compatibility.
+                ProviderPipeline pipeline;
+                result = pipeline.executeProvider(provider, ctx);
             }
         }
 
-        if (!usedRuntime) {
-            // Fall back to direct pipeline execution for backward compatibility
-            ProviderPipeline pipeline;
-            result = pipeline.executeProvider(provider, ctx);
-        }
-
-        QMetaObject::invokeMethod(this, [this, providerId, result]() {
-            PERF_PROBE("refreshProvider_callback", 2000);
-            m_lastFetchAttempts[providerId] = result.attempts;
-            if (providerId == "codex") {
-                emit codexFetchAttemptsChanged();
-            }
-            if (result.dashboard.has_value()) {
-                m_dashboardData[providerId] = result.dashboard->toVariantMap();
-            } else {
-                m_dashboardData.remove(providerId);
-            }
-
-            if (result.success) {
-                m_snapshots[providerId] = result.usage;
-                m_errors.remove(providerId);
-                if (m_historyStore) {
-                    m_historyStore->recordSample(providerId, result.usage);
-                }
-
-                auto sessionWindow = result.usage.primary;
-                if (!sessionWindow.has_value() && result.usage.secondary.has_value()) {
-                    sessionWindow = result.usage.secondary;
-                }
-                if (sessionWindow.has_value()) {
-                    double currentRemaining = sessionWindow->remainingPercent();
-                    auto prevRemaining = m_lastKnownSessionRemaining.value(providerId);
-                    auto t = SessionQuotaNotificationLogic::transition(prevRemaining, currentRemaining);
-                    bool notificationsEnabled = m_settingsStore
-                        ? m_settingsStore->sessionQuotaNotificationsEnabled()
-                        : true;
-                    if (t != SessionQuotaTransition::None && notificationsEnabled) {
-                        QString name = providerDisplayName(providerId);
-                        SessionQuotaNotifier::post(t, name);
-                    }
-                    m_lastKnownSessionRemaining[providerId] = currentRemaining;
-                    if (providerId == "codex" && !result.sourceLabel.isEmpty() &&
-                        m_lastKnownSessionWindowSource != result.sourceLabel) {
-                        QString label = result.sourceLabel;
-                        bool hasAttachedDashboard = result.dashboard.has_value()
-                            && result.dashboard->toVariantMap().value("visibility", "hidden").toString() == "attached";
-                        if (hasAttachedDashboard) {
-                            label += " + openai-web";
-                        }
-                        m_lastKnownSessionWindowSource = label;
-                        emit lastKnownSessionWindowSourceChanged();
-                    }
-                }
-
-                // Codex-specific: refresh credits after successful usage fetch.
-                // This MUST be async — fetchCreditsSync blocks the main thread for 600-1400ms.
-                if (providerId == "codex") {
-                    auto guard = currentCodexAccountRefreshGuard();
-                    // If doRefresh already scheduled an async credits fetch, avoid duplicate work.
-                    if (m_pendingCreditsRefresh == 0) {
-                        QString accountKey = currentCodexAccountKey();
-                        bool cacheFresh = !accountKey.isEmpty() &&
-                            m_codexCreditsCache.accountKey == accountKey &&
-                            m_codexCreditsCache.updatedAt.isValid() &&
-                            m_codexCreditsCache.updatedAt.secsTo(QDateTime::currentDateTime()) < 300;
-                        if (!cacheFresh) {
-                            QHash<QString, QString> creditsEnv = cachedSystemEnv();
-                            if (m_codexAccountService) {
-                                QString managedHome = m_codexAccountService->activeManagedHomePath();
-                                if (!managedHome.isEmpty()) {
-                                    creditsEnv.insert("CODEX_HOME", managedHome);
-                                }
-                            }
-                            ++m_pendingCreditsRefresh;
-                            QtConcurrent::run(m_threadPool, [this, creditsEnv, guard]() {
-                                CodexCreditsFetcher fetcher(creditsEnv);
-                                auto result = fetcher.fetchCreditsSync(ProviderPipeline::STRATEGY_TIMEOUT_MS);
-                                QMetaObject::invokeMethod(this, [this, result, guard]() {
-                                    applyCodexCreditsFetchResult(result, guard);
-                                }, Qt::QueuedConnection);
-                            });
-                        }
-                    }
-                }
-            } else {
-                m_errors[providerId] = result.errorMessage;
-                emit errorOccurred(providerId, providerError(providerId));
-            }
-
-            // Granular cache eviction: only remove the entry for this provider
-            // instead of clearing the entire cache.
-            m_snapshotDataCache.remove(providerId);
-            if (m_batchUpdater) {
-                m_batchUpdater->markDirty(providerId);
-            } else {
-                emit snapshotChanged(providerId);
-            }
-
-            m_pendingRefreshes--;
-            if (m_pendingRefreshes <= 0 && m_pendingCreditsRefresh <= 0) {
-                m_batchRefreshInProgress = false;
-                m_isRefreshing = false;
-                if (m_batchUpdater) {
-                    m_batchUpdater->endBatch();
-                } else {
-                    m_snapshotRevision++;
-                    m_snapshotDataCache.clear();
-                    emit snapshotRevisionChanged();
-                    emit refreshingChanged();
-                }
-            }
-        }, Qt::QueuedConnection);
+        ProviderRefreshPayload payload;
+        payload.providerId = providerId;
+        payload.fetchResult = result;
+        return QVariant::fromValue(payload);
     });
+    m_backendRequestProviderIds.insert(request.requestId, providerId);
+}
+
+void UsageStore::applyProviderRefreshResult(const QString& providerId,
+                                            const ProviderFetchResult& result)
+{
+    PERF_PROBE("refreshProvider_callback", 2000);
+    m_lastFetchAttempts[providerId] = result.attempts;
+    if (providerId == "codex") {
+        emit codexFetchAttemptsChanged();
+    }
+    if (result.dashboard.has_value()) {
+        m_dashboardData[providerId] = result.dashboard->toVariantMap();
+    } else {
+        m_dashboardData.remove(providerId);
+    }
+
+    if (result.success) {
+        m_snapshots[providerId] = result.usage;
+        m_errors.remove(providerId);
+        if (m_historyStore) {
+            m_historyStore->recordSample(providerId, result.usage);
+        }
+
+        auto sessionWindow = result.usage.primary;
+        if (!sessionWindow.has_value() && result.usage.secondary.has_value()) {
+            sessionWindow = result.usage.secondary;
+        }
+        if (sessionWindow.has_value()) {
+            double currentRemaining = sessionWindow->remainingPercent();
+            auto prevRemaining = m_lastKnownSessionRemaining.value(providerId);
+            auto t = SessionQuotaNotificationLogic::transition(prevRemaining, currentRemaining);
+            bool notificationsEnabled = m_settingsStore
+                ? m_settingsStore->sessionQuotaNotificationsEnabled()
+                : true;
+            if (t != SessionQuotaTransition::None && notificationsEnabled) {
+                QString name = providerDisplayName(providerId);
+                SessionQuotaNotifier::post(t, name);
+            }
+            m_lastKnownSessionRemaining[providerId] = currentRemaining;
+            if (providerId == "codex" && !result.sourceLabel.isEmpty() &&
+                m_lastKnownSessionWindowSource != result.sourceLabel) {
+                QString label = result.sourceLabel;
+                bool hasAttachedDashboard = result.dashboard.has_value()
+                    && result.dashboard->toVariantMap().value("visibility", "hidden").toString() == "attached";
+                if (hasAttachedDashboard) {
+                    label += " + openai-web";
+                }
+                m_lastKnownSessionWindowSource = label;
+                emit lastKnownSessionWindowSourceChanged();
+            }
+        }
+
+        // Codex-specific: refresh credits after successful usage fetch.
+        if (providerId == "codex") {
+            auto guard = currentCodexAccountRefreshGuard();
+            // If doRefresh already scheduled an async credits fetch, avoid duplicate work.
+            if (m_pendingCreditsRefresh == 0) {
+                QString accountKey = currentCodexAccountKey();
+                bool cacheFresh = !accountKey.isEmpty() &&
+                    m_codexCreditsCache.accountKey == accountKey &&
+                    m_codexCreditsCache.updatedAt.isValid() &&
+                    m_codexCreditsCache.updatedAt.secsTo(QDateTime::currentDateTime()) < 300;
+                if (!cacheFresh) {
+                    dispatchCodexCreditsRefresh(codexCreditsEnvironment(), guard);
+                }
+            }
+        }
+    } else {
+        m_errors[providerId] = result.errorMessage;
+        emit errorOccurred(providerId, providerError(providerId));
+    }
+
+    // Granular cache eviction: only remove the entry for this provider
+    // instead of clearing the entire cache.
+    m_snapshotDataCache.remove(providerId);
+    if (m_batchUpdater) {
+        m_batchUpdater->markDirty(providerId);
+    } else {
+        emit snapshotChanged(providerId);
+    }
+
+    completeProviderRefresh();
+}
+
+void UsageStore::completeProviderRefresh()
+{
+    m_pendingRefreshes--;
+    if (m_pendingRefreshes <= 0 && m_pendingCreditsRefresh <= 0) {
+        m_batchRefreshInProgress = false;
+        m_isRefreshing = false;
+        if (m_batchUpdater) {
+            m_batchUpdater->endBatch();
+        } else {
+            m_snapshotRevision++;
+            m_snapshotDataCache.clear();
+            emit snapshotRevisionChanged();
+            emit refreshingChanged();
+        }
+    }
 }
 
 void UsageStore::startAutoRefresh(int intervalMinutes) {
@@ -1409,10 +1928,17 @@ QVariantList UsageStore::utilizationChartData(const QString& providerId, const Q
 }
 
 QVariantList UsageStore::providerList() const {
-    PERF_PROBE("providerList", 5000);
-    if (m_providerListCacheValid) {
-        return m_providerListCache;
+    PERF_PROBE("providerList.cached", 200);
+    if (!m_providerListCacheValid && !m_providerListRefreshQueued) {
+        QMetaObject::invokeMethod(const_cast<UsageStore*>(this),
+                                  &UsageStore::requestProviderList,
+                                  Qt::QueuedConnection);
     }
+    return m_providerListCache;
+}
+
+QVariantList UsageStore::buildProviderListNow() const {
+    PERF_PROBE("providerList.build", 5000);
     QVariantList list;
     auto ids = ProviderRegistry::instance().providerIDs();
     
@@ -1497,6 +2023,71 @@ QVariantList UsageStore::providerList() const {
     return list;
 }
 
+void UsageStore::requestProviderList()
+{
+    if (m_providerListRefreshQueued) {
+        return;
+    }
+    m_providerListRefreshQueued = true;
+    const int generation = ++m_providerListRefreshGeneration;
+
+    QVector<ProviderListBuildItem> items;
+    auto ids = ProviderRegistry::instance().providerIDs();
+    for (const auto& id : ids) {
+        auto* prov = ProviderRegistry::instance().provider(id);
+        auto desc = ProviderRegistry::instance().descriptor(id);
+
+        ProviderListBuildItem item;
+        item.id = id;
+        item.enabled = ProviderRegistry::instance().isProviderEnabled(id);
+        if (prov) {
+            item.name = desc.has_value() ? desc->metadata.displayName : prov->displayName();
+            item.sessionLabel = desc.has_value() ? desc->metadata.sessionLabel : prov->sessionLabel();
+            item.weeklyLabel = desc.has_value() ? desc->metadata.weeklyLabel : prov->weeklyLabel();
+            item.supportsCredits = desc.has_value() ? desc->metadata.supportsCredits : prov->supportsCredits();
+            item.dashboardURL = desc.has_value() ? desc->metadata.dashboardURL : prov->dashboardURL();
+            item.statusPageURL = desc.has_value() ? desc->metadata.statusPageURL : prov->statusPageURL();
+            item.statusLinkURL = desc.has_value() ? desc->metadata.statusLinkURL : prov->statusLinkURL();
+            item.statusWorkspaceProductID = desc.has_value()
+                ? desc->metadata.statusWorkspaceProductID : prov->statusWorkspaceProductID();
+            item.brandColor = prov->brandColor();
+            item.sourceModes = desc.has_value() ? desc->fetchPlan.allowedSourceModes : prov->supportedSourceModes();
+            item.supportsMultipleAccounts = desc.has_value()
+                ? desc->tokenAccounts.supportsMultipleAccounts : prov->supportsMultipleAccounts();
+            item.requiredCredentialTypes = desc.has_value()
+                ? desc->tokenAccounts.requiredCredentialTypes : prov->requiredCredentialTypes();
+            item.defaultTokenAccount = TokenAccountStore::instance()->defaultAccountId(id);
+            item.tokenAccountCount = TokenAccountStore::instance()->accountCountForProvider(id);
+        } else {
+            item.name = id;
+            item.sessionLabel = QStringLiteral("Session");
+            item.weeklyLabel = QStringLiteral("Weekly");
+            item.supportsCredits = false;
+        }
+
+        auto snapIt = m_snapshots.find(id);
+        if (snapIt != m_snapshots.end() && snapIt.value().primary.has_value()) {
+            item.hasUsage = true;
+            item.usagePercent = snapIt.value().primary->usedPercent;
+        }
+
+        auto statusIt = m_providerStatuses.find(id);
+        if (statusIt != m_providerStatuses.end()) {
+            item.status = statusIt.value().value(QStringLiteral("state"), QStringLiteral("unknown")).toString();
+        }
+
+        items.append(item);
+    }
+
+    const QStringList order = m_settingsStore ? m_settingsStore->providerOrder() : QStringList();
+    m_backend->dispatchValueJob(QStringLiteral("providerListModel"), generation,
+                                [items, order]() -> QVariant {
+        ProviderListPayload payload;
+        payload.providers = buildProviderListFromItems(items, order);
+        return QVariant::fromValue(payload);
+    });
+}
+
 void UsageStore::moveProvider(int fromIndex, int toIndex) {
     if (!m_settingsStore) return;
     if (fromIndex == toIndex) return;
@@ -1521,7 +2112,26 @@ void UsageStore::moveProvider(int fromIndex, int toIndex) {
 }
 
 QVariantMap UsageStore::providerDescriptorData(const QString& id) const {
-    PERF_PROBE("providerDescriptorData", 1000);
+    PERF_PROBE("providerDescriptorData.cached", 200);
+    if (m_providerDescriptorDataCache.contains(id)) {
+        return m_providerDescriptorDataCache.value(id);
+    }
+    if (!m_providerDescriptorRefreshQueued.contains(id)) {
+        QMetaObject::invokeMethod(const_cast<UsageStore*>(this),
+                                  "requestProviderDescriptor",
+                                  Qt::QueuedConnection,
+                                  Q_ARG(QString, id));
+    }
+    return {
+        {QStringLiteral("id"), id},
+        {QStringLiteral("loading"), true},
+        {QStringLiteral("displayName"), providerDisplayName(id)},
+        {QStringLiteral("settingsFields"), QVariantList{}}
+    };
+}
+
+QVariantMap UsageStore::buildProviderDescriptorDataNow(const QString& id) const {
+    PERF_PROBE("providerDescriptorData.build", 1000);
     QVariantMap data;
     auto desc = ProviderRegistry::instance().descriptor(id);
     if (!desc.has_value()) return data;
@@ -1558,7 +2168,53 @@ QVariantMap UsageStore::providerDescriptorData(const QString& id) const {
     data["supportsMultipleAccounts"] = desc->tokenAccounts.supportsMultipleAccounts;
     data["defaultTokenAccount"] = TokenAccountStore::instance()->defaultAccountId(id);
     data["tokenAccountCount"] = TokenAccountStore::instance()->accountCountForProvider(id);
+    m_providerDescriptorDataCache.insert(id, data);
     return data;
+}
+
+void UsageStore::requestProviderDescriptor(const QString& providerId)
+{
+    if (providerId.isEmpty() || m_providerDescriptorRefreshQueued.contains(providerId)) {
+        return;
+    }
+    m_providerDescriptorRefreshQueued.insert(providerId);
+    const int generation = m_providerDescriptorRefreshGenerations.value(providerId, 0) + 1;
+    m_providerDescriptorRefreshGenerations.insert(providerId, generation);
+
+    ProviderDescriptorBuildInput input;
+    input.providerId = providerId;
+    if (auto desc = ProviderRegistry::instance().descriptor(providerId); desc.has_value()) {
+        input.hasDescriptor = true;
+        input.descriptor = desc.value();
+    }
+    input.enabled = ProviderRegistry::instance().isProviderEnabled(providerId);
+    input.statusURL = providerStatusURL(providerId);
+    input.defaultTokenAccount = TokenAccountStore::instance()->defaultAccountId(providerId);
+    input.tokenAccountCount = TokenAccountStore::instance()->accountCountForProvider(providerId);
+    if (auto* provider = ProviderRegistry::instance().provider(providerId)) {
+        input.brandColor = provider->brandColor();
+        const auto descriptors = provider->settingsDescriptors();
+        for (const auto& d : descriptors) {
+            ProviderSettingFieldBuildInput field;
+            field.descriptor = d;
+            field.value = d.sensitive
+                ? QVariant()
+                : (m_settingsStore ? m_settingsStore->providerSetting(providerId, d.key, d.defaultValue)
+                                   : d.defaultValue);
+            if (d.sensitive) {
+                field.secretStatus = providerSecretStatus(providerId, d.key);
+            }
+            input.settingsFields.append(field);
+        }
+    }
+
+    m_backend->dispatchValueJob(QStringLiteral("providerDescriptorData"), generation,
+                                [input]() -> QVariant {
+        ProviderDescriptorDataPayload payload;
+        payload.providerId = input.providerId;
+        payload.descriptor = buildProviderDescriptorFromInput(input);
+        return QVariant::fromValue(payload);
+    });
 }
 
 QVariantList UsageStore::providerSettingsFields(const QString& id) const {
@@ -1607,6 +2263,8 @@ void UsageStore::setProviderSetting(const QString& providerId, const QString& ke
         return;
     }
     m_settingsStore->setProviderSetting(providerId, key, value);
+    m_providerDescriptorDataCache.remove(providerId);
+    emit providerDescriptorChanged(providerId);
 }
 
 std::optional<ProviderSettingsDescriptor> UsageStore::settingDescriptor(const QString& providerId,
@@ -1689,7 +2347,7 @@ void UsageStore::queueCredentialStatusCheck(const QString& providerId,
                                             const QString& key,
                                             const QString& target) const
 {
-    if (target.isEmpty() || !m_threadPool) return;
+    if (target.isEmpty()) return;
 
     {
         QMutexLocker locker(&m_credentialCacheMutex);
@@ -1703,27 +2361,14 @@ void UsageStore::queueCredentialStatusCheck(const QString& providerId,
     }
 
     auto* self = const_cast<UsageStore*>(this);
-    QPointer<UsageStore> guard(self);
-    QtConcurrent::run(m_threadPool, [guard, providerId, key, target]() {
-        const bool exists = ProviderCredentialStore::exists(target);
-        if (!guard) return;
-
-        QMetaObject::invokeMethod(guard.data(), [guard, providerId, key, target, exists]() {
-            if (!guard) return;
-            auto* store = guard.data();
-            {
-                QMutexLocker locker(&store->m_credentialCacheMutex);
-                store->m_credentialStatusInFlight.remove(target);
-                if (exists) {
-                    store->m_credentialExisting.insert(target);
-                    store->m_credentialMissing.remove(target);
-                } else {
-                    store->m_credentialExisting.remove(target);
-                    store->m_credentialMissing[target] = true;
-                }
-            }
-            emit store->providerSecretChanged(providerId, key);
-        }, Qt::QueuedConnection);
+    self->m_backend->dispatchValueJob(QStringLiteral("credentialStatusCheck"), 0,
+                                      [providerId, key, target]() -> QVariant {
+        CredentialStatusPayload payload;
+        payload.providerId = providerId;
+        payload.key = key;
+        payload.target = target;
+        payload.exists = ProviderCredentialStore::exists(target);
+        return QVariant::fromValue(payload);
     });
 }
 
@@ -1740,22 +2385,20 @@ bool UsageStore::setProviderSecret(const QString& providerId,
     if (trimmed.isEmpty()) return false;
 
     if (!descriptor->credentialTarget.isEmpty()) {
-        // Move WinCred write to background thread to avoid blocking UI
         QString target = descriptor->credentialTarget;
-        QtConcurrent::run(m_threadPool, [this, target, trimmed, providerId, key]() {
-            bool ok = ProviderCredentialStore::write(target, {}, trimmed.toUtf8());
-            if (ok) {
-                QMutexLocker locker(&m_credentialCacheMutex);
-                m_credentialCache[target] = {trimmed.toUtf8(), QDateTime::currentDateTime()};
-                m_credentialExisting.insert(target);
-                m_credentialMissing.remove(target);
-                m_credentialStatusInFlight.remove(target);
-            }
-            QMetaObject::invokeMethod(this, [this, providerId, key]() {
-                emit providerSecretChanged(providerId, key);
-                emit providerConnectionTestChanged(providerId);
-            }, Qt::QueuedConnection);
+        const QByteArray secret = trimmed.toUtf8();
+        const UsageBackendRequest request = m_backend->dispatchValueJob(
+            QStringLiteral("providerSecretWrite"), 0,
+            [target, providerId, key, secret]() -> QVariant {
+            ProviderSecretResultPayload payload;
+            payload.providerId = providerId;
+            payload.key = key;
+            payload.target = target;
+            payload.success = ProviderCredentialStore::write(target, {}, secret);
+            payload.removed = false;
+            return QVariant::fromValue(payload);
         });
+        m_backendSecretValues.insert(request.requestId, secret);
         return true; // Optimistic success
     } else {
         // Fall back to settings store when no credential target is configured
@@ -1775,21 +2418,17 @@ bool UsageStore::clearProviderSecret(const QString& providerId, const QString& k
     }
 
     if (!descriptor->credentialTarget.isEmpty()) {
-        // Move WinCred remove to background thread to avoid blocking UI
         QString target = descriptor->credentialTarget;
-        QtConcurrent::run(m_threadPool, [this, target, providerId, key]() {
+        m_backend->dispatchValueJob(QStringLiteral("providerSecretRemove"), 0,
+                                    [target, providerId, key]() -> QVariant {
             ProviderCredentialStore::remove(target);
-            {
-                QMutexLocker locker(&m_credentialCacheMutex);
-                m_credentialCache.remove(target);
-                m_credentialExisting.remove(target);
-                m_credentialMissing[target] = true;
-                m_credentialStatusInFlight.remove(target);
-            }
-            QMetaObject::invokeMethod(this, [this, providerId, key]() {
-                emit providerSecretChanged(providerId, key);
-                emit providerConnectionTestChanged(providerId);
-            }, Qt::QueuedConnection);
+            ProviderSecretResultPayload payload;
+            payload.providerId = providerId;
+            payload.key = key;
+            payload.target = target;
+            payload.success = true;
+            payload.removed = true;
+            return QVariant::fromValue(payload);
         });
         return true; // Optimistic success
     } else {
@@ -1849,71 +2488,73 @@ void UsageStore::testProviderConnection(const QString& providerId) {
         {"durationMs", 0}
     });
 
-    QtConcurrent::run(m_interactiveThreadPool, [this, providerId, provider, startedAt]() {
+    const UsageBackendRequest request = m_backend->dispatchValueJob(
+        QStringLiteral("providerConnectionTest"), 0,
+        [this, providerId, provider, startedAt]() {
         ProviderFetchContext ctx = buildFetchContextForProvider(providerId);
         ctx.allowInteractiveAuth = false;
+        ProviderFetchResult result;
         if (!isSourceModeAllowed(providerId, ctx.sourceMode)) {
-            ProviderFetchResult errResult;
-            errResult.success = false;
-            errResult.errorMessage = QString("Unsupported source mode: %1").arg(sourceModeToString(ctx.sourceMode));
-            QMetaObject::invokeMethod(this, [this, providerId, errResult, startedAt]() {
-                const qint64 finishedAt = QDateTime::currentDateTime().toMSecsSinceEpoch();
-                setProviderConnectionTest(providerId, {
-                    {"state", "failed"},
-                    {"message", errResult.errorMessage},
-                    {"details", errResult.errorMessage},
-                    {"startedAt", startedAt},
-                    {"finishedAt", finishedAt},
-                    {"durationMs", finishedAt - startedAt}
-                });
-            }, Qt::QueuedConnection);
-            return;
+            result.success = false;
+            result.errorMessage = QString("Unsupported source mode: %1")
+                .arg(sourceModeToString(ctx.sourceMode));
+        } else {
+            ProviderPipeline pipeline;
+            result = pipeline.executeProvider(provider, ctx);
         }
 
-        ProviderPipeline pipeline;
-        ProviderFetchResult result = pipeline.executeProvider(provider, ctx);
-        QMetaObject::invokeMethod(this, [this, providerId, result, startedAt]() {
-            PERF_PROBE("testProviderConnection_callback", 2000);
-            m_lastFetchAttempts[providerId] = result.attempts;
-            if (providerId == "codex") {
-                emit codexFetchAttemptsChanged();
-            }
-            if (result.dashboard.has_value()) {
-                m_dashboardData[providerId] = result.dashboard->toVariantMap();
-            } else {
-                m_dashboardData.remove(providerId);
-            }
-            const qint64 finishedAt = QDateTime::currentDateTime().toMSecsSinceEpoch();
-            qDebug() << "[TestConnection] Provider:" << providerId << "success:" << result.success << "error:" << result.errorMessage;
-            if (result.success) {
-                m_snapshots[providerId] = result.usage;
-                m_errors.remove(providerId);
-                m_snapshotRevision++;
-                m_snapshotDataCache.clear();
-                emit snapshotRevisionChanged();
-                emit snapshotChanged(providerId);
-                setProviderConnectionTest(providerId, {
-                    {"state", "succeeded"},
-                    {"message", "Connection OK"},
-                    {"details", ""},
-                    {"startedAt", startedAt},
-                    {"finishedAt", finishedAt},
-                    {"durationMs", finishedAt - startedAt}
-                });
-            } else {
-                QString message = result.errorMessage.trimmed();
-                if (message.isEmpty()) message = "Connection failed";
-                setProviderConnectionTest(providerId, {
-                    {"state", "failed"},
-                    {"message", message},
-                    {"details", result.errorMessage},
-                    {"startedAt", startedAt},
-                    {"finishedAt", finishedAt},
-                    {"durationMs", finishedAt - startedAt}
-                });
-            }
-        }, Qt::QueuedConnection);
+        ProviderConnectionTestPayload payload;
+        payload.providerId = providerId;
+        payload.fetchResult = result;
+        payload.startedAt = startedAt;
+        return QVariant::fromValue(payload);
     });
+    m_backendRequestProviderIds.insert(request.requestId, providerId);
+}
+
+void UsageStore::applyProviderConnectionTestResult(const QString& providerId,
+                                                   const ProviderFetchResult& result,
+                                                   qint64 startedAt)
+{
+    PERF_PROBE("testProviderConnection_callback", 2000);
+    m_lastFetchAttempts[providerId] = result.attempts;
+    if (providerId == "codex") {
+        emit codexFetchAttemptsChanged();
+    }
+    if (result.dashboard.has_value()) {
+        m_dashboardData[providerId] = result.dashboard->toVariantMap();
+    } else {
+        m_dashboardData.remove(providerId);
+    }
+    const qint64 finishedAt = QDateTime::currentDateTime().toMSecsSinceEpoch();
+    qDebug() << "[TestConnection] Provider:" << providerId << "success:" << result.success << "error:" << result.errorMessage;
+    if (result.success) {
+        m_snapshots[providerId] = result.usage;
+        m_errors.remove(providerId);
+        m_snapshotRevision++;
+        m_snapshotDataCache.clear();
+        emit snapshotRevisionChanged();
+        emit snapshotChanged(providerId);
+        setProviderConnectionTest(providerId, {
+            {"state", "succeeded"},
+            {"message", "Connection OK"},
+            {"details", ""},
+            {"startedAt", startedAt},
+            {"finishedAt", finishedAt},
+            {"durationMs", finishedAt - startedAt}
+        });
+    } else {
+        QString message = result.errorMessage.trimmed();
+        if (message.isEmpty()) message = "Connection failed";
+        setProviderConnectionTest(providerId, {
+            {"state", "failed"},
+            {"message", message},
+            {"details", result.errorMessage},
+            {"startedAt", startedAt},
+            {"finishedAt", finishedAt},
+            {"durationMs", finishedAt - startedAt}
+        });
+    }
 }
 
 void UsageStore::setProviderLoginState(const QString& providerId, const QVariantMap& state) {
@@ -1935,87 +2576,34 @@ void UsageStore::startProviderLogin(const QString& providerId) {
     m_loginCancelFlags[providerId] = cancelFlag;
     setProviderLoginState(providerId, {{"state", "starting"}, {"message", "Requesting device code..."}});
 
-    QtConcurrent::run(m_threadPool, [this, providerId, cancelFlag]() {
+    m_backend->dispatchValueJob(QStringLiteral("providerLoginStart"), 0, [providerId]() -> QVariant {
+        ProviderLoginStartPayload payload;
+        payload.providerId = providerId;
+
         QUrlQuery deviceBody;
-        deviceBody.addQueryItem("client_id", "Iv1.b507a08c87ecfe98");
-        deviceBody.addQueryItem("scope", "read:user");
+        deviceBody.addQueryItem(QStringLiteral("client_id"), QStringLiteral("Iv1.b507a08c87ecfe98"));
+        deviceBody.addQueryItem(QStringLiteral("scope"), QStringLiteral("read:user"));
 
         QJsonObject deviceResp = NetworkManager::instance().postFormSync(
-            QUrl("https://github.com/login/device/code"),
+            QUrl(QStringLiteral("https://github.com/login/device/code")),
             deviceBody.toString(QUrl::FullyEncoded).toUtf8(),
-            {{"Accept", "application/json"}});
+            {{QStringLiteral("Accept"), QStringLiteral("application/json")}});
 
-        const QString deviceCode = deviceResp.value("device_code").toString();
-        const QString userCode = deviceResp.value("user_code").toString();
-        const QString verificationUri = deviceResp.value("verification_uri").toString(
-            "https://github.com/login/device");
-        int interval = deviceResp.value("interval").toInt(5);
-        const int expiresIn = deviceResp.value("expires_in").toInt(900);
+        payload.deviceCode = deviceResp.value(QStringLiteral("device_code")).toString();
+        payload.userCode = deviceResp.value(QStringLiteral("user_code")).toString();
+        payload.verificationUri = deviceResp.value(QStringLiteral("verification_uri")).toString(
+            QStringLiteral("https://github.com/login/device"));
+        payload.interval = deviceResp.value(QStringLiteral("interval")).toInt(5);
+        payload.expiresIn = deviceResp.value(QStringLiteral("expires_in")).toInt(900);
 
-        if (deviceCode.isEmpty() || userCode.isEmpty()) {
-            QMetaObject::invokeMethod(this, [this, providerId]() {
-                setProviderLoginState(providerId, {{"state", "failed"}, {"message", "Could not start GitHub device login"}});
-            }, Qt::QueuedConnection);
-            return;
+        if (payload.deviceCode.isEmpty() || payload.userCode.isEmpty()) {
+            payload.success = false;
+            payload.message = QStringLiteral("Could not start GitHub device login");
+            return QVariant::fromValue(payload);
         }
 
-        QMetaObject::invokeMethod(this, [this, providerId, userCode, verificationUri, expiresIn]() {
-            setProviderLoginState(providerId, {
-                {"state", "verification"},
-                {"message", "Enter the code in GitHub to authorize Copilot."},
-                {"userCode", userCode},
-                {"verificationUri", verificationUri},
-                {"expiresIn", expiresIn}
-            });
-        }, Qt::QueuedConnection);
-
-        const QDateTime deadline = QDateTime::currentDateTimeUtc().addSecs(expiresIn);
-        while (QDateTime::currentDateTimeUtc() < deadline) {
-            if (cancelFlag->loadAcquire() != 0) {
-                QMetaObject::invokeMethod(this, [this, providerId]() {
-                    setProviderLoginState(providerId, {{"state", "cancelled"}, {"message", "Login cancelled"}});
-                }, Qt::QueuedConnection);
-                return;
-            }
-            QThread::sleep(static_cast<unsigned long>(qMax(1, interval)));
-
-            QUrlQuery tokenBody;
-            tokenBody.addQueryItem("client_id", "Iv1.b507a08c87ecfe98");
-            tokenBody.addQueryItem("device_code", deviceCode);
-            tokenBody.addQueryItem("grant_type", "urn:ietf:params:oauth:grant-type:device_code");
-
-            QJsonObject tokenResp = NetworkManager::instance().postFormSync(
-                QUrl("https://github.com/login/oauth/access_token"),
-                tokenBody.toString(QUrl::FullyEncoded).toUtf8(),
-                {{"Accept", "application/json"}});
-
-            const QString errorType = tokenResp.value("error").toString();
-            if (errorType == "authorization_pending") continue;
-            if (errorType == "slow_down") {
-                interval += 5;
-                continue;
-            }
-            if (!errorType.isEmpty()) {
-                QMetaObject::invokeMethod(this, [this, providerId, errorType]() {
-                    setProviderLoginState(providerId, {{"state", "failed"}, {"message", errorType}});
-                }, Qt::QueuedConnection);
-                return;
-            }
-
-            const QString accessToken = tokenResp.value("access_token").toString();
-            if (!accessToken.isEmpty()) {
-                ProviderCredentialStore::write("com.codexbar.oauth.copilot", {}, accessToken.toUtf8());
-                QMetaObject::invokeMethod(this, [this, providerId]() {
-                    setProviderLoginState(providerId, {{"state", "succeeded"}, {"message", "Copilot login complete"}});
-                    testProviderConnection(providerId);
-                }, Qt::QueuedConnection);
-                return;
-            }
-        }
-
-        QMetaObject::invokeMethod(this, [this, providerId]() {
-            setProviderLoginState(providerId, {{"state", "failed"}, {"message", "GitHub device login expired"}});
-        }, Qt::QueuedConnection);
+        payload.success = true;
+        return QVariant::fromValue(payload);
     });
 }
 
@@ -2102,63 +2690,39 @@ void UsageStore::refreshProviderStatuses() {
     const bool enabled = m_settingsStore ? m_settingsStore->statusChecksEnabled() : true;
     if (!enabled) return;
 
-    struct StatusBatch {
-        QMutex mutex;
-        QHash<QString, QVariantMap> statuses;
-        int pending = 0;
-    };
-
-    auto batch = std::make_shared<StatusBatch>();
-    auto finishBatch = [this, batch]() {
-        QHash<QString, QVariantMap> statuses;
-        {
-            QMutexLocker locker(&batch->mutex);
-            statuses = batch->statuses;
-        }
-        QMetaObject::invokeMethod(this, [this, statuses]() {
-            setProviderStatuses(statuses);
-        }, Qt::QueuedConnection);
-    };
-
-    // Build poll targets
     const auto ids = ProviderRegistry::instance().providerIDs();
-    QVector<ProviderStatusPollTarget> statuspageTargets;
-    QVector<ProviderStatusPollTarget> workspaceTargets;
-
+    QVector<ProviderStatusPollTarget> targets;
     for (const auto& id : ids) {
         auto desc = ProviderRegistry::instance().descriptor(id);
         if (!desc.has_value()) continue;
 
-        auto targets = ProviderStatusFetcher::buildPollTargets(
+        const auto providerTargets = ProviderStatusFetcher::buildPollTargets(
             {id}, desc->metadata.statusPageURL, desc->metadata.statusLinkURL,
             desc->metadata.statusWorkspaceProductID);
+        targets.append(providerTargets);
+    }
 
-        for (const auto& t : targets) {
-            if (t.source == ProviderStatusSource::Statuspage) {
-                statuspageTargets.append(t);
+    const int generation = ++m_providerStatusRefreshGeneration;
+    m_backend->dispatchValueJob(QStringLiteral("providerStatuses"), generation,
+                                [targets]() -> QVariant {
+        QHash<QString, QVariantMap> statuses;
+        QVector<ProviderStatusPollTarget> statuspageTargets;
+        QVector<ProviderStatusPollTarget> workspaceTargets;
+
+        for (const auto& target : targets) {
+            if (target.source == ProviderStatusSource::Statuspage) {
+                statuspageTargets.append(target);
             } else {
-                workspaceTargets.append(t);
+                workspaceTargets.append(target);
             }
         }
-    }
 
-    // Count pending: one per statuspage target + one for the single workspace fetch
-    {
-        QMutexLocker locker(&batch->mutex);
-        batch->pending = statuspageTargets.size() + (workspaceTargets.isEmpty() ? 0 : 1);
-    }
+        for (const auto& target : statuspageTargets) {
+            if (target.requestURL.isEmpty()) {
+                statuses[target.providerId] = {{QStringLiteral("state"), QStringLiteral("unknown")}};
+                continue;
+            }
 
-    // Fetch Statuspage targets individually
-    for (const auto& target : statuspageTargets) {
-        if (target.requestURL.isEmpty()) {
-            QMutexLocker locker(&batch->mutex);
-            batch->statuses[target.providerId] = {{QStringLiteral("state"), QStringLiteral("unknown")}};
-            batch->pending--;
-            if (batch->pending == 0) finishBatch();
-            continue;
-        }
-
-        QtConcurrent::run(m_threadPool, [batch, finishBatch, target]() {
             QJsonObject json = NetworkManager::instance().getJsonSync(target.requestURL, {}, 8000);
             ProviderStatusSnapshot snap;
             if (!json.isEmpty()) {
@@ -2169,65 +2733,39 @@ void UsageStore::refreshProviderStatuses() {
                 snap.statusURL = target.statusPageURL;
                 snap.updatedAt = QDateTime::currentDateTime().toMSecsSinceEpoch();
             }
-            bool shouldFinish = false;
-            {
-                QMutexLocker locker(&batch->mutex);
-                batch->statuses[target.providerId] = snap.toVariantMap();
-                batch->pending--;
-                shouldFinish = batch->pending == 0;
-            }
-            if (shouldFinish) finishBatch();
-        });
-    }
+            statuses[target.providerId] = snap.toVariantMap();
+        }
 
-    // Fetch Google Workspace feed once and parse for all workspace targets
-    if (!workspaceTargets.isEmpty()) {
-        const QUrl workspaceURL(QStringLiteral(
-            "https://www.google.com/appsstatus/dashboard/incidents.json"));
-
-        QtConcurrent::run(m_threadPool, [batch, finishBatch, workspaceURL, workspaceTargets]() {
+        if (!workspaceTargets.isEmpty()) {
+            const QUrl workspaceURL(QStringLiteral(
+                "https://www.google.com/appsstatus/dashboard/incidents.json"));
             const QString response = NetworkManager::instance().getStringSync(workspaceURL, {}, 8000);
             const QByteArray rawData = response.toUtf8();
 
-            bool shouldFinish = false;
-            {
-                QMutexLocker locker(&batch->mutex);
-
-                if (rawData.trimmed().isEmpty()) {
-                    for (const auto& target : workspaceTargets) {
-                        QVariantMap existing = batch->statuses.value(target.providerId);
-                        if (!existing.isEmpty()) continue; // keep old status
-                        QVariantMap map;
-                        map[QStringLiteral("state")] = QStringLiteral("unknown");
-                        map[QStringLiteral("source")] = QStringLiteral("workspace");
-                        map[QStringLiteral("statusURL")] = target.statusLinkURL;
-                        map[QStringLiteral("updatedAt")] = QDateTime::currentDateTime().toMSecsSinceEpoch();
-                        batch->statuses[target.providerId] = map;
-                    }
-                } else {
-                    for (const auto& target : workspaceTargets) {
-                        QVariantMap existing = batch->statuses.value(target.providerId);
-                        if (!existing.isEmpty()) continue;
-
-                        auto snap = ProviderStatusFetcher::parseWorkspaceResponse(
-                            rawData, target.workspaceProductID, target.statusLinkURL);
-                        batch->statuses[target.providerId] = snap.toVariantMap();
-                    }
+            if (rawData.trimmed().isEmpty()) {
+                for (const auto& target : workspaceTargets) {
+                    if (statuses.contains(target.providerId)) continue;
+                    QVariantMap map;
+                    map[QStringLiteral("state")] = QStringLiteral("unknown");
+                    map[QStringLiteral("source")] = QStringLiteral("workspace");
+                    map[QStringLiteral("statusURL")] = target.statusLinkURL;
+                    map[QStringLiteral("updatedAt")] = QDateTime::currentDateTime().toMSecsSinceEpoch();
+                    statuses[target.providerId] = map;
                 }
-
-                batch->pending--;
-                shouldFinish = batch->pending == 0;
+            } else {
+                for (const auto& target : workspaceTargets) {
+                    if (statuses.contains(target.providerId)) continue;
+                    auto snap = ProviderStatusFetcher::parseWorkspaceResponse(
+                        rawData, target.workspaceProductID, target.statusLinkURL);
+                    statuses[target.providerId] = snap.toVariantMap();
+                }
             }
-            if (shouldFinish) finishBatch();
-        });
-    }
+        }
 
-    bool shouldFinish = false;
-    {
-        QMutexLocker locker(&batch->mutex);
-        shouldFinish = batch->pending == 0;
-    }
-    if (shouldFinish) finishBatch();
+        ProviderStatusesPayload payload;
+        payload.statuses = statuses;
+        return QVariant::fromValue(payload);
+    });
 }
 
 // ============================================================================
@@ -2520,22 +3058,7 @@ void UsageStore::refreshCodexCredits(const CodexAccountRefreshGuard& expectedGua
         return;
     }
 
-    // Build environment
-    QHash<QString, QString> env = cachedSystemEnv();
-
-    // If a managed account is active, point CODEX_HOME at its home path
-    if (m_codexAccountService) {
-        QString managedHome = m_codexAccountService->activeManagedHomePath();
-        if (!managedHome.isEmpty()) {
-            env.insert("CODEX_HOME", managedHome);
-        }
-    }
-
-    CodexCreditsFetcher fetcher(env);
-    auto result = fetcher.fetchCreditsSync(ProviderPipeline::STRATEGY_TIMEOUT_MS);
-    applyCodexCreditsFetchResult(result, expectedGuard);
-
-    m_codexCreditsRefreshing = false;
+    dispatchCodexCreditsRefresh(codexCreditsEnvironment(), expectedGuard);
 }
 
 void UsageStore::applyCodexCreditsFetchResult(const CodexCreditsFetcher::FetchResult& result,
@@ -2745,11 +3268,108 @@ QVariantMap UsageStore::providerDashboardData(const QString& providerId) const
 QVariantList UsageStore::tokenAccountsForProvider(const QString& providerId) const
 {
     QVariantList result;
-    auto accounts = TokenAccountStore::instance()->accountsForProvider(providerId);
+    auto accounts = TokenAccountStore::instance()->accountsForProviderMetadata(providerId);
     for (const auto& acc : accounts) {
         result.append(acc.toVariantMap());
     }
     return result;
+}
+
+QVariantMap UsageStore::tokenAccountOperationState() const
+{
+    return m_tokenAccountOperationState;
+}
+
+QString UsageStore::beginTokenAccountOperation(const QString& kind,
+                                               const QString& providerId,
+                                               const QString& targetId)
+{
+    const QString operationId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    QVariantMap op;
+    op["operationId"] = operationId;
+    op["kind"] = kind;
+    op["providerId"] = providerId;
+    op["targetId"] = targetId;
+    op["state"] = QStringLiteral("pending");
+    op["message"] = QString();
+    op["startedAt"] = QDateTime::currentMSecsSinceEpoch();
+    op["finishedAt"] = 0;
+    m_tokenAccountOperations.insert(operationId, op);
+    rebuildTokenAccountOperationState();
+    emit tokenAccountOperationStateChanged();
+    return operationId;
+}
+
+void UsageStore::finishTokenAccountOperation(const QString& operationId,
+                                             const QString& providerId,
+                                             bool success,
+                                             const QString& message,
+                                             bool refreshProviderOnSuccess)
+{
+    auto op = m_tokenAccountOperations.value(operationId);
+    if (op.isEmpty()) {
+        return;
+    }
+    op["state"] = success ? QStringLiteral("success") : QStringLiteral("error");
+    op["message"] = message;
+    op["finishedAt"] = QDateTime::currentMSecsSinceEpoch();
+    m_tokenAccountOperations.insert(operationId, op);
+    rebuildTokenAccountOperationState();
+    emit tokenAccountOperationStateChanged();
+    emit tokenAccountOperationFinished(operationId, providerId, success, message);
+    if (success && refreshProviderOnSuccess && !providerId.isEmpty()) {
+        refreshProvider(providerId);
+    }
+}
+
+void UsageStore::rebuildTokenAccountOperationState()
+{
+    QVariantMap pendingByProvider;
+    QVariantMap pendingByAccount;
+    QVariantMap operations;
+    int pendingCount = 0;
+
+    for (auto it = m_tokenAccountOperations.constBegin(); it != m_tokenAccountOperations.constEnd(); ++it) {
+        const QVariantMap op = it.value();
+        operations.insert(it.key(), op);
+        if (op.value("state").toString() == QLatin1String("pending")) {
+            ++pendingCount;
+            const QString providerId = op.value("providerId").toString();
+            const QString targetId = op.value("targetId").toString();
+            if (!providerId.isEmpty()) {
+                pendingByProvider.insert(providerId, true);
+            }
+            if (!targetId.isEmpty()) {
+                pendingByAccount.insert(targetId, true);
+            }
+        }
+    }
+
+    m_tokenAccountOperationState = {
+        {QStringLiteral("pendingCount"), pendingCount},
+        {QStringLiteral("pendingByProvider"), pendingByProvider},
+        {QStringLiteral("pendingByAccount"), pendingByAccount},
+        {QStringLiteral("operations"), operations}
+    };
+}
+
+void UsageStore::saveTokenAccountStoreAsync(const QString& operationId,
+                                            const QString& providerId,
+                                            bool refreshProviderOnSuccess)
+{
+    m_backend->dispatchValueJob(QStringLiteral("tokenAccount.save"), 0,
+                                [operationId, providerId, refreshProviderOnSuccess]() -> QVariant {
+        const bool saved = TokenAccountStore::instance()->saveToDisk();
+        QVariantMap payload;
+        payload.insert(QStringLiteral("operationId"), operationId);
+        payload.insert(QStringLiteral("providerId"), providerId);
+        payload.insert(QStringLiteral("success"), saved);
+        payload.insert(QStringLiteral("message"),
+                       saved ? QString()
+                             : QStringLiteral("Failed to save token account configuration."));
+        payload.insert(QStringLiteral("refreshProviderOnSuccess"), refreshProviderOnSuccess);
+        return payload;
+    });
 }
 
 QString UsageStore::addTokenAccount(const QString& providerId, const QString& displayName, int sourceMode)
@@ -2762,7 +3382,7 @@ QString UsageStore::addTokenAccount(const QString& providerId, const QString& di
     account.createdAt = QDateTime::currentDateTimeUtc();
     account.lastUsedAt = account.createdAt;
 
-    QString accountId = TokenAccountStore::instance()->addAccount(account);
+    QString accountId = TokenAccountStore::instance()->addAccountMetadata(account);
 
     // If this is the first account for this provider, set it as default
     if (TokenAccountStore::instance()->accountCountForProvider(providerId) == 1) {
@@ -2811,22 +3431,22 @@ bool UsageStore::removeTokenAccount(const QString& accountId)
 
 bool UsageStore::setTokenAccountVisibility(const QString& accountId, int visibility)
 {
-    auto accOpt = TokenAccountStore::instance()->account(accountId);
+    auto accOpt = TokenAccountStore::instance()->accountMetadata(accountId);
     if (!accOpt.has_value()) return false;
     TokenAccount acc = accOpt.value();
     acc.visibility = static_cast<AccountVisibility>(visibility);
-    const bool ok = TokenAccountStore::instance()->updateAccount(accountId, acc);
+    const bool ok = TokenAccountStore::instance()->updateAccountMetadata(accountId, acc);
     if (ok) TokenAccountStore::instance()->saveToDisk();
     return ok;
 }
 
 bool UsageStore::setTokenAccountSourceMode(const QString& accountId, int sourceMode)
 {
-    auto accOpt = TokenAccountStore::instance()->account(accountId);
+    auto accOpt = TokenAccountStore::instance()->accountMetadata(accountId);
     if (!accOpt.has_value()) return false;
     TokenAccount acc = accOpt.value();
     acc.sourceMode = static_cast<ProviderSourceMode>(sourceMode);
-    const bool ok = TokenAccountStore::instance()->updateAccount(accountId, acc);
+    const bool ok = TokenAccountStore::instance()->updateAccountMetadata(accountId, acc);
     if (ok) TokenAccountStore::instance()->saveToDisk();
     return ok;
 }
@@ -2834,7 +3454,7 @@ bool UsageStore::setTokenAccountSourceMode(const QString& accountId, int sourceM
 bool UsageStore::setDefaultTokenAccount(const QString& providerId, const QString& accountId)
 {
     if (!accountId.isEmpty()) {
-        auto accOpt = TokenAccountStore::instance()->account(accountId);
+        auto accOpt = TokenAccountStore::instance()->accountMetadata(accountId);
         if (!accOpt.has_value() || accOpt->providerId != providerId) {
             return false;
         }
@@ -2842,6 +3462,231 @@ bool UsageStore::setDefaultTokenAccount(const QString& providerId, const QString
     TokenAccountStore::instance()->setDefaultAccountId(providerId, accountId);
     TokenAccountStore::instance()->saveToDisk();
     return true;
+}
+
+QString UsageStore::requestAddTokenAccount(const QString& providerId,
+                                           const QString& displayName,
+                                           int sourceMode)
+{
+    TokenAccount account;
+    account.accountId = TokenAccount::generateAccountId();
+    account.providerId = providerId;
+    account.displayName = displayName.trimmed().isEmpty() ? providerId : displayName.trimmed();
+    account.sourceMode = static_cast<ProviderSourceMode>(sourceMode);
+    account.visibility = AccountVisibility::Visible;
+    account.createdAt = QDateTime::currentDateTimeUtc();
+    account.lastUsedAt = account.createdAt;
+
+    const QString operationId = beginTokenAccountOperation(
+        QStringLiteral("addTokenAccount"), providerId, account.accountId);
+    m_backend->dispatchValueJob(QStringLiteral("tokenAccount.add"), 0,
+                                [operationId, providerId, account]() -> QVariant {
+        TokenAccountStore::instance()->addAccountMetadata(account);
+        if (TokenAccountStore::instance()->accountCountForProvider(providerId) == 1) {
+            TokenAccountStore::instance()->setDefaultAccountId(providerId, account.accountId);
+        }
+        const bool saved = TokenAccountStore::instance()->saveToDisk();
+        QVariantMap payload;
+        payload.insert(QStringLiteral("operationId"), operationId);
+        payload.insert(QStringLiteral("providerId"), providerId);
+        payload.insert(QStringLiteral("success"), saved);
+        payload.insert(QStringLiteral("message"),
+                       saved ? QString()
+                             : QStringLiteral("Failed to save token account configuration."));
+        payload.insert(QStringLiteral("refreshProviderOnSuccess"), true);
+        return payload;
+    });
+    return operationId;
+}
+
+QString UsageStore::requestAddTokenAccountWithApiKey(const QString& providerId,
+                                                     const QString& displayName,
+                                                     int sourceMode,
+                                                     const QString& apiKey)
+{
+    TokenAccount account;
+    account.accountId = TokenAccount::generateAccountId();
+    account.providerId = providerId;
+    account.displayName = displayName.trimmed().isEmpty() ? providerId : displayName.trimmed();
+    account.sourceMode = static_cast<ProviderSourceMode>(sourceMode);
+    account.visibility = AccountVisibility::Visible;
+    account.createdAt = QDateTime::currentDateTimeUtc();
+    account.lastUsedAt = account.createdAt;
+
+    const QString trimmedKey = apiKey.trimmed();
+    if (!trimmedKey.isEmpty()) {
+        APICredentials api;
+        api.apiKey = SecureString(trimmedKey);
+        account.credentials.api = api;
+    }
+
+    const QString operationId = beginTokenAccountOperation(
+        QStringLiteral("addTokenAccountWithApiKey"), providerId, account.accountId);
+
+    TokenAccount metadata = account;
+    metadata.credentials = {};
+    TokenAccountCredentials credentials = account.credentials;
+    m_backend->dispatchValueJob(QStringLiteral("tokenAccount.addApiKey"), 0,
+                                [operationId, providerId, metadata, credentials]() -> QVariant {
+        bool ok = true;
+        QString message;
+        if (!credentials.isEmpty()) {
+            ok = TokenAccountStore::instance()->saveAccountCredentials(metadata.accountId, credentials);
+            if (!ok) {
+                message = QStringLiteral("Failed to save token account credentials.");
+            }
+        }
+        if (ok) {
+            TokenAccountStore::instance()->addAccountMetadata(metadata);
+            if (TokenAccountStore::instance()->accountCountForProvider(providerId) == 1) {
+                TokenAccountStore::instance()->setDefaultAccountId(providerId, metadata.accountId);
+            }
+            ok = TokenAccountStore::instance()->saveToDisk();
+            if (!ok) {
+                message = QStringLiteral("Failed to save token account configuration.");
+            }
+        }
+        QVariantMap payload;
+        payload.insert(QStringLiteral("operationId"), operationId);
+        payload.insert(QStringLiteral("providerId"), providerId);
+        payload.insert(QStringLiteral("success"), ok);
+        payload.insert(QStringLiteral("message"), message);
+        payload.insert(QStringLiteral("refreshProviderOnSuccess"), true);
+        return payload;
+    });
+
+    return operationId;
+}
+
+QString UsageStore::requestRemoveTokenAccount(const QString& accountId)
+{
+    auto accOpt = TokenAccountStore::instance()->accountMetadata(accountId);
+    if (!accOpt.has_value()) {
+        return QString();
+    }
+    const QString providerId = accOpt->providerId;
+    const QString operationId = beginTokenAccountOperation(
+        QStringLiteral("removeTokenAccount"), providerId, accountId);
+
+    m_backend->dispatchValueJob(QStringLiteral("tokenAccount.remove"), 0,
+                                [operationId, providerId, accountId]() -> QVariant {
+        TokenAccountStore::instance()->removeAccountCredentials(accountId);
+        bool ok = TokenAccountStore::instance()->removeAccountMetadata(accountId);
+        QString message;
+        if (!ok) {
+            message = QStringLiteral("Token account no longer exists.");
+        } else {
+            ok = TokenAccountStore::instance()->saveToDisk();
+            if (!ok) {
+                message = QStringLiteral("Failed to save token account configuration.");
+            }
+        }
+        QVariantMap payload;
+        payload.insert(QStringLiteral("operationId"), operationId);
+        payload.insert(QStringLiteral("providerId"), providerId);
+        payload.insert(QStringLiteral("success"), ok);
+        payload.insert(QStringLiteral("message"), message);
+        payload.insert(QStringLiteral("refreshProviderOnSuccess"), true);
+        return payload;
+    });
+
+    return operationId;
+}
+
+QString UsageStore::requestSetTokenAccountVisibility(const QString& accountId, int visibility)
+{
+    auto accOpt = TokenAccountStore::instance()->accountMetadata(accountId);
+    if (!accOpt.has_value()) {
+        return QString();
+    }
+    TokenAccount acc = accOpt.value();
+    acc.visibility = static_cast<AccountVisibility>(visibility);
+    const QString providerId = acc.providerId;
+    const QString operationId = beginTokenAccountOperation(
+        QStringLiteral("setTokenAccountVisibility"), providerId, accountId);
+    m_backend->dispatchValueJob(QStringLiteral("tokenAccount.visibility"), 0,
+                                [operationId, providerId, accountId, acc]() -> QVariant {
+        bool ok = TokenAccountStore::instance()->updateAccountMetadata(accountId, acc);
+        QString message;
+        if (!ok) {
+            message = QStringLiteral("Token account no longer exists.");
+        } else {
+            ok = TokenAccountStore::instance()->saveToDisk();
+            if (!ok) {
+                message = QStringLiteral("Failed to save token account configuration.");
+            }
+        }
+        QVariantMap payload;
+        payload.insert(QStringLiteral("operationId"), operationId);
+        payload.insert(QStringLiteral("providerId"), providerId);
+        payload.insert(QStringLiteral("success"), ok);
+        payload.insert(QStringLiteral("message"), message);
+        payload.insert(QStringLiteral("refreshProviderOnSuccess"), true);
+        return payload;
+    });
+    return operationId;
+}
+
+QString UsageStore::requestSetTokenAccountSourceMode(const QString& accountId, int sourceMode)
+{
+    auto accOpt = TokenAccountStore::instance()->accountMetadata(accountId);
+    if (!accOpt.has_value()) {
+        return QString();
+    }
+    TokenAccount acc = accOpt.value();
+    acc.sourceMode = static_cast<ProviderSourceMode>(sourceMode);
+    const QString providerId = acc.providerId;
+    const QString operationId = beginTokenAccountOperation(
+        QStringLiteral("setTokenAccountSourceMode"), providerId, accountId);
+    m_backend->dispatchValueJob(QStringLiteral("tokenAccount.sourceMode"), 0,
+                                [operationId, providerId, accountId, acc]() -> QVariant {
+        bool ok = TokenAccountStore::instance()->updateAccountMetadata(accountId, acc);
+        QString message;
+        if (!ok) {
+            message = QStringLiteral("Token account no longer exists.");
+        } else {
+            ok = TokenAccountStore::instance()->saveToDisk();
+            if (!ok) {
+                message = QStringLiteral("Failed to save token account configuration.");
+            }
+        }
+        QVariantMap payload;
+        payload.insert(QStringLiteral("operationId"), operationId);
+        payload.insert(QStringLiteral("providerId"), providerId);
+        payload.insert(QStringLiteral("success"), ok);
+        payload.insert(QStringLiteral("message"), message);
+        payload.insert(QStringLiteral("refreshProviderOnSuccess"), true);
+        return payload;
+    });
+    return operationId;
+}
+
+QString UsageStore::requestSetDefaultTokenAccount(const QString& providerId, const QString& accountId)
+{
+    if (!accountId.isEmpty()) {
+        auto accOpt = TokenAccountStore::instance()->accountMetadata(accountId);
+        if (!accOpt.has_value() || accOpt->providerId != providerId) {
+            return QString();
+        }
+    }
+
+    const QString operationId = beginTokenAccountOperation(
+        QStringLiteral("setDefaultTokenAccount"), providerId, accountId);
+    m_backend->dispatchValueJob(QStringLiteral("tokenAccount.default"), 0,
+                                [operationId, providerId, accountId]() -> QVariant {
+        TokenAccountStore::instance()->setDefaultAccountId(providerId, accountId);
+        const bool saved = TokenAccountStore::instance()->saveToDisk();
+        QVariantMap payload;
+        payload.insert(QStringLiteral("operationId"), operationId);
+        payload.insert(QStringLiteral("providerId"), providerId);
+        payload.insert(QStringLiteral("success"), saved);
+        payload.insert(QStringLiteral("message"),
+                       saved ? QString()
+                             : QStringLiteral("Failed to save token account configuration."));
+        payload.insert(QStringLiteral("refreshProviderOnSuccess"), true);
+        return payload;
+    });
+    return operationId;
 }
 
 // ============================================================================

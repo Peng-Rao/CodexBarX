@@ -16,19 +16,22 @@ Rectangle {
     border.color: "#3a3a5c"
     border.width: 1
 
-    property var costData: UsageStore.costUsageData()
-    property bool isRefreshing: UsageStore.isRefreshing
-    property bool costExpanded: true
+    property var costData: TrayViewModel.costData
+    property bool isRefreshing: TrayViewModel.isRefreshing
+    property bool costExpanded: false
+    property var providerCostRows: []
     property var expandedCards: ({})
     property int rev: LanguageManager.translationRevision
-    property int tokenAccountRevision: 0
+
+    Component.onCompleted: TrayViewModel.requestCostUsageViewData()
+    onCostExpandedChanged: refreshProviderCostRows()
 
     Connections {
-        target: UsageStore
-        function onCostUsageChanged() { root.costData = UsageStore.costUsageData() }
-        function onCostUsageRefreshingChanged() { root.costData = UsageStore.costUsageData() }
-        function onRefreshingChanged() { root.isRefreshing = UsageStore.isRefreshing }
-        function onTokenAccountsChanged(providerId) { root.tokenAccountRevision += 1 }
+        target: TrayViewModel
+        function onCostUsageRefreshingChanged() { root.refreshCostSummary() }
+        function onCostDataChanged() { root.refreshCostSummary() }
+        function onProviderCostRowsChanged() { root.refreshProviderCostRows() }
+        function onIsRefreshingChanged() { root.isRefreshing = TrayViewModel.isRefreshing }
     }
 
     // Drop shadow mimic
@@ -80,7 +83,7 @@ Rectangle {
                 }
                 Item { Layout.fillWidth: true }
                 Text {
-                    text: UsageStore.providerIDs.length + " " + qsTr("providers")
+                    text: TrayViewModel.providerCount + " " + qsTr("providers")
                     color: "#666"
                     font.pixelSize: 11
                 }
@@ -135,8 +138,8 @@ Rectangle {
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
-                            if (!UsageStore.costUsageEnabled) {
-                                UsageStore.ensureCostUsageEnabled()
+                            if (!TrayViewModel.costUsageEnabled) {
+                                TrayViewModel.ensureCostUsageEnabled()
                             } else if (costData.hasData) {
                                 root.costExpanded = !root.costExpanded
                             }
@@ -169,11 +172,11 @@ Rectangle {
                             Layout.preferredHeight: 8
                             Layout.alignment: Qt.AlignVCenter
                             radius: 4
-                            color: UsageStore.costUsageRefreshing ? "#FFC107"
+                            color: TrayViewModel.costUsageRefreshing ? "#FFC107"
                                  : costData.hasData ? "#4CAF50" : "#555"
 
                             SequentialAnimation on opacity {
-                                running: UsageStore.costUsageRefreshing
+                                running: TrayViewModel.costUsageRefreshing
                                 loops: Animation.Infinite
                                 NumberAnimation { from: 1.0; to: 0.3; duration: 500 }
                                 NumberAnimation { from: 0.3; to: 1.0; duration: 500 }
@@ -190,7 +193,7 @@ Rectangle {
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
-                                    UsageStore.ensureCostUsageEnabled()
+                                    TrayViewModel.ensureCostUsageEnabled()
                                     AppController.openUsage()
                                 }
                             }
@@ -199,7 +202,7 @@ Rectangle {
                             Layout.maximumWidth: 86
                             text: costData.hasData
                                 ? "$" + costData.sessionCostUSD.toFixed(2) + " " + qsTr("today")
-                                : UsageStore.costUsageRefreshing ? qsTr("scanning...") : qsTr("no data")
+                                : TrayViewModel.costUsageRefreshing ? qsTr("scanning...") : qsTr("no data")
                             color: "#888"
                             font.pixelSize: 10
                             elide: Text.ElideRight
@@ -274,7 +277,7 @@ Rectangle {
                             layoutDirection: Qt.RightToLeft
                             property double dailyMaxCost: {
                                 var maxCost = 0
-                                if (costData.daily) {
+                                if (root.costExpanded && costData.daily) {
                                     for (var i = 0; i < costData.daily.length; i++)
                                         maxCost = Math.max(maxCost, costData.daily[i].costUSD)
                                 }
@@ -282,7 +285,7 @@ Rectangle {
                             }
 
                             Repeater {
-                                model: costData.daily ? costData.daily.slice(-21) : []
+                                model: root.costExpanded && costData.daily ? costData.daily.slice(-21) : []
                                 delegate: Rectangle {
                                     width: Math.max(2, parent.width / 21 - 2)
                                     height: {
@@ -328,7 +331,7 @@ Rectangle {
 
                     // Per-provider breakdown
                     Repeater {
-                        model: UsageStore.providerCostUsageList()
+                        model: root.providerCostRows
                         delegate: ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 2
@@ -452,7 +455,7 @@ Rectangle {
             leftMargin: 12
             rightMargin: 12
 
-            model: UsageStore.providerIDs
+            model: TrayViewModel.providers
             delegate: Rectangle {
                 id: cardDelegate
                 width: providerList.width - 24
@@ -462,39 +465,21 @@ Rectangle {
                 border.color: mouseArea.containsMouse ? "#4a4a7a" : "#2a2a4a"
                 border.width: 1
 
-                property var snap: {
-                    LanguageManager.translationRevision
-                    UsageStore.snapshotRevision
-                    return UsageStore.snapshotData(modelData)
-                }
-                property bool expanded: root.expandedCards[modelData] === true
-                property color brandColor: brandColorFor(modelData)
-                property bool isDetailProvider: modelData === "deepseek"
-                    || modelData === "warp"
-                    || modelData === "kilo"
-                    || modelData === "abacus"
-                    || modelData === "codebuff"
-                property var tokenAccounts: {
-                    root.tokenAccountRevision
-                    return UsageStore.tokenAccountsForProvider(modelData)
-                }
-                property string defaultTokenAccountId: {
-                    root.tokenAccountRevision
-                    return UsageStore.defaultTokenAccount(modelData)
-                }
+                property string providerId: model.providerId || ""
+                property var snap: model.snap || ({})
+                property bool expanded: root.expandedCards[providerId] === true
+                property color brandColor: brandColorFor(providerId)
+                property bool isDetailProvider: providerId === "deepseek"
+                    || providerId === "warp"
+                    || providerId === "kilo"
+                    || providerId === "abacus"
+                    || providerId === "codebuff"
+                property var tokenAccounts: model.tokenAccounts || []
+                property string defaultTokenAccountId: model.defaultTokenAccountId || ""
+                property string statusUrl: model.statusUrl || ""
+                property var dashboard: model.dashboard || ({})
                 property bool hasTokenAccounts: tokenAccounts && tokenAccounts.length > 0
-                property var accountOptions: {
-                    var result = [{ value: "", label: qsTr("Provider default") }]
-                    for (var i = 0; i < tokenAccounts.length; i++) {
-                        var account = tokenAccounts[i]
-                        if (account.visibility === "archived") continue
-                        result.push({
-                            value: account.accountId,
-                            label: account.displayName || account.accountId
-                        })
-                    }
-                    return result
-                }
+                property var accountOptions: model.accountOptions || []
                 property string primaryLabel: snap.displayName === "OpenRouter" && snap.openRouterUsage !== undefined
                     ? qsTr("API key limit") : snap.sessionLabel
 
@@ -508,9 +493,9 @@ Rectangle {
                     onClicked: {
                         if (!root.isRefreshing) {
                             var cards = root.expandedCards
-                            cards[modelData] = !cards[modelData]
+                            cards[cardDelegate.providerId] = !cards[cardDelegate.providerId]
                             root.expandedCards = cards
-                            UsageStore.refreshProvider(modelData)
+                            TrayViewModel.refreshProvider(cardDelegate.providerId)
                         }
                     }
                 }
@@ -555,16 +540,15 @@ Rectangle {
                         }
 
                         Components.SettingsComboBox {
-                            objectName: "accountSwitcher_" + modelData
+                                objectName: "accountSwitcher_" + cardDelegate.providerId
                             Layout.fillWidth: true
                             Layout.preferredHeight: 30
                             model: cardDelegate.accountOptions
                             selectedValue: cardDelegate.defaultTokenAccountId
                             onValueActivated: function(value) {
-                                if (value !== cardDelegate.defaultTokenAccountId
-                                        && UsageStore.setDefaultTokenAccount(modelData, value)) {
+                                if (value !== cardDelegate.defaultTokenAccountId) {
+                                    TrayViewModel.requestSetDefaultTokenAccount(cardDelegate.providerId, value)
                                     root.tokenAccountRevision += 1
-                                    UsageStore.refreshProvider(modelData)
                                 }
                             }
                         }
@@ -826,7 +810,7 @@ Rectangle {
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 28
-                        visible: modelData === "codex" && snap.hasCredits === true
+                        visible: cardDelegate.providerId === "codex" && snap.hasCredits === true
                         color: "#1a2a1a"
                         radius: 6
 
@@ -859,7 +843,7 @@ Rectangle {
                     // === Codex Credits Error ===
                     Text {
                         Layout.fillWidth: true
-                        visible: modelData === "codex" && snap.creditsError !== undefined && snap.creditsError !== ""
+                        visible: cardDelegate.providerId === "codex" && snap.creditsError !== undefined && snap.creditsError !== ""
                         text: snap.creditsError || ""
                         color: "#FF9800"
                         font.pixelSize: 10
@@ -949,7 +933,8 @@ Rectangle {
                                 font.bold: true
                             }
                             Repeater {
-                                model: snap.zaiUsage && snap.zaiUsage.timeLimit ? snap.zaiUsage.timeLimit.usageDetails : []
+                                model: cardDelegate.expanded && snap.zaiUsage && snap.zaiUsage.timeLimit
+                                    ? snap.zaiUsage.timeLimit.usageDetails : []
                                 delegate: RowLayout {
                                     Layout.fillWidth: true
                                     spacing: 4
@@ -997,21 +982,24 @@ Rectangle {
                         }
 
                         // Subscription Utilization chart
-                        PlanUtilizationChart {
-                            visible: modelData === "codex" || modelData === "claude"
+                        Loader {
                             Layout.fillWidth: true
-                            providerId: modelData
-                            hasTertiarySeries: snap.hasTertiary === true
-                            tertiarySeriesLabel: snap.opusLabel || qsTr("Opus")
+                            active: cardDelegate.expanded && (cardDelegate.providerId === "codex" || cardDelegate.providerId === "claude")
+                            sourceComponent: PlanUtilizationChart {
+                                providerId: cardDelegate.providerId
+                                hasTertiarySeries: snap.hasTertiary === true
+                                tertiarySeriesLabel: snap.opusLabel || qsTr("Opus")
+                            }
                         }
 
                         // Codex Dashboard Details (expandable)
                         ColumnLayout {
                             Layout.fillWidth: true
-                            visible: modelData === "codex"
+                            visible: cardDelegate.expanded && cardDelegate.providerId === "codex"
                             spacing: 6
 
-                            property var dashboard: UsageStore.providerDashboardData("codex")
+                            property var dashboard: cardDelegate.expanded && cardDelegate.providerId === "codex"
+                                ? cardDelegate.dashboard : ({})
                             property bool hasDashboard: dashboard && dashboard.creditEvents !== undefined
 
                             Rectangle {
@@ -1033,7 +1021,7 @@ Rectangle {
                                     font.bold: true
                                 }
                                 Repeater {
-                                    model: parent.parent.dashboard.creditEvents || []
+                                    model: cardDelegate.expanded ? (parent.parent.dashboard.creditEvents || []) : []
                                     delegate: RowLayout {
                                         Layout.fillWidth: true
                                         spacing: 4
@@ -1072,7 +1060,7 @@ Rectangle {
                                     font.bold: true
                                 }
                                 Repeater {
-                                    model: parent.parent.dashboard.usageByService || []
+                                    model: cardDelegate.expanded ? (parent.parent.dashboard.usageByService || []) : []
                                     delegate: RowLayout {
                                         Layout.fillWidth: true
                                         spacing: 4
@@ -1132,15 +1120,14 @@ Rectangle {
                                 // Status Page action
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    visible: cardDelegate.expanded && UsageStore.providerStatusURL(modelData) !== ""
+                                    visible: cardDelegate.statusUrl !== ""
                                     spacing: 6
                                     ActionButton {
                                         text: qsTr("Status")
                                         Layout.fillWidth: true
                                         Layout.preferredHeight: 26
                                         onClicked: {
-                                            var url = UsageStore.providerStatusURL(modelData)
-                                            if (url) AppController.openExternalUrl(url)
+                                            if (cardDelegate.statusUrl) AppController.openExternalUrl(cardDelegate.statusUrl)
                                         }
                                     }
                                 }
@@ -1176,7 +1163,7 @@ Rectangle {
                     enabled: !root.isRefreshing
                     Layout.fillWidth: true
                     Layout.preferredHeight: 28
-                    onClicked: UsageStore.refresh()
+                    onClicked: TrayViewModel.refresh()
                 }
                 ActionButton {
                     text: qsTr("Settings")
@@ -1208,6 +1195,19 @@ Rectangle {
         if (Math.abs(value) >= 1000) return value.toFixed(1)
         if (Math.abs(value) >= 100) return value.toFixed(2)
         return value.toFixed(4)
+    }
+
+    function refreshCostSummary() {
+        root.costData = TrayViewModel.costData
+        root.refreshProviderCostRows()
+    }
+
+    function refreshProviderCostRows() {
+        if (root.costExpanded && root.costData && root.costData.hasData) {
+            root.providerCostRows = TrayViewModel.providerCostUsageList()
+        } else {
+            root.providerCostRows = []
+        }
     }
 
     property var brandColors: {

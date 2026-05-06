@@ -275,7 +275,7 @@ private slots:
 
         ProviderFetchContext ctx = store.buildFetchContextForProvider("windsurf");
 
-        QCOMPARE(ctx.settings.get("cookieSource").toString(), QString("off"));
+        QCOMPARE(ctx.settings.get("cookieSource").toString(), QString("auto"));
         QVERIFY(!ctx.manualCookieHeader.has_value());
     }
 

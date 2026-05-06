@@ -48,6 +48,7 @@ public:
 signals:
     void runtimeStateChanged(const QString& providerId, RuntimeState state);
     void backgroundRefreshTick();
+    void backgroundRefreshRequested(const QString& providerId);
 
 private:
     explicit ProviderRuntimeManager(QObject* parent = nullptr);

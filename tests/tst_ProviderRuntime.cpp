@@ -27,6 +27,26 @@ private:
     bool m_enabledByDefault = true;
 };
 
+class CountingRuntime : public IProviderRuntime {
+    Q_OBJECT
+public:
+    void start() override { m_state = RuntimeState::Running; }
+    void stop() override { m_state = RuntimeState::Stopped; }
+    void pause() override { m_state = RuntimeState::Paused; }
+    void resume() override { m_state = RuntimeState::Running; }
+    RuntimeState state() const override { return m_state; }
+    QString lastError() const override { return {}; }
+    QDateTime lastFetchTime() const override { return {}; }
+    ProviderFetchResult fetch(const ProviderFetchContext&) override {
+        ++fetchCalls;
+        ProviderFetchResult result;
+        result.success = true;
+        return result;
+    }
+
+    int fetchCalls = 0;
+};
+
 class tst_ProviderRuntime : public QObject {
     Q_OBJECT
 
@@ -37,6 +57,7 @@ private slots:
     void runtimeManagerRegistration();
     void runtimeFetchResult();
     void failureBackoff();
+    void backgroundRefreshRequestsUsageStoreInsteadOfFetching();
     void runtimeManagerStartsOnlyEnabledProviders();
     void runtimeManagerStopsRuntimeWhenProviderDisabled();
 
@@ -130,6 +151,31 @@ void tst_ProviderRuntime::failureBackoff()
     runtime.resetFailureCount();
     QCOMPARE(runtime.consecutiveFailures(), 0);
     QCOMPARE(runtime.currentBackoffMs(), 0);
+}
+
+void tst_ProviderRuntime::backgroundRefreshRequestsUsageStoreInsteadOfFetching()
+{
+    ProviderRuntimeManager* manager = ProviderRuntimeManager::instance();
+    manager->stopBackgroundRefresh();
+    manager->unregisterRuntime("background-request");
+
+    auto* runtime = new CountingRuntime();
+    runtime->setEnabled(true);
+    runtime->start();
+    manager->registerRuntime("background-request", runtime);
+
+    QSignalSpy spy(manager, &ProviderRuntimeManager::backgroundRefreshRequested);
+    manager->startBackgroundRefresh();
+    QTimer* timer = manager->findChild<QTimer*>();
+    QVERIFY(timer != nullptr);
+    QVERIFY(QMetaObject::invokeMethod(timer, "timeout", Qt::DirectConnection));
+
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy.takeFirst().at(0).toString(), QStringLiteral("background-request"));
+    QCOMPARE(runtime->fetchCalls, 0);
+
+    manager->stopBackgroundRefresh();
+    manager->unregisterRuntime("background-request");
 }
 
 void tst_ProviderRuntime::runtimeManagerStartsOnlyEnabledProviders()

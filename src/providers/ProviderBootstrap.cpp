@@ -90,6 +90,7 @@ void registerAllProviders()
 
 void applyStoredProviderEnabledStates(SettingsStore* settings, UsageStore* usageStore)
 {
+    Q_UNUSED(settings)
     QSettings reg(QStringLiteral("HKEY_CURRENT_USER\\Software\\CodexBar"), QSettings::NativeFormat);
     const QVector<QString> ids = ProviderRegistry::instance().providerIDs();
     for (const QString& id : ids) {
@@ -105,9 +106,6 @@ void applyStoredProviderEnabledStates(SettingsStore* settings, UsageStore* usage
             usageStore->setProviderEnabled(id, enabled);
         } else {
             ProviderRegistry::instance().setProviderEnabled(id, enabled);
-        }
-        if (settings) {
-            settings->setProviderEnabled(id, enabled);
         }
     }
 }

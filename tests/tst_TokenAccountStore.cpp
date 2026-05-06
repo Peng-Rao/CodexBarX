@@ -23,6 +23,7 @@ private slots:
     void accountQueries();
     void defaultAccount();
     void credentialStorage();
+    void metadataLookupDoesNotReadCredentials();
     void persistAndReload();
     void migrationFromLegacy();
 
@@ -229,6 +230,33 @@ void tst_TokenAccountStore::credentialStorage()
     QVERIFY(!after->credentials.api.has_value());
     QVERIFY(after->credentials.web.has_value());
     QCOMPARE(after->credentials.web->cookieValue.data(), QByteArray("cookie-value-abc"));
+}
+
+void tst_TokenAccountStore::metadataLookupDoesNotReadCredentials()
+{
+    TokenAccountStore* store = TokenAccountStore::instance();
+    for (const auto& acc : store->allAccounts()) {
+        store->removeAccount(acc.accountId);
+    }
+
+    TokenAccount account;
+    account.providerId = "codebuff";
+    account.displayName = "Production";
+    APICredentials api;
+    api.apiKey = SecureString("cb-secret-token");
+    account.credentials.api = api;
+
+    const QString id = store->addAccount(account);
+
+    auto metadata = store->accountMetadata(id);
+    QVERIFY(metadata.has_value());
+    QCOMPARE(metadata->providerId, QString("codebuff"));
+    QVERIFY(metadata->credentials.isEmpty());
+
+    auto withCredentials = store->accountWithCredentials(id);
+    QVERIFY(withCredentials.has_value());
+    QVERIFY(withCredentials->credentials.api.has_value());
+    QCOMPARE(withCredentials->credentials.api->apiKey.data(), QByteArray("cb-secret-token"));
 }
 
 void tst_TokenAccountStore::persistAndReload()

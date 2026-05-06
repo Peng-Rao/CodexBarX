@@ -206,6 +206,34 @@ target_link_libraries(tst_QmlSmoke PRIVATE Qt6::Core Qt6::Test Qt6::Quick Qt6::Q
 target_sources(tst_QmlSmoke PRIVATE ${CMAKE_SOURCE_DIR}/resources/qml.qrc)
 add_wincodexbar_test(tst_QmlSmoke tst_QmlSmoke)
 
+# QML architecture guards
+add_executable(tst_QmlArchitecture
+    tst_QmlArchitecture.cpp
+)
+target_include_directories(tst_QmlArchitecture PRIVATE ${COMMON_INCLUDE})
+target_compile_definitions(tst_QmlArchitecture PRIVATE
+    ${COMMON_DEFINES}
+    PROJECT_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+)
+target_link_libraries(tst_QmlArchitecture PRIVATE Qt6::Core Qt6::Test)
+add_wincodexbar_test(tst_QmlArchitecture tst_QmlArchitecture)
+
+add_executable(tst_UiFreezeWatchdog
+    tst_UiFreezeWatchdog.cpp
+)
+target_include_directories(tst_UiFreezeWatchdog PRIVATE ${COMMON_INCLUDE})
+target_compile_definitions(tst_UiFreezeWatchdog PRIVATE ${COMMON_DEFINES})
+target_link_libraries(tst_UiFreezeWatchdog PRIVATE codexbar_core Qt6::Core Qt6::Test)
+add_wincodexbar_test(tst_UiFreezeWatchdog tst_UiFreezeWatchdog)
+
+add_executable(tst_UsageBackend
+    tst_UsageBackend.cpp
+)
+target_include_directories(tst_UsageBackend PRIVATE ${COMMON_INCLUDE})
+target_compile_definitions(tst_UsageBackend PRIVATE ${COMMON_DEFINES})
+target_link_libraries(tst_UsageBackend PRIVATE codexbar_core Qt6::Core Qt6::Test)
+add_wincodexbar_test(tst_UsageBackend tst_UsageBackend)
+
 # Provider unit tests (API Key)
 add_executable(tst_OpenCodeGoProvider tst_OpenCodeGoProvider.cpp)
 target_include_directories(tst_OpenCodeGoProvider PRIVATE ${COMMON_INCLUDE})

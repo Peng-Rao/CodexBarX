@@ -105,6 +105,11 @@ set(CORE_SOURCES
     src/app/AppTheme.cpp
     src/app/SettingsStore.cpp
     src/app/UsageStore.cpp
+    src/app/TrayProviderListModel.cpp
+    src/app/TrayViewModel.cpp
+    src/app/UsageDetailsViewModel.cpp
+    src/app/UsageBackend.cpp
+    src/app/UiFreezeWatchdog.cpp
     src/app/BatchUpdateController.cpp
     src/app/CredentialAccessGate.cpp
     src/app/PlanUtilizationHistoryStore.cpp
@@ -232,6 +237,12 @@ set(CORE_HEADERS
     src/app/AppTheme.h
     src/app/SettingsStore.h
     src/app/UsageStore.h
+    src/app/TrayProviderListModel.h
+    src/app/TrayViewModel.h
+    src/app/UsageDetailsViewModel.h
+    src/app/UsageBackend.h
+    src/app/UsageBackendTypes.h
+    src/app/UiFreezeWatchdog.h
     src/app/BatchUpdateController.h
     src/app/CredentialAccessGate.h
     src/app/PlanUtilizationHistoryStore.h

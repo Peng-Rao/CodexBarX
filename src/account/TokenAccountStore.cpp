@@ -40,6 +40,20 @@ QString TokenAccountStore::credentialTargetFor(const QString& accountId, const Q
 QString TokenAccountStore::addAccount(const TokenAccount& account)
 {
     TokenAccount acc = account;
+    TokenAccountCredentials credentials = acc.credentials;
+    acc.credentials = {};
+    const QString accountId = addAccountMetadata(acc);
+
+    if (!credentials.isEmpty()) {
+        saveAccountCredentials(accountId, credentials);
+    }
+
+    return accountId;
+}
+
+QString TokenAccountStore::addAccountMetadata(const TokenAccount& account)
+{
+    TokenAccount acc = account;
     if (acc.accountId.isEmpty()) {
         acc.accountId = TokenAccount::generateAccountId();
     }
@@ -52,17 +66,29 @@ QString TokenAccountStore::addAccount(const TokenAccount& account)
         m_accounts.insert(acc.accountId, acc);
     }
 
-    // Save credentials to secure storage
-    if (!acc.credentials.isEmpty()) {
-        saveAccountCredentials(acc.accountId, acc.credentials);
-    }
-
     emit accountAdded(acc.accountId);
     emit accountsChanged(acc.providerId);
     return acc.accountId;
 }
 
 bool TokenAccountStore::updateAccount(const QString& accountId, const TokenAccount& account)
+{
+    TokenAccountCredentials credentials = account.credentials;
+    TokenAccount metadata = account;
+    metadata.credentials = {};
+    if (!updateAccountMetadata(accountId, metadata)) {
+        return false;
+    }
+
+    // Remove old credentials and save new ones
+    removeAccountCredentials(accountId);
+    if (!credentials.isEmpty()) {
+        saveAccountCredentials(accountId, credentials);
+    }
+    return true;
+}
+
+bool TokenAccountStore::updateAccountMetadata(const QString& accountId, const TokenAccount& account)
 {
     QWriteLocker lock(&m_lock);
     if (!m_accounts.contains(accountId)) {
@@ -76,12 +102,6 @@ bool TokenAccountStore::updateAccount(const QString& accountId, const TokenAccou
 
     lock.unlock();
 
-    // Remove old credentials and save new ones
-    removeAccountCredentials(accountId);
-    if (!updated.credentials.isEmpty()) {
-        saveAccountCredentials(accountId, updated.credentials);
-    }
-
     emit accountUpdated(accountId);
     emit accountsChanged(updated.providerId);
     if (oldProviderId != updated.providerId) {
@@ -91,6 +111,21 @@ bool TokenAccountStore::updateAccount(const QString& accountId, const TokenAccou
 }
 
 bool TokenAccountStore::removeAccount(const QString& accountId)
+{
+    {
+        QReadLocker lock(&m_lock);
+        auto it = m_accounts.constFind(accountId);
+        if (it == m_accounts.constEnd()) {
+            return false;
+        }
+    }
+
+    // Remove credentials from secure storage
+    removeAccountCredentials(accountId);
+    return removeAccountMetadata(accountId);
+}
+
+bool TokenAccountStore::removeAccountMetadata(const QString& accountId)
 {
     QString providerId;
     {
@@ -109,15 +144,17 @@ bool TokenAccountStore::removeAccount(const QString& accountId)
         }
     }
 
-    // Remove credentials from secure storage
-    removeAccountCredentials(accountId);
-
     emit accountRemoved(accountId);
     emit accountsChanged(providerId);
     return true;
 }
 
 std::optional<TokenAccount> TokenAccountStore::account(const QString& accountId) const
+{
+    return accountWithCredentials(accountId);
+}
+
+std::optional<TokenAccount> TokenAccountStore::accountWithCredentials(const QString& accountId) const
 {
     QReadLocker lock(&m_lock);
     auto it = m_accounts.constFind(accountId);
@@ -132,13 +169,32 @@ std::optional<TokenAccount> TokenAccountStore::account(const QString& accountId)
     return acc;
 }
 
+std::optional<TokenAccount> TokenAccountStore::accountMetadata(const QString& accountId) const
+{
+    QReadLocker lock(&m_lock);
+    auto it = m_accounts.constFind(accountId);
+    if (it == m_accounts.constEnd()) {
+        return std::nullopt;
+    }
+    TokenAccount acc = it.value();
+    acc.credentials = {};
+    return acc;
+}
+
 QList<TokenAccount> TokenAccountStore::accountsForProvider(const QString& providerId) const
+{
+    return accountsForProviderMetadata(providerId);
+}
+
+QList<TokenAccount> TokenAccountStore::accountsForProviderMetadata(const QString& providerId) const
 {
     QReadLocker lock(&m_lock);
     QList<TokenAccount> result;
     for (const auto& acc : m_accounts) {
         if (acc.providerId == providerId) {
-            result.append(acc);
+            TokenAccount metadata = acc;
+            metadata.credentials = {};
+            result.append(metadata);
         }
     }
     return result;

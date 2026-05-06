@@ -46,6 +46,12 @@ ScrollView {
         : ({})
     property var tokenAccounts: []
     property string defaultTokenAccountId: ""
+    property var tokenAccountOperationState: UsageStore.tokenAccountOperationState
+    property bool tokenAccountBusy: {
+        var byProvider = tokenAccountOperationState && tokenAccountOperationState.pendingByProvider
+            ? tokenAccountOperationState.pendingByProvider : ({})
+        return byProvider[root.providerId] === true
+    }
 
     // Reactive binding for codexAccountState
     Connections {
@@ -631,43 +637,26 @@ ScrollView {
                         descriptor: root.descriptor || ({})
                         accounts: root.tokenAccounts || []
                         defaultAccountId: root.defaultTokenAccountId
+                        busy: root.tokenAccountBusy
 
                         onAddAccount: function(displayName, sourceMode, apiKey) {
                             if (apiKey && apiKey.trim() !== "") {
-                                UsageStore.addTokenAccountWithApiKey(root.providerId, displayName, sourceMode, apiKey)
+                                UsageStore.requestAddTokenAccountWithApiKey(root.providerId, displayName, sourceMode, apiKey)
                             } else {
-                                UsageStore.addTokenAccount(root.providerId, displayName, sourceMode)
+                                UsageStore.requestAddTokenAccount(root.providerId, displayName, sourceMode)
                             }
-                            root.reloadTokenAccounts()
-                            UsageStore.refreshProvider(root.providerId)
                         }
                         onRemoveAccount: function(accountId) {
-                            if (UsageStore.removeTokenAccount(accountId)) {
-                                root.reloadTokenAccounts()
-                                UsageStore.refreshProvider(root.providerId)
-                            }
+                            UsageStore.requestRemoveTokenAccount(accountId)
                         }
                         onSetDefaultAccount: function(accountId) {
-                            if (UsageStore.setDefaultTokenAccount(root.providerId, accountId)) {
-                                root.reloadTokenAccounts()
-                                UsageStore.refreshProvider(root.providerId)
-                            }
+                            UsageStore.requestSetDefaultTokenAccount(root.providerId, accountId)
                         }
                         onSetSourceMode: function(accountId, sourceMode) {
-                            if (UsageStore.setTokenAccountSourceMode(accountId, sourceMode)) {
-                                root.reloadTokenAccounts()
-                                if (accountId === root.defaultTokenAccountId) {
-                                    UsageStore.refreshProvider(root.providerId)
-                                }
-                            }
+                            UsageStore.requestSetTokenAccountSourceMode(accountId, sourceMode)
                         }
                         onSetVisibility: function(accountId, visibility) {
-                            if (UsageStore.setTokenAccountVisibility(accountId, visibility)) {
-                                root.reloadTokenAccounts()
-                                if (accountId === root.defaultTokenAccountId) {
-                                    UsageStore.refreshProvider(root.providerId)
-                                }
-                            }
+                            UsageStore.requestSetTokenAccountVisibility(accountId, visibility)
                         }
                     }
                 }

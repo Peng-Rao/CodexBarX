@@ -9,6 +9,7 @@ ColumnLayout {
     property var descriptor: ({})
     property var accounts: []
     property string defaultAccountId: ""
+    property bool busy: false
 
     signal addAccount(string displayName, int sourceMode, string apiKey)
     signal removeAccount(string accountId)
@@ -91,6 +92,7 @@ ColumnLayout {
             placeholderTextColor: AppTheme.textTertiary
             color: AppTheme.textPrimary
             font.pixelSize: AppTheme.fontSizeSm
+            enabled: !root.busy
             background: Rectangle {
                 radius: 6
                 color: AppTheme.bgPrimary
@@ -104,6 +106,7 @@ ColumnLayout {
             Layout.preferredWidth: 112
             model: root.sourceModeOptions()
             selectedValue: model.length > 0 ? model[0].value : 0
+            enabled: !root.busy
         }
 
         TextField {
@@ -116,6 +119,7 @@ ColumnLayout {
             echoMode: TextInput.Password
             color: AppTheme.textPrimary
             font.pixelSize: AppTheme.fontSizeSm
+            enabled: !root.busy
             background: Rectangle {
                 radius: 6
                 color: AppTheme.bgPrimary
@@ -128,7 +132,8 @@ ColumnLayout {
             objectName: "addAccountButton"
             text: qsTr("Add Account")
             primary: true
-            enabled: accountNameField.text.trim() !== ""
+            enabled: !root.busy
+                && accountNameField.text.trim() !== ""
                 && (!root.requiresApiKey() || accountApiKeyField.text.trim() !== "")
             onClicked: {
                 root.addAccount(accountNameField.text.trim(),
@@ -200,6 +205,7 @@ ColumnLayout {
                     Layout.preferredWidth: 104
                     model: root.sourceModeOptions()
                     selectedValue: root.selectedModeFor(modelData)
+                    enabled: !root.busy
                     onValueActivated: function(value) {
                         root.setSourceMode(modelData.accountId, value)
                     }
@@ -209,6 +215,7 @@ ColumnLayout {
                     Layout.preferredWidth: 104
                     model: root.visibilityOptions()
                     selectedValue: root.visibilityValue(modelData.visibility)
+                    enabled: !root.busy
                     onValueActivated: function(value) {
                         root.setVisibility(modelData.accountId, value)
                     }
@@ -216,13 +223,14 @@ ColumnLayout {
 
                 SettingsButton {
                     text: qsTr("Use")
-                    enabled: modelData.accountId !== root.defaultAccountId
+                    enabled: !root.busy && modelData.accountId !== root.defaultAccountId
                     onClicked: root.setDefaultAccount(modelData.accountId)
                 }
 
                 SettingsButton {
                     text: qsTr("Remove")
                     danger: true
+                    enabled: !root.busy
                     onClicked: root.removeAccount(modelData.accountId)
                 }
             }
