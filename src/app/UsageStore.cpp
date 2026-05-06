@@ -7,6 +7,7 @@
 #include "../providers/ProviderPipeline.h"
 #include "../providers/ProviderFetchContext.h"
 #include "../providers/shared/ProviderCredentialStore.h"
+#include "../providers/shared/ProviderStatusFetcher.h"
 #include "../app/SettingsStore.h"
 #include "../network/NetworkManager.h"
 #include "../util/CostUsageScanner.h"
@@ -100,20 +101,12 @@ bool isSourceModeAllowed(const QString& providerId, ProviderSourceMode mode)
 
 QString statusEndpointFor(const QString& statusPageURL)
 {
-    QUrl url(statusPageURL);
-    if (!url.isValid() || url.host().isEmpty()) return {};
-    url.setPath("/api/v2/status.json");
-    url.setQuery(QString());
-    url.setFragment({});
-    return url.toString();
+    return ProviderStatusFetcher::statusEndpointFor(statusPageURL);
 }
 
 QString mappedStatusFromIndicator(const QString& indicator)
 {
-    if (indicator == "none") return "ok";
-    if (indicator == "minor" || indicator == "maintenance") return "degraded";
-    if (indicator == "major" || indicator == "critical") return "outage";
-    return "unknown";
+    return ProviderStatusFetcher::mappedStatusFromIndicator(indicator);
 }
 
 struct CostUsageScanPlan {
@@ -1541,6 +1534,7 @@ QVariantMap UsageStore::providerDescriptorData(const QString& id) const {
     data["statusPageURL"] = desc->metadata.statusPageURL;
     data["statusLinkURL"] = desc->metadata.statusLinkURL;
     data["statusWorkspaceProductID"] = desc->metadata.statusWorkspaceProductID;
+    data["statusURL"] = providerStatusURL(id);
     data["supportsCredits"] = desc->metadata.supportsCredits;
     data["cliName"] = desc->metadata.cliName;
     data["enabled"] = ProviderRegistry::instance().isProviderEnabled(id);
@@ -2057,6 +2051,15 @@ QVariantMap UsageStore::providerStatus(const QString& providerId) const {
     return m_providerStatuses.value(providerId, QVariantMap{{"state", "unknown"}});
 }
 
+QString UsageStore::providerStatusURL(const QString& providerId) const {
+    auto desc = ProviderRegistry::instance().descriptor(providerId);
+    if (!desc.has_value()) return {};
+    return ProviderStatusFetcher::openURL(
+        desc->metadata.statusPageURL,
+        desc->metadata.statusLinkURL,
+        desc->metadata.statusWorkspaceProductID);
+}
+
 QVariantMap UsageStore::providerUsageSnapshot(const QString& providerId) const {
     QVariantMap result;
     auto it = m_snapshots.find(providerId);
@@ -2117,57 +2120,114 @@ void UsageStore::refreshProviderStatuses() {
         }, Qt::QueuedConnection);
     };
 
+    // Build poll targets
     const auto ids = ProviderRegistry::instance().providerIDs();
+    QVector<ProviderStatusPollTarget> statuspageTargets;
+    QVector<ProviderStatusPollTarget> workspaceTargets;
+
     for (const auto& id : ids) {
         auto desc = ProviderRegistry::instance().descriptor(id);
-        if (!desc.has_value() || desc->metadata.statusPageURL.isEmpty()) continue;
+        if (!desc.has_value()) continue;
 
-        const QString endpoint = statusEndpointFor(desc->metadata.statusPageURL);
-        if (endpoint.isEmpty()) {
+        auto targets = ProviderStatusFetcher::buildPollTargets(
+            {id}, desc->metadata.statusPageURL, desc->metadata.statusLinkURL,
+            desc->metadata.statusWorkspaceProductID);
+
+        for (const auto& t : targets) {
+            if (t.source == ProviderStatusSource::Statuspage) {
+                statuspageTargets.append(t);
+            } else {
+                workspaceTargets.append(t);
+            }
+        }
+    }
+
+    // Count pending: one per statuspage target + one for the single workspace fetch
+    {
+        QMutexLocker locker(&batch->mutex);
+        batch->pending = statuspageTargets.size() + (workspaceTargets.isEmpty() ? 0 : 1);
+    }
+
+    // Fetch Statuspage targets individually
+    for (const auto& target : statuspageTargets) {
+        if (target.requestURL.isEmpty()) {
             QMutexLocker locker(&batch->mutex);
-            batch->statuses[id] = {{"state", "unknown"}};
+            batch->statuses[target.providerId] = {{QStringLiteral("state"), QStringLiteral("unknown")}};
+            batch->pending--;
+            if (batch->pending == 0) finishBatch();
             continue;
         }
 
-        {
-            QMutexLocker locker(&batch->mutex);
-            batch->pending++;
-        }
-
-        QtConcurrent::run(m_threadPool, [batch, finishBatch, id, endpoint]() {
-            QJsonObject json = NetworkManager::instance().getJsonSync(QUrl(endpoint), {}, 8000);
-            QString state = "unknown";
-            QString description;
+        QtConcurrent::run(m_threadPool, [batch, finishBatch, target]() {
+            QJsonObject json = NetworkManager::instance().getJsonSync(target.requestURL, {}, 8000);
+            ProviderStatusSnapshot snap;
             if (!json.isEmpty()) {
-                QJsonObject status = json.value("status").toObject();
-                state = mappedStatusFromIndicator(status.value("indicator").toString());
-                description = status.value("description").toString();
+                snap = ProviderStatusFetcher::parseStatuspageResponse(json, target.statusPageURL);
+            } else {
+                snap.state = QStringLiteral("unknown");
+                snap.source = QStringLiteral("statuspage");
+                snap.statusURL = target.statusPageURL;
+                snap.updatedAt = QDateTime::currentDateTime().toMSecsSinceEpoch();
             }
             bool shouldFinish = false;
             {
                 QMutexLocker locker(&batch->mutex);
-                QVariantMap map;
-                map["state"] = state;
-                map["description"] = description;
-                map["updatedAt"] = QDateTime::currentDateTime().toMSecsSinceEpoch();
-                batch->statuses[id] = map;
+                batch->statuses[target.providerId] = snap.toVariantMap();
                 batch->pending--;
                 shouldFinish = batch->pending == 0;
             }
-            if (shouldFinish) {
-                finishBatch();
+            if (shouldFinish) finishBatch();
+        });
+    }
+
+    // Fetch Google Workspace feed once and parse for all workspace targets
+    if (!workspaceTargets.isEmpty()) {
+        const QUrl workspaceURL(QStringLiteral(
+            "https://www.google.com/appsstatus/dashboard/incidents.json"));
+
+        QtConcurrent::run(m_threadPool, [batch, finishBatch, workspaceURL, workspaceTargets]() {
+            const QString response = NetworkManager::instance().getStringSync(workspaceURL, {}, 8000);
+            const QByteArray rawData = response.toUtf8();
+
+            bool shouldFinish = false;
+            {
+                QMutexLocker locker(&batch->mutex);
+
+                if (rawData.trimmed().isEmpty()) {
+                    for (const auto& target : workspaceTargets) {
+                        QVariantMap existing = batch->statuses.value(target.providerId);
+                        if (!existing.isEmpty()) continue; // keep old status
+                        QVariantMap map;
+                        map[QStringLiteral("state")] = QStringLiteral("unknown");
+                        map[QStringLiteral("source")] = QStringLiteral("workspace");
+                        map[QStringLiteral("statusURL")] = target.statusLinkURL;
+                        map[QStringLiteral("updatedAt")] = QDateTime::currentDateTime().toMSecsSinceEpoch();
+                        batch->statuses[target.providerId] = map;
+                    }
+                } else {
+                    for (const auto& target : workspaceTargets) {
+                        QVariantMap existing = batch->statuses.value(target.providerId);
+                        if (!existing.isEmpty()) continue;
+
+                        auto snap = ProviderStatusFetcher::parseWorkspaceResponse(
+                            rawData, target.workspaceProductID, target.statusLinkURL);
+                        batch->statuses[target.providerId] = snap.toVariantMap();
+                    }
+                }
+
+                batch->pending--;
+                shouldFinish = batch->pending == 0;
             }
+            if (shouldFinish) finishBatch();
         });
     }
 
     bool shouldFinish = false;
     {
         QMutexLocker locker(&batch->mutex);
-        shouldFinish = batch->pending == 0 && !batch->statuses.isEmpty();
+        shouldFinish = batch->pending == 0;
     }
-    if (shouldFinish) {
-        finishBatch();
-    }
+    if (shouldFinish) finishBatch();
 }
 
 // ============================================================================

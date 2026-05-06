@@ -6,6 +6,7 @@
 #include "../app/SettingsStore.h"
 
 #include <QCoreApplication>
+#include <QDesktopServices>
 #include <QMenu>
 #include <QMessageBox>
 #include <QScreen>
@@ -80,6 +81,11 @@ bool StatusItemController::createTrayIcon() {
     QObject::connect(m_refreshAction, &QAction::triggered, m_store, &UsageStore::refresh);
 
     m_providerMenu = m_contextMenu->addMenu(QString());
+
+    m_statusPageAction = m_contextMenu->addAction(QString());
+    QObject::connect(m_statusPageAction, &QAction::triggered,
+                     this, &StatusItemController::openCurrentStatusPage);
+
     m_providerSeparator = m_contextMenu->addSeparator();
 
     m_settingsAction = m_contextMenu->addAction(QString());
@@ -123,6 +129,7 @@ void StatusItemController::destroyTrayIcon() {
     m_settingsAction = nullptr;
     m_aboutAction = nullptr;
     m_quitAction = nullptr;
+    m_statusPageAction = nullptr;
 }
 
 void StatusItemController::showBalloon(const QString& title, const QString& message) {
@@ -150,6 +157,7 @@ void StatusItemController::rebuildProviderMenu() {
     if (ids.isEmpty()) {
         QAction* noneAction = m_providerMenu->addAction(tr("(no providers)"));
         noneAction->setEnabled(false);
+        updateStatusPageAction();
         return;
     }
 
@@ -170,14 +178,55 @@ void StatusItemController::rebuildProviderMenu() {
             rebuildProviderMenu();
         });
     }
+
+    updateStatusPageAction();
 }
 
 void StatusItemController::retranslateMenu() {
     if (m_refreshAction) m_refreshAction->setText(tr("Refresh"));
     if (m_providerMenu) m_providerMenu->menuAction()->setText(tr("Provider"));
+    if (m_statusPageAction) m_statusPageAction->setText(tr("Status Page"));
     if (m_settingsAction) m_settingsAction->setText(tr("Settings"));
     if (m_aboutAction) m_aboutAction->setText(tr("About"));
     if (m_quitAction) m_quitAction->setText(tr("Quit"));
+}
+
+QString StatusItemController::statusPageProviderId() const
+{
+    if (!m_currentProviderId.isEmpty()
+        && !m_store->providerStatusURL(m_currentProviderId).isEmpty()) {
+        return m_currentProviderId;
+    }
+
+    const auto ids = m_store->allProviderIDs();
+    for (const auto& id : ids) {
+        if (m_store->isProviderEnabled(id) && !m_store->providerStatusURL(id).isEmpty()) {
+            return id;
+        }
+    }
+    for (const auto& id : ids) {
+        if (!m_store->providerStatusURL(id).isEmpty()) {
+            return id;
+        }
+    }
+    return {};
+}
+
+void StatusItemController::openCurrentStatusPage()
+{
+    const QString providerId = statusPageProviderId();
+    if (providerId.isEmpty()) return;
+
+    const QString url = m_store->providerStatusURL(providerId);
+    if (!url.isEmpty()) {
+        QDesktopServices::openUrl(QUrl(url));
+    }
+}
+
+void StatusItemController::updateStatusPageAction()
+{
+    if (!m_statusPageAction) return;
+    m_statusPageAction->setVisible(!statusPageProviderId().isEmpty());
 }
 
 void StatusItemController::onProviderSelected() {

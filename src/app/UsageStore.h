@@ -66,6 +66,7 @@ public:
     Q_INVOKABLE QVariantMap providerLoginState(const QString& providerId) const;
     Q_INVOKABLE void refreshProviderStatuses();
     Q_INVOKABLE QVariantMap providerStatus(const QString& providerId) const;
+    Q_INVOKABLE QString providerStatusURL(const QString& providerId) const;
     Q_INVOKABLE QVariantMap providerUsageSnapshot(const QString& providerId) const;
     Q_INVOKABLE QStringList allProviderIDs() const;
 

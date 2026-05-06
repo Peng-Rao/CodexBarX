@@ -224,6 +224,7 @@ set(CORE_HEADERS
     src/providers/shared/ConPTYSession.h
     src/providers/shared/BrowserDetection.h
     src/providers/shared/ChromiumLocalStorageReader.h
+    src/providers/shared/ProviderStatusFetcher.h
 
     src/network/NetworkManager.h
 
@@ -285,6 +286,7 @@ if(WIN32)
         src/providers/shared/ConPTYSession.cpp
         src/providers/shared/BrowserDetection.cpp
         src/providers/shared/ChromiumLocalStorageReader.cpp
+        src/providers/shared/ProviderStatusFetcher.cpp
     )
     target_link_libraries(codexbar_core PRIVATE
         advapi32 crypt32 bcrypt shell32 user32 dwmapi

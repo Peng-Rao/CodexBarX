@@ -1120,14 +1120,30 @@ Rectangle {
                                 Layout.preferredWidth: 80
                             }
                             Text {
-                                text: snap.updatedAt && snap.updatedAt > 0
-                                    ? new Date(snap.updatedAt).toLocaleTimeString(Qt.locale(), "hh:mm:ss")
-                                    : "-"
-                                color: "#666"
-                                font.pixelSize: 10
-                                Layout.fillWidth: true
-                            }
-                        }
+                                        text: snap.updatedAt && snap.updatedAt > 0
+                                            ? new Date(snap.updatedAt).toLocaleTimeString(Qt.locale(), "hh:mm:ss")
+                                            : "-"
+                                        color: "#666"
+                                        font.pixelSize: 10
+                                        Layout.fillWidth: true
+                                    }
+                                }
+
+                                // Status Page action
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    visible: cardDelegate.expanded && UsageStore.providerStatusURL(modelData) !== ""
+                                    spacing: 6
+                                    ActionButton {
+                                        text: qsTr("Status")
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: 26
+                                        onClicked: {
+                                            var url = UsageStore.providerStatusURL(modelData)
+                                            if (url) AppController.openExternalUrl(url)
+                                        }
+                                    }
+                                }
                     }
                 }
             }

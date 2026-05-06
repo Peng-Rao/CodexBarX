@@ -314,6 +314,13 @@ else()
     add_wincodexbar_test(tst_WindsurfProvider tst_WindsurfProvider)
 endif()
 
+# ProviderStatusFetcher unit tests
+add_executable(tst_ProviderStatusFetcher tst_ProviderStatusFetcher.cpp)
+target_include_directories(tst_ProviderStatusFetcher PRIVATE ${COMMON_INCLUDE})
+target_compile_definitions(tst_ProviderStatusFetcher PRIVATE ${COMMON_DEFINES})
+target_link_libraries(tst_ProviderStatusFetcher PRIVATE codexbar_core Qt6::Core Qt6::Test)
+add_wincodexbar_test(tst_ProviderStatusFetcher tst_ProviderStatusFetcher)
+
 # ChromiumLocalStorageReader unit tests
 add_executable(tst_ChromiumLocalStorageReader tst_ChromiumLocalStorageReader.cpp)
 target_include_directories(tst_ChromiumLocalStorageReader PRIVATE ${COMMON_INCLUDE})

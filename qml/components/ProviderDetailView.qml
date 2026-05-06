@@ -87,6 +87,11 @@ ScrollView {
         return AppTheme.statusUnknown
     }
 
+    function statusOpenURL() {
+        if (!root.descriptor) return ""
+        return root.descriptor.statusURL || ""
+    }
+
     function connectionTitle() {
         if (connectionState === "testing") return qsTr("Testing connection")
         if (connectionState === "succeeded") return qsTr("Connection OK")
@@ -232,9 +237,9 @@ ScrollView {
 
                             SettingsButton {
                                 text: qsTr("Status")
-                                visible: root.descriptor && root.descriptor.statusPageURL
+                                visible: root.statusOpenURL() !== ""
                                 enabled: visible
-                                onClicked: AppController.openExternalUrl(root.descriptor.statusPageURL)
+                                onClicked: AppController.openExternalUrl(root.statusOpenURL())
                             }
 
                             SettingsButton {

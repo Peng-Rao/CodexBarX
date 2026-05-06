@@ -46,6 +46,9 @@ private:
     bool createTrayIcon();
     bool createMessageWindow();
     void retranslateMenu();
+    QString statusPageProviderId() const;
+    void openCurrentStatusPage();
+    void updateStatusPageAction();
     static LRESULT CALLBACK messageWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
     NOTIFYICONDATAW m_nid = {};
@@ -57,6 +60,7 @@ private:
     QAction* m_settingsAction = nullptr;
     QAction* m_aboutAction = nullptr;
     QAction* m_quitAction = nullptr;
+    QAction* m_statusPageAction = nullptr;
     QQuickWindow* m_trayPanel = nullptr;
     TrayIconRenderer* m_renderer = nullptr;
     UsageStore* m_store = nullptr;
