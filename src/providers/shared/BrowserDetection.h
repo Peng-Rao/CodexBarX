@@ -12,4 +12,8 @@ public:
     static QString cookiePath(CookieImporter::Browser browser);
     static QString localStatePath(CookieImporter::Browser browser);
     static QStringList profilePaths(CookieImporter::Browser browser);
+
+    static QString chromiumUserDataRoot(CookieImporter::Browser browser);
+    static QString browserDisplayName(CookieImporter::Browser browser);
+    static QStringList localStorageProfilePaths(CookieImporter::Browser browser);
 };

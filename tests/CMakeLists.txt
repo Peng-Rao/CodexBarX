@@ -314,6 +314,13 @@ else()
     add_wincodexbar_test(tst_WindsurfProvider tst_WindsurfProvider)
 endif()
 
+# ChromiumLocalStorageReader unit tests
+add_executable(tst_ChromiumLocalStorageReader tst_ChromiumLocalStorageReader.cpp)
+target_include_directories(tst_ChromiumLocalStorageReader PRIVATE ${COMMON_INCLUDE})
+target_compile_definitions(tst_ChromiumLocalStorageReader PRIVATE ${COMMON_DEFINES})
+target_link_libraries(tst_ChromiumLocalStorageReader PRIVATE codexbar_core Qt6::Core Qt6::Test)
+add_wincodexbar_test(tst_ChromiumLocalStorageReader tst_ChromiumLocalStorageReader)
+
 # CostUsageCache unit tests
 add_executable(tst_CostUsageCache tst_CostUsageCache.cpp)
 target_include_directories(tst_CostUsageCache PRIVATE ${COMMON_INCLUDE})

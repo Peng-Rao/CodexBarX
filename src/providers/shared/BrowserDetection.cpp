@@ -138,3 +138,79 @@ QStringList BrowserDetection::profilePaths(CookieImporter::Browser browser) {
 
     return profiles;
 }
+
+QString BrowserDetection::chromiumUserDataRoot(CookieImporter::Browser browser)
+{
+    return chromiumRoot(browser);
+}
+
+QString BrowserDetection::browserDisplayName(CookieImporter::Browser browser)
+{
+    switch (browser) {
+    case CookieImporter::Chrome: return QStringLiteral("Chrome");
+    case CookieImporter::Edge: return QStringLiteral("Edge");
+    case CookieImporter::Firefox: return QStringLiteral("Firefox");
+    case CookieImporter::Brave: return QStringLiteral("Brave");
+    case CookieImporter::Opera: return QStringLiteral("Opera");
+    case CookieImporter::Vivaldi: return QStringLiteral("Vivaldi");
+    }
+    return {};
+}
+
+static bool hasLocalStorageDir(const QString& profile)
+{
+    return QFileInfo::exists(profile + QStringLiteral("/Local Storage/leveldb"));
+}
+
+static QStringList chromiumLocalStorageProfiles(const QString& rootPath)
+{
+    QStringList profiles;
+    QDir root(rootPath);
+    if (!root.exists()) return profiles;
+
+    if (hasLocalStorageDir(rootPath)) {
+        profiles.append(rootPath);
+    }
+
+    if (hasLocalStorageDir(rootPath + QStringLiteral("/Default"))) {
+        profiles.append(rootPath + QStringLiteral("/Default"));
+    }
+
+    const auto entries = root.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot);
+    QStringList unnumbered;
+    for (const auto& info : entries) {
+        const QString name = info.fileName();
+        const QString path = QDir::fromNativeSeparators(info.absoluteFilePath());
+        if (name.startsWith(QStringLiteral("Profile"), Qt::CaseInsensitive)) {
+            if (hasLocalStorageDir(path) && !profiles.contains(path)) {
+                profiles.append(path);
+            }
+        } else if (name.startsWith(QStringLiteral("user-"), Qt::CaseInsensitive)) {
+            if (hasLocalStorageDir(path) && !profiles.contains(path)) {
+                unnumbered.append(path);
+            }
+        }
+    }
+
+    unnumbered.sort();
+    for (const auto& p : unnumbered) {
+        profiles.append(p);
+    }
+
+    if (hasLocalStorageDir(rootPath + QStringLiteral("/Guest Profile"))) {
+        const QString guest = rootPath + QStringLiteral("/Guest Profile");
+        if (!profiles.contains(guest)) {
+            profiles.append(guest);
+        }
+    }
+
+    return profiles;
+}
+
+QStringList BrowserDetection::localStorageProfilePaths(CookieImporter::Browser browser)
+{
+    if (browser == CookieImporter::Firefox) return {};
+    const QString rootPath = chromiumRoot(browser);
+    if (rootPath.isEmpty()) return {};
+    return chromiumLocalStorageProfiles(rootPath);
+}

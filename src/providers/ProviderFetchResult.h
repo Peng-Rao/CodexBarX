@@ -20,4 +20,5 @@ struct ProviderFetchResult {
     QString errorMessage;
     QVector<ProviderFetchAttempt> attempts;
     std::optional<QJsonObject> dashboard;
+    int httpStatus = 0;
 };

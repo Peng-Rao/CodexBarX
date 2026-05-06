@@ -1,6 +1,7 @@
 #include <QtTest/QtTest>
 
 #include "../src/providers/windsurf/WindsurfProvider.h"
+#include "../src/providers/windsurf/WindsurfDevinSessionImporter.h"
 #include "../src/providers/ProviderPipeline.h"
 
 #include <QDir>
@@ -11,6 +12,22 @@
 #include <QSqlQuery>
 #include <QTemporaryDir>
 #include <QUuid>
+
+namespace {
+
+struct WindsurfSessionImporterOverrideGuard {
+    ~WindsurfSessionImporterOverrideGuard()
+    {
+        WindsurfDevinSessionImporter::clearOverrides();
+    }
+};
+
+QVector<WindsurfDevinSessionInfo> noImportedSessions(const ProviderFetchContext&)
+{
+    return {};
+}
+
+} // namespace
 
 class tst_WindsurfProvider : public QObject {
     Q_OBJECT
@@ -24,6 +41,14 @@ private slots:
     void protobufCodec();
     void filtersSourceModes();
     void webConfigErrors();
+    void sessionImporterDecodedValue();
+    void sessionImporterFromStorage();
+    void sessionImporterIncompleteStorage();
+    void sessionImporterDeduplicate();
+    void sessionImporterBrowserOrder();
+    void webAutoSessionAvailable();
+    void webAutoSessionNoSessionsError();
+    void webAutoSourceOffError();
 
 private:
     static QString makeDatabase(const QByteArray& jsonData, QTemporaryDir& dir);
@@ -58,7 +83,11 @@ void tst_WindsurfProvider::providerMetadataAndSettings()
     QCOMPARE(settings[0].key, QStringLiteral("sourceMode"));
     QCOMPARE(settings[0].defaultValue.toString(), QStringLiteral("auto"));
     QCOMPARE(settings[1].key, QStringLiteral("cookieSource"));
-    QCOMPARE(settings[1].defaultValue.toString(), QStringLiteral("off"));
+    QCOMPARE(settings[1].defaultValue.toString(), QStringLiteral("auto"));
+    QCOMPARE(settings[1].options.size(), 3);
+    QCOMPARE(settings[1].options[0].value, QStringLiteral("auto"));
+    QCOMPARE(settings[1].options[1].value, QStringLiteral("manual"));
+    QCOMPARE(settings[1].options[2].value, QStringLiteral("off"));
     QVERIFY(settings[2].sensitive);
     QCOMPARE(settings[2].credentialTarget, QStringLiteral("com.codexbar.session.windsurf"));
 }
@@ -248,6 +277,150 @@ void tst_WindsurfProvider::filtersSourceModes()
     qDeleteAll(cliStrategies);
 }
 
+void tst_WindsurfProvider::sessionImporterDecodedValue()
+{
+    QCOMPARE(WindsurfDevinSessionImporter::decodedStorageValue(
+        QStringLiteral("  plain-token  ")), QStringLiteral("plain-token"));
+
+    QCOMPARE(WindsurfDevinSessionImporter::decodedStorageValue(
+        QStringLiteral("\"quoted-token\"")), QStringLiteral("quoted-token"));
+
+    QCOMPARE(WindsurfDevinSessionImporter::decodedStorageValue(
+        QStringLiteral("'single-quoted'")), QStringLiteral("single-quoted"));
+
+    QString jsonWrapped = QStringLiteral("\"json-wrapped-token\"");
+    QCOMPARE(WindsurfDevinSessionImporter::decodedStorageValue(jsonWrapped),
+             QStringLiteral("json-wrapped-token"));
+
+    QCOMPARE(WindsurfDevinSessionImporter::decodedStorageValue(
+        QStringLiteral("  token-with-$-and._chars  ")), QStringLiteral("token-with-$-and._chars"));
+
+    QCOMPARE(WindsurfDevinSessionImporter::decodedStorageValue(
+        QStringLiteral("")), QString());
+}
+
+void tst_WindsurfProvider::sessionImporterFromStorage()
+{
+    QHash<QString, QString> storage;
+    storage[QStringLiteral("devin_session_token")] = QStringLiteral("sess-token");
+    storage[QStringLiteral("devin_auth1_token")] = QStringLiteral("auth1-token");
+    storage[QStringLiteral("devin_account_id")] = QStringLiteral("acct-123");
+    storage[QStringLiteral("devin_primary_org_id")] = QStringLiteral("org-456");
+
+    auto info = WindsurfDevinSessionImporter::sessionFromStorage(
+        storage, QStringLiteral("Chrome Default"), QStringLiteral("/path/leveldb"));
+    QVERIFY(info.has_value());
+    QCOMPARE(info->session.sessionToken, QStringLiteral("sess-token"));
+    QCOMPARE(info->session.auth1Token, QStringLiteral("auth1-token"));
+    QCOMPARE(info->session.accountID, QStringLiteral("acct-123"));
+    QCOMPARE(info->session.primaryOrgID, QStringLiteral("org-456"));
+    QCOMPARE(info->sourceLabel, QStringLiteral("Chrome Default"));
+    QCOMPARE(info->levelDBPath, QStringLiteral("/path/leveldb"));
+}
+
+void tst_WindsurfProvider::sessionImporterIncompleteStorage()
+{
+    QHash<QString, QString> storage;
+    storage[QStringLiteral("devin_session_token")] = QStringLiteral("sess-token");
+    // Missing auth1, account, org
+    auto info = WindsurfDevinSessionImporter::sessionFromStorage(
+        storage, QStringLiteral("Chrome Default"));
+    QVERIFY(!info.has_value());
+
+    storage.clear();
+    storage[QStringLiteral("devin_session_token")] = QStringLiteral("sess");
+    storage[QStringLiteral("devin_auth1_token")] = QStringLiteral("auth1");
+    storage[QStringLiteral("devin_account_id")] = QStringLiteral("acct");
+    // missing primary org
+    auto info2 = WindsurfDevinSessionImporter::sessionFromStorage(
+        storage, QStringLiteral("Label"));
+    QVERIFY(!info2.has_value());
+}
+
+void tst_WindsurfProvider::sessionImporterDeduplicate()
+{
+    WindsurfDevinSessionInfo a;
+    a.session.sessionToken = QStringLiteral("token-aaa");
+    a.sourceLabel = QStringLiteral("Chrome Default");
+
+    WindsurfDevinSessionInfo b;
+    b.session.sessionToken = QStringLiteral("token-aaa"); // same token
+    b.sourceLabel = QStringLiteral("Edge Default");
+
+    WindsurfDevinSessionInfo c;
+    c.session.sessionToken = QStringLiteral("token-bbb");
+    c.sourceLabel = QStringLiteral("Chrome Profile 1");
+
+    QVector<WindsurfDevinSessionInfo> sessions = {a, b, c};
+    auto deduped = WindsurfDevinSessionImporter::deduplicateSessions(sessions);
+
+    QCOMPARE(deduped.size(), 2);
+    QCOMPARE(deduped[0].sourceLabel, QStringLiteral("Chrome Default"));
+    QCOMPARE(deduped[0].session.sessionToken, QStringLiteral("token-aaa"));
+    QCOMPARE(deduped[1].session.sessionToken, QStringLiteral("token-bbb"));
+}
+
+void tst_WindsurfProvider::sessionImporterBrowserOrder()
+{
+    auto pref = WindsurfDevinSessionImporter::preferredBrowsers();
+    QCOMPARE(pref.size(), 1);
+    QCOMPARE(pref[0], CookieImporter::Chrome);
+
+    auto fallback = WindsurfDevinSessionImporter::fallbackBrowsersExcludingPreferred();
+    QVERIFY(!fallback.contains(CookieImporter::Chrome));
+    QVERIFY(fallback.size() >= 3);
+
+    // Fallback should include Edge
+    bool hasEdge = false;
+    for (auto b : fallback) {
+        if (b == CookieImporter::Edge) { hasEdge = true; break; }
+    }
+    QVERIFY(hasEdge);
+}
+
+void tst_WindsurfProvider::webAutoSessionAvailable()
+{
+    WindsurfWebStrategy strategy;
+    ProviderFetchContext ctx;
+
+    ctx.settings.set(QStringLiteral("cookieSource"), QStringLiteral("auto"));
+    QVERIFY(strategy.isAvailable(ctx));
+
+    ctx.settings.set(QStringLiteral("cookieSource"), QStringLiteral("manual"));
+    QVERIFY(!strategy.isAvailable(ctx)); // no manual session configured
+
+    ctx.settings.set(QStringLiteral("cookieSource"), QStringLiteral("off"));
+    QVERIFY(!strategy.isAvailable(ctx));
+}
+
+void tst_WindsurfProvider::webAutoSessionNoSessionsError()
+{
+    WindsurfSessionImporterOverrideGuard guard;
+    WindsurfDevinSessionImporter::setImportPreferredSessionsOverride(noImportedSessions);
+    WindsurfDevinSessionImporter::setImportFallbackSessionsOverride(noImportedSessions);
+
+    WindsurfWebStrategy strategy;
+    ProviderFetchContext ctx;
+    ctx.settings.set(QStringLiteral("cookieSource"), QStringLiteral("auto"));
+
+    ProviderFetchResult result = strategy.fetchSync(ctx);
+    QVERIFY(!result.success);
+    QVERIFY(result.errorMessage.contains(QStringLiteral("No Windsurf web session")));
+    QVERIFY(result.errorMessage.contains(QStringLiteral("Chromium")));
+}
+
+void tst_WindsurfProvider::webAutoSourceOffError()
+{
+    WindsurfWebStrategy strategy;
+    ProviderFetchContext ctx;
+    ctx.sourceMode = ProviderSourceMode::Web;
+    ctx.settings.set(QStringLiteral("cookieSource"), QStringLiteral("off"));
+
+    ProviderFetchResult result = strategy.fetchSync(ctx);
+    QVERIFY(!result.success);
+    QVERIFY(result.errorMessage.contains(QStringLiteral("disabled")));
+}
+
 void tst_WindsurfProvider::webConfigErrors()
 {
     WindsurfWebStrategy strategy;
@@ -267,6 +440,9 @@ void tst_WindsurfProvider::webConfigErrors()
     ProviderFetchResult missing = strategy.fetchSync(ctx);
     QVERIFY(!missing.success);
     QVERIFY(missing.errorMessage.contains(QStringLiteral("not configured")));
+
+    ctx.settings.set(QStringLiteral("cookieSource"), QStringLiteral("auto"));
+    QVERIFY(strategy.isAvailable(ctx));
 }
 
 QString tst_WindsurfProvider::makeDatabase(const QByteArray& jsonData, QTemporaryDir& dir)

@@ -1,4 +1,5 @@
 #include "WindsurfProvider.h"
+#include "WindsurfDevinSessionImporter.h"
 #include "../../network/NetworkManager.h"
 
 #include <QCoreApplication>
@@ -614,8 +615,8 @@ QVector<ProviderSettingsDescriptor> WindsurfProvider::settingsDescriptors() cons
     return {
         {"sourceMode", "Usage source", "picker", QVariant(QStringLiteral("auto")),
          {{"auto", "Auto"}, {"web", "Web API"}, {"cli", "Local (SQLite cache)"}}},
-        {"cookieSource", "Cookie source", "picker", QVariant(QStringLiteral("off")),
-         {{"off", "Off"}, {"manual", "Manual"}}},
+        {"cookieSource", "Cookie source", "picker", QVariant(QStringLiteral("auto")),
+         {{"auto", "Automatic"}, {"manual", "Manual"}, {"off", "Off"}}},
         {"manualCookieHeader", "Windsurf session JSON bundle", "secret", QVariant(),
          {}, "com.codexbar.session.windsurf", "CODEXBAR_WINDSURF_SESSION",
          "{\"devin_session_token\":\"...\"}", "Stored in Windows Credential Manager", true, true}
@@ -628,8 +629,11 @@ bool WindsurfWebStrategy::isAvailable(const ProviderFetchContext& ctx) const
 {
     if (ctx.sourceMode == ProviderSourceMode::Web) return true;
     const QString cookieSource = ctx.settings.get(QStringLiteral("cookieSource"),
-                                                  QStringLiteral("off")).toString();
-    return cookieSource == QStringLiteral("manual") && !resolveManualSessionInput(ctx).isEmpty();
+                                                  QStringLiteral("auto")).toString();
+    if (cookieSource == QStringLiteral("auto")) return true;
+    if (cookieSource == QStringLiteral("manual"))
+        return !resolveManualSessionInput(ctx).isEmpty();
+    return false;
 }
 
 bool WindsurfWebStrategy::shouldFallback(const ProviderFetchResult& result,
@@ -641,7 +645,7 @@ bool WindsurfWebStrategy::shouldFallback(const ProviderFetchResult& result,
 QString WindsurfWebStrategy::resolveManualSessionInput(const ProviderFetchContext& ctx)
 {
     const QString cookieSource = ctx.settings.get(QStringLiteral("cookieSource"),
-                                                  QStringLiteral("off")).toString();
+                                                  QStringLiteral("auto")).toString();
     if (cookieSource != QStringLiteral("manual")) return {};
 
     if (ctx.manualCookieHeader.has_value() && !ctx.manualCookieHeader->trimmed().isEmpty()) {
@@ -806,74 +810,152 @@ UsageSnapshot WindsurfWebStrategy::planStatusToUsageSnapshot(const WindsurfPlanS
     return snapshot;
 }
 
+static bool isRecoverableHTTPError(int httpStatus)
+{
+    return httpStatus == 400 || httpStatus == 401 || httpStatus == 403;
+}
+
 ProviderFetchResult WindsurfWebStrategy::fetchSync(const ProviderFetchContext& ctx)
 {
-    ProviderFetchResult result = makeResultSkeleton(id(), kind(), QStringLiteral("windsurf-web"));
     const QString cookieSource = ctx.settings.get(QStringLiteral("cookieSource"),
-                                                  QStringLiteral("off")).toString();
+                                                  QStringLiteral("auto")).toString();
     if (cookieSource == QStringLiteral("off")) {
-        result.errorMessage = QStringLiteral(
-            "Windsurf web source is disabled. Set Cookie source to Manual and paste a session bundle.");
-        return result;
-    }
-    if (cookieSource != QStringLiteral("manual")) {
-        result.errorMessage = QStringLiteral(
-            "Automatic Windsurf web session import is not available on Windows yet. Use Manual session bundle.");
-        return result;
+        ProviderFetchResult r = makeResultSkeleton(id(), kind(), QStringLiteral("windsurf-web"));
+        r.errorMessage = QStringLiteral(
+            "Windsurf web source is disabled. Set Cookie source to Automatic or Manual.");
+        return r;
     }
 
-    const QString sessionInput = resolveManualSessionInput(ctx);
-    if (sessionInput.isEmpty()) {
-        result.errorMessage = QStringLiteral("Manual Windsurf session bundle not configured.");
-        return result;
-    }
+    auto trySession = [&](const WindsurfDevinSessionAuth& auth, const QString& label) -> ProviderFetchResult {
+        ProviderFetchResult result = makeResultSkeleton(id(), kind(), label);
+        const QByteArray requestBody = WindsurfPlanStatusProtoCodec::encodeRequest(auth.sessionToken, true);
+        auto [responseBody, httpStatus] = NetworkManager::instance().postBytesSyncWithStatus(
+            endpointURL(ctx),
+            requestBody,
+            buildHeaders(auth),
+            QByteArrayLiteral("application/proto"),
+            ctx.networkTimeoutMs,
+            true);
 
-    QString parseError;
-    auto auth = parseManualSessionInput(sessionInput, &parseError);
-    if (!auth.has_value()) {
-        result.errorMessage = QStringLiteral("Invalid Windsurf session payload: %1").arg(parseError);
-        return result;
-    }
+        if (httpStatus != 200) {
+            if (httpStatus == 0) {
+                result.errorMessage = QStringLiteral("Windsurf API call failed: network timeout or connection error.");
+            } else if (isRecoverableHTTPError(httpStatus)) {
+                result.errorMessage = QStringLiteral(
+                    "Imported Windsurf session expired or unauthorized (HTTP %1)%2")
+                    .arg(httpStatus)
+                    .arg(responseSnippet(responseBody));
+            } else {
+                result.errorMessage = QStringLiteral("Windsurf API call failed: HTTP %1%2")
+                    .arg(httpStatus)
+                    .arg(responseSnippet(responseBody));
+            }
+            result.httpStatus = httpStatus;
+            return result;
+        }
 
-    const QByteArray requestBody = WindsurfPlanStatusProtoCodec::encodeRequest(auth->sessionToken, true);
-    auto [responseBody, httpStatus] = NetworkManager::instance().postBytesSyncWithStatus(
-        endpointURL(ctx),
-        requestBody,
-        buildHeaders(*auth),
-        QByteArrayLiteral("application/proto"),
-        ctx.networkTimeoutMs,
-        true);
+        QString decodeError;
+        auto status = WindsurfPlanStatusProtoCodec::decodeResponse(responseBody, &decodeError);
+        if (!status.has_value()) {
+            result.errorMessage = QStringLiteral("Windsurf API parse error: %1").arg(decodeError);
+            return result;
+        }
 
-    if (httpStatus != 200) {
-        if (httpStatus == 0) {
-            result.errorMessage = QStringLiteral("Windsurf API call failed: network timeout or connection error.");
-        } else if (httpStatus == 400 || httpStatus == 401 || httpStatus == 403) {
-            result.errorMessage = QStringLiteral("Windsurf session expired or unauthorized (HTTP %1)%2")
-                .arg(httpStatus)
-                .arg(responseSnippet(responseBody));
-        } else {
-            result.errorMessage = QStringLiteral("Windsurf API call failed: HTTP %1%2")
-                .arg(httpStatus)
-                .arg(responseSnippet(responseBody));
+        result.usage = planStatusToUsageSnapshot(*status);
+        result.success = result.usage.primary.has_value()
+            || result.usage.secondary.has_value()
+            || (result.usage.identity.has_value() && result.usage.identity->loginMethod.has_value());
+        if (!result.success) {
+            result.errorMessage = QStringLiteral("No Windsurf usage data found in API response.");
         }
         return result;
+    };
+
+    // Manual mode: parse session from config
+    if (cookieSource == QStringLiteral("manual")) {
+        const QString sessionInput = resolveManualSessionInput(ctx);
+        if (sessionInput.isEmpty()) {
+            ProviderFetchResult r = makeResultSkeleton(id(), kind(), QStringLiteral("windsurf-web"));
+            r.errorMessage = QStringLiteral("Manual Windsurf session bundle not configured.");
+            return r;
+        }
+        QString parseError;
+        auto auth = parseManualSessionInput(sessionInput, &parseError);
+        if (!auth.has_value()) {
+            ProviderFetchResult r = makeResultSkeleton(id(), kind(), QStringLiteral("windsurf-web"));
+            r.errorMessage = QStringLiteral("Invalid Windsurf session payload: %1").arg(parseError);
+            return r;
+        }
+        return trySession(*auth, QStringLiteral("windsurf-web"));
     }
 
-    QString decodeError;
-    auto status = WindsurfPlanStatusProtoCodec::decodeResponse(responseBody, &decodeError);
-    if (!status.has_value()) {
-        result.errorMessage = QStringLiteral("Windsurf API parse error: %1").arg(decodeError);
+    // Auto mode: import from Chromium localStorage
+    if (cookieSource != QStringLiteral("auto")) {
+        ProviderFetchResult r = makeResultSkeleton(id(), kind(), QStringLiteral("windsurf-web"));
+        r.errorMessage = QStringLiteral(
+            "Unsupported Windsurf Cookie source. Choose Automatic, Manual, or Off.");
+        return r;
+    }
+
+    // Phase 1: try preferred browser (Chrome) sessions
+    QVector<WindsurfDevinSessionInfo> preferredSessions =
+        WindsurfDevinSessionImporter::importPreferredSessions(ctx);
+
+    // Phase 2: if Chrome has no sessions, try fallback browsers
+    if (preferredSessions.isEmpty()) {
+        QVector<WindsurfDevinSessionInfo> fallback =
+            WindsurfDevinSessionImporter::importFallbackSessions(ctx);
+        if (fallback.isEmpty()) {
+            ProviderFetchResult r = makeResultSkeleton(id(), kind(), QStringLiteral("windsurf-web"));
+            r.errorMessage = QStringLiteral(
+                "No Windsurf web session found in Chromium localStorage. "
+                "Sign in to windsurf.com in Chrome or Edge, or switch Cookie source to Manual.");
+            return r;
+        }
+        // Try all fallback sessions
+        ProviderFetchResult lastError;
+        for (const auto& info : fallback) {
+            ProviderFetchResult r = trySession(info.session, info.sourceLabel);
+            if (r.success) return r;
+            lastError = r;
+        }
+        return lastError;
+    }
+
+    // Phase 3: try preferred sessions
+    {
+        ProviderFetchResult lastError;
+        for (const auto& info : preferredSessions) {
+            ProviderFetchResult r = trySession(info.session, info.sourceLabel);
+            if (r.success) return r;
+            if (!isRecoverableHTTPError(r.httpStatus)) return r;
+            lastError = r;
+        }
+
+        // Phase 4: preferred sessions all failed with recoverable errors → try fallback
+        QVector<WindsurfDevinSessionInfo> fallback =
+            WindsurfDevinSessionImporter::importFallbackSessions(ctx);
+        for (const auto& info : fallback) {
+            ProviderFetchResult r = trySession(info.session, info.sourceLabel);
+            if (r.success) return r;
+            if (!isRecoverableHTTPError(r.httpStatus)) {
+                // Return last error (non-recoverable from fallback)
+                ProviderFetchResult result = makeResultSkeleton(id(), kind(),
+                    info.sourceLabel.isEmpty() ? QStringLiteral("windsurf-web") : info.sourceLabel);
+                result.errorMessage = r.errorMessage;
+                result.httpStatus = r.httpStatus;
+                return result;
+            }
+            lastError = r;
+        }
+
+        // All sessions exhausted
+        ProviderFetchResult result = makeResultSkeleton(id(), kind(), QStringLiteral("windsurf-web"));
+        result.errorMessage = QStringLiteral(
+            "Imported Windsurf session expired or unauthorized. "
+            "Refresh windsurf.com in the browser or paste a fresh manual session bundle.");
         return result;
     }
-
-    result.usage = planStatusToUsageSnapshot(*status);
-    result.success = result.usage.primary.has_value()
-        || result.usage.secondary.has_value()
-        || (result.usage.identity.has_value() && result.usage.identity->loginMethod.has_value());
-    if (!result.success) {
-        result.errorMessage = QStringLiteral("No Windsurf usage data found in API response.");
-    }
-    return result;
 }
 
 WindsurfLocalStrategy::WindsurfLocalStrategy(QObject* parent) : IFetchStrategy(parent) {}

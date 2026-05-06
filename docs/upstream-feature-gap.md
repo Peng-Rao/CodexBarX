@@ -6,9 +6,8 @@
 
 WinCodexBar 已经不是一个“只移植少数 provider”的壳子。它有独立的 Qt/QML 桌面应用、Windows 托盘、ProviderPipeline、Windows Credential Manager、ConPTY、CookieImporter、Codex 多账户、通用 token account、状态轮询、CLI、成本扫描、单元测试和 E2E 测试。Provider 覆盖面已经补齐到上游当前 `UsageProvider` 的 29 个：WinCodexBar 已注册 29 个 provider。
 
-主要未实现项集中在四类：
+主要未实现项集中在三类：
 
-- Windsurf v1 已补齐，但自动 Chromium localStorage session 导入仍未实现；当前 Web source 只支持手动 session bundle。
 - macOS 平台能力：WidgetKit、小组件、Sparkle 更新、全局快捷键、多个独立菜单栏 status item、部分 SwiftUI 菜单 hosted views。
 - 上游 CLI/发布链路：`cache clear` 子命令、CLI tarball/Homebrew/安装脚本、appcast 自动更新链路。
 - 若干辅助能力未完全等价：Google Workspace 状态源、link-only 状态入口、上游专用诊断 helper、部分菜单级图表/历史视图。
@@ -25,14 +24,14 @@ WinCodexBar 已经不是一个“只移植少数 provider”的壳子。它有�
 | z.ai / MiniMax / Kimi / Kimi K2 / Kilo / Kiro | 已实现 | 已实现 | API、web、CLI 路径均有对应实现。 |
 | Vertex AI / Augment / JetBrains / Amp / Ollama | 已实现 | 已实现 | 已移植主要 usage fetch；平台路径和凭据来源按 Windows 调整。 |
 | Synthetic / Warp / OpenRouter / Perplexity / Abacus / Mistral / DeepSeek / Codebuff | 已实现 | 已实现 | 已注册并有 provider 文件、设置和测试覆盖的一部分。 |
-| Windsurf | 已实现 | 已实现 v1 | 已注册并有图标、设置和测试。本地 SQLite cache 与手动 Web API session bundle 已实现；仍缺上游的 Chromium localStorage 自动导入。 |
+| Windsurf | 已实现 | 已实现 | 已注册并有图标、设置和测试。本地 SQLite cache、手动 Web API session bundle、Chromium localStorage 自动 Devin session 导入均已实现。当前 Windows 侧扫描 Chrome/Edge/Brave/Vivaldi/Opera，未覆盖上游 macOS 的 Arc/Canary/Beta/Dia 等额外浏览器集合。 |
 
 证据位置：
 
 - Win provider 注册集中在 [ProviderBootstrap.cpp](D:/WinCodexBar/src/providers/ProviderBootstrap.cpp:36)，当前已包含 `windsurf`。
 - 上游 provider 枚举包含 `windsurf`，见 [Providers.swift](D:/CodexBar/Sources/CodexBarCore/Providers/Providers.swift:5)。
 - 上游 Windsurf descriptor 定义了 `.auto/.web/.cli` 和 `WindsurfWebFetchStrategy`、`WindsurfLocalFetchStrategy`，见 [WindsurfProviderDescriptor.swift](D:/CodexBar/Sources/CodexBarCore/Providers/Windsurf/WindsurfProviderDescriptor.swift:1)。
-- Win 版已包含 `resources/icons/ProviderIcon-windsurf.svg` 并在 `resources/qml.qrc` 中注册。
+- Win 版已包含 `resources/icons/ProviderIcon-windsurf.svg` 并在 `resources/qml.qrc` 中注册；自动 localStorage 导入实现见 `src/providers/windsurf/WindsurfDevinSessionImporter.cpp` 和 `src/providers/shared/ChromiumLocalStorageReader.cpp`。
 
 ## Provider 管线与数据源差异
 
@@ -151,29 +150,28 @@ WinCodexBar 没有这些 target。部分能力被 Windows 原生实现替代，�
 
 ## 测试覆盖差异
 
-WinCodexBar 当前测试已经不少：`tests` 下约 38 个单元测试目标，`tests/e2e` 下 5 个真实账号 E2E。上游 `Tests/CodexBarTests` 当前约 240 个 Swift 测试文件，覆盖面明显更广，尤其是：
+WinCodexBar 当前测试已经不少：`tests` 下约 39 个单元测试目标，`tests/e2e` 下 5 个真实账号 E2E。上游 `Tests/CodexBarTests` 当前约 240 个 Swift 测试文件，覆盖面明显更广，尤其是：
 
 - Sparkle/update channel、WidgetKit、KeyboardShortcuts、macOS Keychain/权限。
 - 多 provider 的 parser characterization、menu descriptor、menu card、UI smoke。
 - Provider status、browser cookie order、storage footprint、config migration。
-- Windsurf 自动 browser localStorage session 导入。
+- Windsurf 自动 localStorage 导入已有 Win 版单元测试，但真实浏览器 profile fixture 和完整结构化 LevelDB parser 覆盖仍少于上游。
 
 因此 Win 版缺口不只是功能本身，也包括这些功能对应的回归测试。
 
 ## 建议实现顺序
 
-1. **补 Windsurf 自动 localStorage 导入**：当前 provider v1 已可用，剩余是从 Chromium `Local Storage/leveldb` 自动读取 Devin session。
-2. **补状态源兼容**：实现 Google Workspace incidents feed；让 `statusLinkURL` 在 Provider 设置/托盘菜单里可打开。
-3. **清理更新 UI**：要么实现 Windows 自动更新/检查更新，要么暂时隐藏 `Check for Updates`，避免给用户错误预期。
-4. **补 CLI cache clear**：实现 cookie/cost/dashboard cache 清理，并与上游 CLI 行为对齐。
-5. **增强托盘行为**：决定 Windows 上是否真的需要多 tray icon；如果不做，也应在文档中说明这是 Windows 产品形态差异。
-6. **Widget/发布链路**：这是大块平台工程，建议晚于 provider parity 和状态/更新基础能力。
+1. **补状态源兼容**：实现 Google Workspace incidents feed；让 `statusLinkURL` 在 Provider 设置/托盘菜单里可打开。
+2. **清理更新 UI**：要么实现 Windows 自动更新/检查更新，要么暂时隐藏 `Check for Updates`，避免给用户错误预期。
+3. **补 CLI cache clear**：实现 cookie/cost/dashboard cache 清理，并与上游 CLI 行为对齐。
+4. **增强托盘行为**：决定 Windows 上是否真的需要多 tray icon；如果不做，也应在文档中说明这是 Windows 产品形态差异。
+5. **Widget/发布链路**：这是大块平台工程，建议晚于 provider parity 和状态/更新基础能力。
 
 ## 快速清单
 
-- [x] Windsurf provider v1：本地 SQLite + 手动 Web API session bundle。
+- [x] Windsurf provider：本地 SQLite + 手动 Web API session bundle。
 - [x] Windsurf icon/resource/QML 设置/测试。
-- [ ] Windsurf Chromium localStorage 自动 session 导入。
+- [x] Windsurf Chromium localStorage 自动 session 导入。
 - [ ] Google Workspace provider status polling。
 - [ ] `statusLinkURL` 菜单入口。
 - [ ] `codexbar cache clear` 等价命令。
@@ -194,11 +192,18 @@ WinCodexBar 当前测试已经不少：`tests` 下约 38 个单元测试目标�
 
 **当前状态**
 
-WinCodexBar 已实现 Windsurf provider v1，核心文件和接入点如下：
+WinCodexBar 已实现 Windsurf provider，包括本地 SQLite cache、手动 Web API session bundle，以及从 Chromium `Local Storage/leveldb` 自动导入 Devin session。核心文件和接入点如下：
 
 - `src/providers/windsurf/WindsurfProvider.h`
 - `src/providers/windsurf/WindsurfProvider.cpp`
+- `src/providers/windsurf/WindsurfDevinSessionImporter.h`
+- `src/providers/windsurf/WindsurfDevinSessionImporter.cpp`
+- `src/providers/shared/ChromiumLocalStorageReader.h`
+- `src/providers/shared/ChromiumLocalStorageReader.cpp`
+- `src/providers/shared/BrowserDetection.h`
+- `src/providers/shared/BrowserDetection.cpp`
 - `tests/tst_WindsurfProvider.cpp`
+- `tests/tst_ChromiumLocalStorageReader.cpp`
 - `resources/icons/ProviderIcon-windsurf.svg`
 - `resources/qml.qrc`
 - `src/providers/ProviderBootstrap.cpp`
@@ -212,44 +217,34 @@ WinCodexBar 已实现 Windsurf provider v1，核心文件和接入点如下：
 - SQLite 查询：`SELECT value FROM ItemTable WHERE key = 'windsurf.settings.cachedPlanInfo' LIMIT 1`。
 - SQLite value 解码：支持 TEXT、UTF-8 BLOB、UTF-16LE BLOB。
 - 使用量映射：优先用 `quotaUsage.dailyRemainingPercent` / `weeklyRemainingPercent` 映射每日和每周窗口；缺失时回退到 messages / flowActions 的 used / total。
-- Web 策略：支持手动 Windsurf session JSON/key-value bundle，调用 `GetPlanStatus` protobuf endpoint。
+- Web 策略：支持 `cookieSource=auto/manual/off`；`auto` 从 Chromium localStorage 自动导入 Devin session，`manual` 使用 Windsurf session JSON/key-value bundle，二者都复用 `GetPlanStatus` protobuf endpoint。
+- 自动导入：读取 Chrome/Edge/Brave/Vivaldi/Opera profile 下的 `Local Storage/leveldb`，按 origin `https://windsurf.com` 提取 `devin_session_token`、`devin_auth1_token`、`devin_account_id`、`devin_primary_org_id`。
+- localStorage value 解码：支持普通 UTF-8/Latin1 文本、JSON string wrapper、首尾引号裁剪、空白裁剪，以及 origin-aware 路径中的 UTF-16LE / NUL-interleaved 值。
+- 自动 session 顺序：优先 Chrome；Chrome 无 session 或 session 401/403 等可恢复失败后，fallback 到 Edge/Brave/Vivaldi/Opera；同一个 `devin_session_token` 去重。
 - Protobuf：已移植最小 request encode 和 response decode，解析 plan name、plan end、daily/weekly quota/reset。
 - 凭据：手动 session 存入 Windows Credential Manager，credential target 为 `com.codexbar.session.windsurf`，环境变量覆盖为 `CODEXBAR_WINDSURF_SESSION`。
 - UI/资源：图标已加入 QRC，托盘品牌色 map 已补 `windsurf`。
-- 测试：`tst_WindsurfProvider` 覆盖 metadata、cached plan JSON、usage fallback、SQLite BLOB、manual session parse、protobuf codec、source mode filtering、Web 配置错误；`tst_ProviderBootstrap` 覆盖注册；`tst_FetchContext` 覆盖 `cookieSource=off` 默认值。
+- 测试：`tst_WindsurfProvider` 覆盖 metadata、cached plan JSON、usage fallback、SQLite BLOB、manual session parse、protobuf codec、source mode filtering、Web 配置错误、auto importer 分支隔离；`tst_ChromiumLocalStorageReader` 覆盖空目录、origin-aware 提取、UTF-16LE value、其他 origin 忽略、text fallback、新文件优先和非 LevelDB 文件忽略；`tst_ProviderBootstrap` 覆盖注册。
 
-**剩余差异**
+**当前行为**
 
-上游 Windsurf Web 策略可以从 Chromium localStorage 自动导入 Devin session。WinCodexBar v1 暂未实现该能力，因为现有 Windows 侧只有 `BrowserDetection` / `CookieImporter`，没有读取 Chromium `Local Storage/leveldb` 的 importer。
+- `sourceMode=auto`：Web strategy 优先。`cookieSource=auto` 时自动导入 Chromium localStorage session；`cookieSource=manual` 时使用手动 bundle；Web 失败后按 pipeline 规则 fallback 到本地 SQLite cache。
+- `sourceMode=web`：只运行 Web；`cookieSource=auto` 自动导入，`manual` 只读手动 bundle，`off` 返回明确配置错误，不 fallback SQLite。
+- `sourceMode=cli`：运行本地 SQLite cache。为保持上游 source mode 命名，Win 版本地策略的 `kind()` 暂用 `ProviderFetchKind::CLI`，但 `sourceLabel` 仍是 `local`。
 
-当前行为：
+**剩余边界**
 
-- `auto`：如果用户配置了手动 session bundle，则先尝试 Web；否则尝试本地 SQLite cache。
-- `web`：只运行 Web；`cookieSource=off` 或没有手动 session 时返回明确配置错误。
-- `cli`：运行本地 SQLite cache。为保持上游 source mode 命名，Win 版本地策略的 `kind()` 暂用 `ProviderFetchKind::CLI`，但 `sourceLabel` 仍是 `local`。
-
-**后续措施**
-
-1. 新增 `BrowserStorageImporter` 或等价 helper，复用 `BrowserDetection` 的 Chromium profile 枚举。
-2. 读取 Chrome/Edge/Brave/Vivaldi 等 profile 下的 `Local Storage/leveldb`。
-3. 按 origin `https://windsurf.com` 提取以下 key：
-   - `devin_session_token`
-   - `devin_auth1_token`
-   - `devin_account_id`
-   - `devin_primary_org_id`
-4. 支持 localStorage 值的 JSON string wrapper 解码、去引号和空白裁剪。
-5. 对同一个 `devin_session_token` 去重。
-6. 自动导入顺序对齐上游：优先 Chrome，再 fallback 到其他 Chromium 浏览器。
-7. 只对自动导入 session 做 400/401/403 后尝试下一个 profile；手动 session 仍应直接报错，不 fallback。
+- Win 版 reader 是轻量只读 scanner，读取 `.ldb` / `.log` 中的目标文本片段；不是完整 LevelDB table/log parser。当前已用单元测试覆盖典型文本、origin-aware、UTF-16LE 和新旧文件顺序，但真实浏览器 profile 的 fixture 覆盖仍少于上游。
+- Windows 当前只枚举现有 `CookieImporter::Browser` 支持的 Chromium 浏览器：Chrome、Edge、Brave、Vivaldi、Opera。上游 macOS 额外覆盖 Chrome Beta/Canary、Edge Beta/Canary、Arc、Dia、Chromium、Helium 等；Win 版如需覆盖这些浏览器，需要先扩展 browser enum 和路径探测。
+- Firefox localStorage 未实现；这与上游 Windsurf importer 仅走 Chromium 的策略一致。
 
 **已验证**
 
 ```powershell
+cmake --build build --config Release --target tst_ChromiumLocalStorageReader -- /m /v:minimal /clp:ErrorsOnly
+ctest --test-dir build -C Release -R ChromiumLocalStorage --output-on-failure
 cmake --build build --config Release --target tst_WindsurfProvider -- /m /v:minimal /clp:ErrorsOnly
 ctest --test-dir build -C Release -R Windsurf --output-on-failure
-cmake --build build --config Release --target tst_FetchContext -- /m /v:minimal /clp:ErrorsOnly
-ctest --test-dir build -C Release -R FetchContext --output-on-failure
-ctest --test-dir build -C Release -R ProviderBootstrap --output-on-failure
 cmake --build build --config Release --target WinCodexBar -- /m /v:minimal /clp:ErrorsOnly
 ```
 
@@ -463,7 +458,7 @@ Win 版测试数量已经不少，但上游测试覆盖的是更细的 provider 
 
 **建议优先补的测试**
 
-1. `tst_WindsurfProvider`：已补 v1 provider、SQLite、manual session、protobuf、source mode 覆盖；后续还需补自动 localStorage importer 测试。
+1. `tst_WindsurfProvider` / `tst_ChromiumLocalStorageReader`：已补 Windsurf provider、SQLite、manual session、protobuf、source mode、auto importer 分支隔离、LevelDB 文本扫描、UTF-16LE value 和新旧文件顺序覆盖；后续可继续增加真实 Chromium profile fixture。
 2. `tst_ProviderStatusFetcher`
 3. `tst_CLICacheCommand`
 4. `tst_UpdateChecker`（如果实现轻量检查）
