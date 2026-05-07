@@ -10,12 +10,19 @@ Rectangle {
     color: AppTheme.bgPrimary
 
     property var providers: []
+    property int providerCount: 0
     property string selectedProvider: ""
     property var selectedDescriptor: null
+    property string detailState: "idle"
     property var selectedConnectionTest: ({"state": "idle"})
     property var selectedProviderStatus: ({"state": "unknown"})
     property var selectedProviderError: ""
     property var selectedUsageSnapshot: null
+    property var tokenAccounts: []
+    property string defaultTokenAccountId: ""
+    property var tokenAccountOperationState: ({})
+    property var codexAccountState: ({})
+    property var codexProjection: ({})
 
     signal providerSelected(string providerId)
     signal providerEnabled(string providerId, bool enabled)
@@ -24,15 +31,18 @@ Rectangle {
     signal settingChanged(string providerId, string key, var value)
     signal secretSaveRequested(string providerId, string key, string value)
     signal secretClearRequested(string providerId, string key)
-
-    function selectFirstProviderIfNeeded() {
-        if (root.selectedProvider !== "") return
-        if (!root.providers || root.providers.length === 0) return
-        root.providerSelected(root.providers[0].id)
-    }
-
-    Component.onCompleted: selectFirstProviderIfNeeded()
-    onProvidersChanged: selectFirstProviderIfNeeded()
+    signal moveProvider(int fromIndex, int toIndex)
+    signal addTokenAccount(string providerId, string displayName, int sourceMode, string apiKey)
+    signal removeTokenAccount(string accountId)
+    signal setDefaultTokenAccount(string providerId, string accountId)
+    signal setTokenAccountSourceMode(string accountId, int sourceMode)
+    signal setTokenAccountVisibility(string accountId, int visibility)
+    signal setCodexActiveAccount(string accountId)
+    signal addCodexAccount()
+    signal cancelCodexAuthentication()
+    signal removeCodexAccount(string accountId)
+    signal reauthenticateCodexAccount(string accountId)
+    signal promoteCodexAccount(string accountId)
 
     RowLayout {
         anchors.fill: parent
@@ -87,23 +97,23 @@ Rectangle {
 
                     delegate: ProviderListItem {
                         width: providerList.width
-                        providerName: modelData.name
-                        providerId: modelData.id
-                        brandColor: modelData.brandColor || AppTheme.accentColor
-                        isEnabled: modelData.enabled
-                        isSelected: root.selectedProvider === modelData.id
-                        usageData: modelData.usage
-                        status: modelData.status || "unknown"
-                        lastUpdated: modelData.lastUpdated || ""
+                        providerName: model.name
+                        providerId: model.providerId
+                        brandColor: model.brandColor || AppTheme.accentColor
+                        isEnabled: model.enabled
+                        isSelected: root.selectedProvider === model.providerId
+                        usageData: model.usage
+                        status: model.status || "unknown"
+                        lastUpdated: model.lastUpdated || ""
                         itemIndex: index
 
-                        onClicked: root.providerSelected(modelData.id)
+                        onClicked: root.providerSelected(model.providerId)
                         onToggleChanged: function(checked) {
-                            root.providerEnabled(modelData.id, checked)
+                            root.providerEnabled(model.providerId, checked)
                         }
                         onDragFinished: function(fromIndex, toIndex) {
                             if (fromIndex !== toIndex && fromIndex >= 0 && toIndex >= 0) {
-                                UsageStore.moveProvider(fromIndex, toIndex)
+                                root.moveProvider(fromIndex, toIndex)
                             }
                         }
                     }
@@ -121,10 +131,16 @@ Rectangle {
                 visible: root.selectedProvider !== ""
                 providerId: root.selectedProvider
                 descriptor: root.selectedDescriptor
+                detailState: root.detailState
                 connectionTest: root.selectedConnectionTest
                 providerStatus: root.selectedProviderStatus
                 providerError: root.selectedProviderError
                 usageSnapshot: root.selectedUsageSnapshot
+                tokenAccounts: root.tokenAccounts
+                defaultTokenAccountId: root.defaultTokenAccountId
+                tokenAccountOperationState: root.tokenAccountOperationState
+                codexAccountState: root.codexAccountState
+                codexProjection: root.codexProjection
 
                 onTestConnectionRequested: root.testConnection(root.selectedProvider)
                 onRefreshRequested: root.refreshProvider(root.selectedProvider)
@@ -139,6 +155,35 @@ Rectangle {
                 }
                 onSecretClearRequested: function(key) {
                     root.secretClearRequested(root.selectedProvider, key)
+                }
+                onAddTokenAccountRequested: function(displayName, sourceMode, apiKey) {
+                    root.addTokenAccount(root.selectedProvider, displayName, sourceMode, apiKey)
+                }
+                onRemoveTokenAccountRequested: function(accountId) {
+                    root.removeTokenAccount(accountId)
+                }
+                onSetDefaultTokenAccountRequested: function(accountId) {
+                    root.setDefaultTokenAccount(root.selectedProvider, accountId)
+                }
+                onSetTokenAccountSourceModeRequested: function(accountId, sourceMode) {
+                    root.setTokenAccountSourceMode(accountId, sourceMode)
+                }
+                onSetTokenAccountVisibilityRequested: function(accountId, visibility) {
+                    root.setTokenAccountVisibility(accountId, visibility)
+                }
+                onSetCodexActiveAccountRequested: function(accountId) {
+                    root.setCodexActiveAccount(accountId)
+                }
+                onAddCodexAccountRequested: root.addCodexAccount()
+                onCancelCodexAuthenticationRequested: root.cancelCodexAuthentication()
+                onRemoveCodexAccountRequested: function(accountId) {
+                    root.removeCodexAccount(accountId)
+                }
+                onReauthenticateCodexAccountRequested: function(accountId) {
+                    root.reauthenticateCodexAccount(accountId)
+                }
+                onPromoteCodexAccountRequested: function(accountId) {
+                    root.promoteCodexAccount(accountId)
                 }
             }
 

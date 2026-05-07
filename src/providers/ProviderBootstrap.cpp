@@ -1,5 +1,6 @@
 #include "ProviderBootstrap.h"
 
+#include "ProviderCatalogSnapshot.h"
 #include "ProviderRegistry.h"
 #include "zai/ZaiProvider.h"
 #include "openrouter/OpenRouterProvider.h"
@@ -91,21 +92,23 @@ void registerAllProviders()
 void applyStoredProviderEnabledStates(SettingsStore* settings, UsageStore* usageStore)
 {
     Q_UNUSED(settings)
+    auto& registry = ProviderRegistry::instance();
+    const ProviderCatalogSnapshot catalog = ProviderCatalogSnapshot::fromRegistry(registry, 0);
     QSettings reg(QStringLiteral("HKEY_CURRENT_USER\\Software\\CodexBar"), QSettings::NativeFormat);
-    const QVector<QString> ids = ProviderRegistry::instance().providerIDs();
-    for (const QString& id : ids) {
+    for (const auto& provider : catalog.providers()) {
+        const QString& id = provider.id;
         const QString key = QStringLiteral("providers/") + id + QStringLiteral("/enabled");
         bool enabled = false;
         if (reg.contains(key)) {
             enabled = reg.value(key).toBool();
-        } else if (auto* provider = ProviderRegistry::instance().provider(id)) {
-            enabled = provider->defaultEnabled();
+        } else {
+            enabled = provider.defaultEnabled;
         }
 
         if (usageStore) {
             usageStore->setProviderEnabled(id, enabled);
         } else {
-            ProviderRegistry::instance().setProviderEnabled(id, enabled);
+            registry.setProviderEnabled(id, enabled);
         }
     }
 }

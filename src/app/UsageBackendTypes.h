@@ -6,6 +6,7 @@
 #include "../providers/ProviderFetchResult.h"
 
 #include <QHash>
+#include <QByteArray>
 #include <QMetaType>
 #include <QString>
 #include <QVariant>
@@ -31,6 +32,8 @@ struct UsageBackendResult {
 struct CostUsageViewDataPayload {
     QVariantMap costData;
     QVariantList providerList;
+    QVariantList detailsRows;
+    int tokenProviderCount = 0;
 };
 
 struct CostUsageRefreshPayload {
@@ -39,15 +42,28 @@ struct CostUsageRefreshPayload {
     QVector<ProviderCostUsageSnapshot> allProviders;
 };
 
+struct CostUsageProviderDetailPayload {
+    QString providerId;
+    QVariantMap detail;
+};
+
+struct CredentialCacheUpdatePayload {
+    QString target;
+    bool exists = false;
+    QByteArray data;
+};
+
 struct ProviderRefreshPayload {
     QString providerId;
     ProviderFetchResult fetchResult;
+    QVector<CredentialCacheUpdatePayload> credentialUpdates;
 };
 
 struct ProviderConnectionTestPayload {
     QString providerId;
     ProviderFetchResult fetchResult;
     qint64 startedAt = 0;
+    QVector<CredentialCacheUpdatePayload> credentialUpdates;
 };
 
 struct ProviderStatusesPayload {
@@ -72,6 +88,10 @@ struct CredentialStatusPayload {
     QString key;
     QString target;
     bool exists = false;
+};
+
+struct CredentialPreloadPayload {
+    QVector<CredentialCacheUpdatePayload> updates;
 };
 
 struct ProviderSecretResultPayload {
@@ -104,7 +124,9 @@ Q_DECLARE_METATYPE(UsageBackendRequest)
 Q_DECLARE_METATYPE(UsageBackendResult)
 Q_DECLARE_METATYPE(CostUsageViewDataPayload)
 Q_DECLARE_METATYPE(CostUsageRefreshPayload)
+Q_DECLARE_METATYPE(CostUsageProviderDetailPayload)
 Q_DECLARE_METATYPE(ProviderFetchResult)
+Q_DECLARE_METATYPE(CredentialCacheUpdatePayload)
 Q_DECLARE_METATYPE(ProviderRefreshPayload)
 Q_DECLARE_METATYPE(ProviderConnectionTestPayload)
 Q_DECLARE_METATYPE(ProviderStatusesPayload)
@@ -113,6 +135,7 @@ Q_DECLARE_METATYPE(ProviderDescriptorDataPayload)
 Q_DECLARE_METATYPE(CodexCreditsFetcher::FetchResult)
 Q_DECLARE_METATYPE(CodexCreditsRefreshPayload)
 Q_DECLARE_METATYPE(CredentialStatusPayload)
+Q_DECLARE_METATYPE(CredentialPreloadPayload)
 Q_DECLARE_METATYPE(ProviderSecretResultPayload)
 Q_DECLARE_METATYPE(ProviderLoginStartPayload)
 Q_DECLARE_METATYPE(ProviderLoginPollPayload)

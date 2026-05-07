@@ -2,7 +2,6 @@
 
 #include <QObject>
 #include <QPointer>
-#include <QSet>
 #include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
@@ -17,6 +16,7 @@ class UsageDetailsViewModel : public QObject {
     Q_PROPERTY(QVariantMap costData READ costData NOTIFY costDataChanged)
     Q_PROPERTY(QVariantList providerRows READ providerRows NOTIFY providerRowsChanged)
     Q_PROPERTY(int tokenProviderCount READ tokenProviderCount NOTIFY providerRowsChanged)
+    Q_PROPERTY(QVariantMap providerDetails READ providerDetails NOTIFY providerDetailsChanged)
 
 public:
     explicit UsageDetailsViewModel(UsageStore* store, QObject* parent = nullptr);
@@ -27,10 +27,12 @@ public:
     QVariantMap costData() const { return m_costData; }
     QVariantList providerRows() const { return m_providerRows; }
     int tokenProviderCount() const { return m_tokenProviderCount; }
+    QVariantMap providerDetails() const { return m_providerDetails; }
 
     Q_INVOKABLE void activate();
     Q_INVOKABLE void deactivate();
     Q_INVOKABLE void refreshCostUsage();
+    Q_INVOKABLE void requestProviderDetail(const QString& providerId);
 
 signals:
     void activeChanged();
@@ -38,21 +40,13 @@ signals:
     void costUsageRefreshingChanged();
     void costDataChanged();
     void providerRowsChanged();
+    void providerDetailsChanged();
 
 private:
     void scheduleSync();
     void syncNow();
     void syncCostFlags();
-    QVariantList buildProviderRows(const QVariantList& tokenProviders,
-                                   const QVariantList& appProviders) const;
-    QVariantMap makeTokenRow(const QString& providerId,
-                             const QVariantMap& token,
-                             const QVariantMap& provider) const;
-    QVariantMap makeQuotaRow(const QVariantMap& provider, const QString& kind) const;
-    QString providerUsageKind(const QVariantMap& provider) const;
-    QString displayNameFor(const QString& providerId, const QVariantMap& provider) const;
-    QString brandColorFor(const QString& providerId, const QVariantMap& provider) const;
-    QString fallbackBrandColor(const QString& providerId) const;
+    void syncProviderDetail(const QString& providerId);
 
     QPointer<UsageStore> m_store;
     QTimer m_syncTimer;
@@ -61,5 +55,6 @@ private:
     bool m_costUsageRefreshing = false;
     QVariantMap m_costData;
     QVariantList m_providerRows;
+    QVariantMap m_providerDetails;
     int m_tokenProviderCount = 0;
 };

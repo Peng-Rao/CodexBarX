@@ -504,6 +504,418 @@ public:
     QList<QVariantMap> rows;
 };
 
+class MockSettingsProviderListModel : public QAbstractListModel {
+    Q_OBJECT
+public:
+    enum Role {
+        ProviderIdRole = Qt::UserRole + 1,
+        NameRole,
+        EnabledRole,
+        BrandColorRole,
+        UsageRole,
+        StatusRole,
+        LastUpdatedRole,
+    };
+
+    int rowCount(const QModelIndex& parent = QModelIndex()) const override {
+        return parent.isValid() ? 0 : rows.size();
+    }
+
+    QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const override {
+        if (!index.isValid() || index.row() < 0 || index.row() >= rows.size()) {
+            return {};
+        }
+        const QVariantMap row = rows.at(index.row());
+        switch (role) {
+        case ProviderIdRole: return row.value("id");
+        case NameRole: return row.value("name");
+        case EnabledRole: return row.value("enabled");
+        case BrandColorRole: return row.value("brandColor", QStringLiteral("#49A3B0"));
+        case UsageRole: return row.value("usage");
+        case StatusRole: return row.value("status", QStringLiteral("unknown"));
+        case LastUpdatedRole: return row.value("lastUpdated");
+        default: return {};
+        }
+    }
+
+    QHash<int, QByteArray> roleNames() const override {
+        return {
+            {ProviderIdRole, "providerId"},
+            {NameRole, "name"},
+            {EnabledRole, "enabled"},
+            {BrandColorRole, "brandColor"},
+            {UsageRole, "usage"},
+            {StatusRole, "status"},
+            {LastUpdatedRole, "lastUpdated"},
+        };
+    }
+
+    void setProviders(const QVariantList& providers) {
+        beginResetModel();
+        rows.clear();
+        for (const QVariant& item : providers) {
+            QVariantMap row = item.toMap();
+            if (!row.contains("brandColor")) row["brandColor"] = QStringLiteral("#49A3B0");
+            if (!row.contains("status")) row["status"] = QStringLiteral("unknown");
+            if (!row.contains("usage")) row["usage"] = QVariantMap();
+            rows.append(row);
+        }
+        endResetModel();
+    }
+
+    QString providerIdAt(int row) const {
+        if (row < 0 || row >= rows.size()) {
+            return {};
+        }
+        return rows.at(row).value("id").toString();
+    }
+
+    QList<QVariantMap> rows;
+};
+
+class MockSettingsProvidersModel : public QObject {
+    Q_OBJECT
+    Q_PROPERTY(QAbstractListModel* providers READ providers CONSTANT)
+    Q_PROPERTY(int providerCount READ providerCount NOTIFY providersChanged)
+    Q_PROPERTY(QString selectedProvider READ selectedProvider NOTIFY selectedProviderChanged)
+    Q_PROPERTY(QVariantMap selectedDescriptor READ selectedDescriptor NOTIFY selectedDescriptorChanged)
+    Q_PROPERTY(QString detailState READ detailState NOTIFY detailStateChanged)
+    Q_PROPERTY(QVariantMap selectedConnectionTest READ selectedConnectionTest NOTIFY selectedConnectionTestChanged)
+    Q_PROPERTY(QVariantMap selectedProviderStatus READ selectedProviderStatus NOTIFY selectedProviderStatusChanged)
+    Q_PROPERTY(QString selectedProviderError READ selectedProviderError NOTIFY selectedProviderErrorChanged)
+    Q_PROPERTY(QVariantMap selectedUsageSnapshot READ selectedUsageSnapshot NOTIFY selectedUsageSnapshotChanged)
+    Q_PROPERTY(QVariantList selectedTokenAccounts READ selectedTokenAccounts NOTIFY selectedTokenAccountsChanged)
+    Q_PROPERTY(QString selectedDefaultTokenAccountId READ selectedDefaultTokenAccountId NOTIFY selectedTokenAccountsChanged)
+    Q_PROPERTY(QVariantMap tokenAccountOperationState READ tokenAccountOperationState NOTIFY tokenAccountOperationStateChanged)
+    Q_PROPERTY(QVariantMap codexAccountState READ codexAccountState NOTIFY codexAccountStateChanged)
+    Q_PROPERTY(QVariantMap codexProjection READ codexProjection NOTIFY codexProjectionChanged)
+public:
+    void setUsageStore(MockUsageStore* usage) {
+        if (mockUsage == usage) {
+            resetState();
+            return;
+        }
+        if (mockUsage) {
+            disconnect(mockUsage, nullptr, this, nullptr);
+        }
+        mockUsage = usage;
+        if (mockUsage) {
+            connect(mockUsage, &MockUsageStore::providerListModelChanged,
+                    this, &MockSettingsProvidersModel::syncProviderList);
+            connect(mockUsage, &MockUsageStore::providerDescriptorChanged,
+                    this, [this](const QString& providerId) {
+                if (providerId == selectedProviderValue) syncSelectedDescriptor();
+            });
+            connect(mockUsage, &MockUsageStore::providerConnectionTestChanged,
+                    this, [this](const QString& providerId) {
+                if (providerId == selectedProviderValue) syncSelectedConnectionTest();
+            });
+            connect(mockUsage, &MockUsageStore::providerStatusChanged,
+                    this, [this](const QString& providerId) {
+                if (providerId == selectedProviderValue) syncSelectedStatus();
+            });
+            connect(mockUsage, &MockUsageStore::snapshotRevisionChanged,
+                    this, &MockSettingsProvidersModel::syncSelectedUsageSnapshot);
+            connect(mockUsage, &MockUsageStore::tokenAccountsChanged,
+                    this, [this](const QString& providerId) {
+                if (providerId == selectedProviderValue) syncSelectedTokenAccounts();
+            });
+            connect(mockUsage, &MockUsageStore::tokenAccountOperationStateChanged,
+                    this, &MockSettingsProvidersModel::syncTokenOperationState);
+            connect(mockUsage, &MockUsageStore::codexAccountStateChanged,
+                    this, &MockSettingsProvidersModel::syncCodexState);
+        }
+        resetState();
+    }
+
+    QAbstractListModel* providers() { return &providerModel; }
+    int providerCount() const { return providerCountValue; }
+    QString selectedProvider() const { return selectedProviderValue; }
+    QVariantMap selectedDescriptor() const { return selectedDescriptorValue; }
+    QString detailState() const { return detailStateValue; }
+    QVariantMap selectedConnectionTest() const { return selectedConnectionTestValue; }
+    QVariantMap selectedProviderStatus() const { return selectedProviderStatusValue; }
+    QString selectedProviderError() const { return selectedProviderErrorValue; }
+    QVariantMap selectedUsageSnapshot() const { return selectedUsageSnapshotValue; }
+    QVariantList selectedTokenAccounts() const { return selectedTokenAccountsValue; }
+    QString selectedDefaultTokenAccountId() const { return selectedDefaultTokenAccountIdValue; }
+    QVariantMap tokenAccountOperationState() const { return tokenAccountOperationStateValue; }
+    QVariantMap codexAccountState() const { return codexAccountStateValue; }
+    QVariantMap codexProjection() const { return codexProjectionValue; }
+
+    Q_INVOKABLE void requestOpenProvidersTab() {
+        ++requestOpenProvidersTabCalls;
+        if (!mockUsage) {
+            return;
+        }
+        mockUsage->requestProviderList();
+        syncProviderList();
+        selectFirstProviderIfNeeded();
+    }
+
+    Q_INVOKABLE void selectProvider(const QString& providerId) {
+        if (selectedProviderValue == providerId) {
+            return;
+        }
+        selectedProviderValue = providerId;
+        emit selectedProviderChanged();
+        selectedDescriptorValue.clear();
+        emit selectedDescriptorChanged();
+        detailStateValue = providerId.isEmpty() ? QStringLiteral("idle") : QStringLiteral("loading");
+        emit detailStateChanged();
+        requestSelectedDescriptor();
+        syncSelectedConnectionTest();
+        syncSelectedStatus();
+        syncSelectedError();
+        syncSelectedUsageSnapshot();
+        syncSelectedTokenAccounts();
+        syncCodexState();
+        syncCodexProjection();
+    }
+
+    Q_INVOKABLE void moveProvider(int fromIndex, int toIndex) {
+        ++moveProviderCalls;
+        if (mockUsage) mockUsage->moveProvider(fromIndex, toIndex);
+    }
+    Q_INVOKABLE void setProviderEnabled(const QString& providerId, bool enabled) {
+        ++setProviderEnabledCalls;
+        if (mockUsage) mockUsage->setProviderEnabled(providerId, enabled);
+    }
+    Q_INVOKABLE void testConnection(const QString& providerId) {
+        ++testConnectionCalls;
+        if (mockUsage) mockUsage->testProviderConnection(providerId);
+    }
+    Q_INVOKABLE void refreshProvider(const QString& providerId) {
+        if (mockUsage) mockUsage->refreshProvider(providerId);
+    }
+    Q_INVOKABLE void setProviderSetting(const QString& providerId, const QString& key, const QVariant& value) {
+        if (mockUsage) mockUsage->setProviderSetting(providerId, key, value);
+    }
+    Q_INVOKABLE void setProviderSecret(const QString& providerId, const QString& key, const QString& value) {
+        if (mockUsage) mockUsage->setProviderSecret(providerId, key, value);
+    }
+    Q_INVOKABLE void clearProviderSecret(const QString& providerId, const QString& key) {
+        if (mockUsage) mockUsage->clearProviderSecret(providerId, key);
+    }
+
+    Q_INVOKABLE void requestAddTokenAccount(const QString& providerId, const QString& displayName, int sourceMode) {
+        if (mockUsage) mockUsage->requestAddTokenAccount(providerId, displayName, sourceMode);
+    }
+    Q_INVOKABLE void requestAddTokenAccountWithApiKey(const QString& providerId, const QString& displayName, int sourceMode, const QString& apiKey) {
+        if (mockUsage) mockUsage->requestAddTokenAccountWithApiKey(providerId, displayName, sourceMode, apiKey);
+    }
+    Q_INVOKABLE void requestRemoveTokenAccount(const QString& accountId) {
+        if (mockUsage) mockUsage->requestRemoveTokenAccount(accountId);
+    }
+    Q_INVOKABLE void requestSetDefaultTokenAccount(const QString& providerId, const QString& accountId) {
+        if (mockUsage) mockUsage->requestSetDefaultTokenAccount(providerId, accountId);
+    }
+    Q_INVOKABLE void requestSetTokenAccountSourceMode(const QString& accountId, int sourceMode) {
+        if (mockUsage) mockUsage->requestSetTokenAccountSourceMode(accountId, sourceMode);
+    }
+    Q_INVOKABLE void requestSetTokenAccountVisibility(const QString& accountId, int visibility) {
+        if (mockUsage) mockUsage->requestSetTokenAccountVisibility(accountId, visibility);
+    }
+
+    Q_INVOKABLE void setCodexActiveAccount(const QString& accountId) {
+        ++setCodexActiveAccountCalls;
+        lastCodexAccountId = accountId;
+    }
+    Q_INVOKABLE void addCodexAccount() { ++addCodexAccountCalls; }
+    Q_INVOKABLE void cancelCodexAuthentication() { ++cancelCodexAuthenticationCalls; }
+    Q_INVOKABLE void removeCodexAccount(const QString& accountId) {
+        ++removeCodexAccountCalls;
+        lastCodexAccountId = accountId;
+    }
+    Q_INVOKABLE void reauthenticateCodexAccount(const QString& accountId) {
+        ++reauthenticateCodexAccountCalls;
+        lastCodexAccountId = accountId;
+    }
+    Q_INVOKABLE void promoteCodexAccount(const QString& accountId) {
+        ++promoteCodexAccountCalls;
+        lastCodexAccountId = accountId;
+    }
+
+    void resetState() {
+        providerModel.setProviders({});
+        providerCountValue = 0;
+        selectedProviderValue.clear();
+        selectedDescriptorValue.clear();
+        detailStateValue = QStringLiteral("idle");
+        selectedConnectionTestValue = {{"state", "idle"}};
+        selectedProviderStatusValue = {{"state", "unknown"}};
+        selectedProviderErrorValue.clear();
+        selectedUsageSnapshotValue.clear();
+        selectedTokenAccountsValue.clear();
+        selectedDefaultTokenAccountIdValue.clear();
+        tokenAccountOperationStateValue.clear();
+        codexAccountStateValue.clear();
+        codexProjectionValue.clear();
+        requestOpenProvidersTabCalls = 0;
+        moveProviderCalls = 0;
+        setProviderEnabledCalls = 0;
+        testConnectionCalls = 0;
+        setCodexActiveAccountCalls = 0;
+        addCodexAccountCalls = 0;
+        cancelCodexAuthenticationCalls = 0;
+        removeCodexAccountCalls = 0;
+        reauthenticateCodexAccountCalls = 0;
+        promoteCodexAccountCalls = 0;
+        lastCodexAccountId.clear();
+        emit providersChanged();
+        emit selectedProviderChanged();
+        emit selectedDescriptorChanged();
+        emit detailStateChanged();
+        emit selectedConnectionTestChanged();
+        emit selectedProviderStatusChanged();
+        emit selectedProviderErrorChanged();
+        emit selectedUsageSnapshotChanged();
+        emit selectedTokenAccountsChanged();
+        emit tokenAccountOperationStateChanged();
+        emit codexAccountStateChanged();
+        emit codexProjectionChanged();
+    }
+
+signals:
+    void providersChanged();
+    void selectedProviderChanged();
+    void selectedDescriptorChanged();
+    void detailStateChanged();
+    void selectedConnectionTestChanged();
+    void selectedProviderStatusChanged();
+    void selectedProviderErrorChanged();
+    void selectedUsageSnapshotChanged();
+    void selectedTokenAccountsChanged();
+    void tokenAccountOperationStateChanged();
+    void codexAccountStateChanged();
+    void codexProjectionChanged();
+
+private:
+    void syncProviderList() {
+        if (!mockUsage) {
+            return;
+        }
+        const QVariantList providers = mockUsage->providerList();
+        providerModel.setProviders(providers);
+        providerCountValue = providers.size();
+        emit providersChanged();
+        selectFirstProviderIfNeeded();
+    }
+
+    void requestSelectedDescriptor() {
+        if (!mockUsage || selectedProviderValue.isEmpty()) {
+            return;
+        }
+        mockUsage->requestProviderDescriptor(selectedProviderValue);
+        syncSelectedDescriptor();
+    }
+
+    void syncSelectedDescriptor() {
+        if (!mockUsage || selectedProviderValue.isEmpty()) {
+            return;
+        }
+        selectedDescriptorValue = mockUsage->providerDescriptorData(selectedProviderValue);
+        if (selectedDescriptorValue.isEmpty()) {
+            selectedDescriptorValue["displayName"] = mockUsage->providerDisplayName(selectedProviderValue);
+            selectedDescriptorValue["enabled"] = true;
+            selectedDescriptorValue["sourceModes"] = QStringList({"api"});
+            selectedDescriptorValue["settingsFields"] = QVariantList();
+        }
+        detailStateValue = QStringLiteral("ready");
+        emit selectedDescriptorChanged();
+        emit detailStateChanged();
+        syncSelectedTokenAccounts();
+    }
+
+    void syncSelectedConnectionTest() {
+        if (!mockUsage || selectedProviderValue.isEmpty()) return;
+        selectedConnectionTestValue = mockUsage->providerConnectionTest(selectedProviderValue);
+        emit selectedConnectionTestChanged();
+    }
+
+    void syncSelectedStatus() {
+        if (!mockUsage || selectedProviderValue.isEmpty()) return;
+        selectedProviderStatusValue = mockUsage->providerStatus(selectedProviderValue);
+        emit selectedProviderStatusChanged();
+    }
+
+    void syncSelectedError() {
+        if (!mockUsage || selectedProviderValue.isEmpty()) return;
+        selectedProviderErrorValue = mockUsage->providerError(selectedProviderValue);
+        emit selectedProviderErrorChanged();
+    }
+
+    void syncSelectedUsageSnapshot() {
+        if (!mockUsage || selectedProviderValue.isEmpty()) return;
+        selectedUsageSnapshotValue = mockUsage->providerUsageSnapshot(selectedProviderValue);
+        emit selectedUsageSnapshotChanged();
+    }
+
+    void syncSelectedTokenAccounts() {
+        selectedTokenAccountsValue.clear();
+        selectedDefaultTokenAccountIdValue.clear();
+        if (mockUsage && !selectedProviderValue.isEmpty() && selectedProviderValue != QLatin1String("codex")) {
+            selectedTokenAccountsValue = mockUsage->tokenAccountsForProvider(selectedProviderValue);
+            selectedDefaultTokenAccountIdValue = mockUsage->defaultTokenAccount(selectedProviderValue);
+        }
+        emit selectedTokenAccountsChanged();
+    }
+
+    void syncTokenOperationState() {
+        tokenAccountOperationStateValue = mockUsage ? mockUsage->tokenAccountOperationState() : QVariantMap();
+        emit tokenAccountOperationStateChanged();
+    }
+
+    void syncCodexState() {
+        codexAccountStateValue = (mockUsage && selectedProviderValue == QLatin1String("codex"))
+            ? mockUsage->codexAccountState()
+            : QVariantMap();
+        emit codexAccountStateChanged();
+    }
+
+    void syncCodexProjection() {
+        codexProjectionValue = (mockUsage && selectedProviderValue == QLatin1String("codex"))
+            ? mockUsage->codexConsumerProjectionData()
+            : QVariantMap();
+        emit codexProjectionChanged();
+    }
+
+    void selectFirstProviderIfNeeded() {
+        if (selectedProviderValue.isEmpty() && providerCountValue > 0) {
+            selectProvider(providerModel.providerIdAt(0));
+        }
+    }
+
+    MockUsageStore* mockUsage = nullptr;
+    MockSettingsProviderListModel providerModel;
+    int providerCountValue = 0;
+    QString selectedProviderValue;
+    QVariantMap selectedDescriptorValue;
+    QString detailStateValue = QStringLiteral("idle");
+    QVariantMap selectedConnectionTestValue = {{"state", "idle"}};
+    QVariantMap selectedProviderStatusValue = {{"state", "unknown"}};
+    QString selectedProviderErrorValue;
+    QVariantMap selectedUsageSnapshotValue;
+    QVariantList selectedTokenAccountsValue;
+    QString selectedDefaultTokenAccountIdValue;
+    QVariantMap tokenAccountOperationStateValue;
+    QVariantMap codexAccountStateValue;
+    QVariantMap codexProjectionValue;
+
+public:
+    int requestOpenProvidersTabCalls = 0;
+    int moveProviderCalls = 0;
+    int setProviderEnabledCalls = 0;
+    int testConnectionCalls = 0;
+    int setCodexActiveAccountCalls = 0;
+    int addCodexAccountCalls = 0;
+    int cancelCodexAuthenticationCalls = 0;
+    int removeCodexAccountCalls = 0;
+    int reauthenticateCodexAccountCalls = 0;
+    int promoteCodexAccountCalls = 0;
+    QString lastCodexAccountId;
+};
+
 class MockTrayViewModel : public QObject {
     Q_OBJECT
     Q_PROPERTY(MockTrayProviderListModel* providers READ providers CONSTANT)
@@ -602,6 +1014,7 @@ class MockUsageDetailsViewModel : public QObject {
     Q_PROPERTY(QVariantMap costData READ costData NOTIFY costDataChanged)
     Q_PROPERTY(QVariantList providerRows READ providerRows NOTIFY providerRowsChanged)
     Q_PROPERTY(int tokenProviderCount READ tokenProviderCount NOTIFY providerRowsChanged)
+    Q_PROPERTY(QVariantMap providerDetails READ providerDetails NOTIFY providerDetailsChanged)
 public:
     void setUsageStore(MockUsageStore* usage) { mockUsage = usage; }
 
@@ -611,6 +1024,7 @@ public:
     QVariantMap costData() const { return mockUsage ? mockUsage->costUsageDataValue : QVariantMap(); }
     QVariantList providerRows() const { return rows; }
     int tokenProviderCount() const { return tokenProviderCountValue; }
+    QVariantMap providerDetails() const { return providerDetailsValue; }
 
     Q_INVOKABLE void activate() {
         ++activateCalls;
@@ -642,12 +1056,24 @@ public:
         }
     }
 
+    Q_INVOKABLE void requestProviderDetail(const QString& providerId) {
+        ++requestProviderDetailCalls;
+        QVariantMap detail;
+        detail["providerId"] = providerId;
+        detail["state"] = QStringLiteral("ready");
+        detail["models"] = QVariantList();
+        providerDetailsValue.insert(providerId, detail);
+        emit providerDetailsChanged();
+    }
+
     void resetCounters() {
         activateCalls = 0;
         deactivateCalls = 0;
         refreshCostUsageCalls = 0;
+        requestProviderDetailCalls = 0;
         activeValue = false;
         rows.clear();
+        providerDetailsValue.clear();
         tokenProviderCountValue = 0;
     }
 
@@ -657,6 +1083,7 @@ signals:
     void costUsageRefreshingChanged();
     void costDataChanged();
     void providerRowsChanged();
+    void providerDetailsChanged();
 
 private:
     void rebuildRows() {
@@ -673,11 +1100,11 @@ private:
             row["brandColor"] = QStringLiteral("#49A3B0");
             row["kind"] = QStringLiteral("token");
             row["hasTokenData"] = true;
+            row["hasDetailAvailable"] = !token.value("models").toList().isEmpty();
             row["sessionTokens"] = token.value("sessionTokens").toDouble();
             row["sessionCostUSD"] = token.value("sessionCostUSD").toDouble();
             row["last30DaysTokens"] = token.value("last30DaysTokens").toDouble();
             row["last30DaysCostUSD"] = token.value("last30DaysCostUSD").toDouble();
-            row["models"] = token.value("models").toList();
             row["daily"] = token.value("daily").toList();
             row["enabled"] = true;
             rows.append(row);
@@ -688,12 +1115,14 @@ private:
     MockUsageStore* mockUsage = nullptr;
     bool activeValue = false;
     QVariantList rows;
+    QVariantMap providerDetailsValue;
     int tokenProviderCountValue = 0;
 
 public:
     int activateCalls = 0;
     int deactivateCalls = 0;
     int refreshCostUsageCalls = 0;
+    int requestProviderDetailCalls = 0;
 };
 
 class MockAppController : public QObject {
@@ -733,6 +1162,7 @@ class tst_QmlSmoke : public QObject {
 private:
     MockSettingsStore mockSettings;
     MockUsageStore mockUsage;
+    MockSettingsProvidersModel mockSettingsProviders;
     MockTrayViewModel mockTray;
     MockUsageDetailsViewModel mockUsageDetails;
     MockLanguageManager mockLang;
@@ -740,10 +1170,12 @@ private:
 
     void setupEngine(QQmlEngine& engine) {
         engine.addImportPath("qrc:/qml");
+        mockSettingsProviders.setUsageStore(&mockUsage);
         mockTray.setUsageStore(&mockUsage);
         mockUsageDetails.setUsageStore(&mockUsage);
         qmlRegisterSingletonInstance("CodexBar", 1, 0, "SettingsStore", &mockSettings);
         qmlRegisterSingletonInstance("CodexBar", 1, 0, "UsageStore", &mockUsage);
+        qmlRegisterSingletonInstance("CodexBar", 1, 0, "SettingsProvidersModel", &mockSettingsProviders);
         qmlRegisterSingletonInstance("CodexBar", 1, 0, "TrayViewModel", &mockTray);
         qmlRegisterSingletonInstance("CodexBar", 1, 0, "UsageDetailsViewModel", &mockUsageDetails);
         qmlRegisterSingletonInstance("CodexBar", 1, 0, "AppController", &mockAppCtrl);

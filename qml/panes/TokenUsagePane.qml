@@ -10,6 +10,7 @@ Rectangle {
 
     property var costData: UsageDetailsViewModel.costData
     property var providerRows: UsageDetailsViewModel.providerRows
+    property var providerDetails: UsageDetailsViewModel.providerDetails
     property int rev: LanguageManager.translationRevision
 
     Component.onCompleted: UsageDetailsViewModel.activate()
@@ -448,10 +449,20 @@ Rectangle {
     component ProviderUsageCard: Rectangle {
         id: card
         property var provider: ({})
-        property bool expanded: provider.hasTokenData && ((provider.models || []).length > 0)
+        property var providerDetail: root.providerDetails[provider.providerId] || ({})
+        property bool expanded: false
         readonly property bool canExpand: provider.hasTokenData
-            && (((provider.models || []).length > 0) || ((provider.daily || []).length > 0))
+            && (provider.hasDetailAvailable === true
+                || ((providerDetail.models || []).length > 0))
+        readonly property bool detailLoading: providerDetail.state === "loading"
+        readonly property var detailModels: providerDetail.models || []
         readonly property color accentColor: provider.brandColor || root.brandColorFor(provider.providerId)
+
+        onExpandedChanged: {
+            if (expanded && canExpand) {
+                UsageDetailsViewModel.requestProviderDetail(provider.providerId)
+            }
+        }
 
         Layout.preferredHeight: contentColumn.implicitHeight + 24
         radius: AppTheme.radiusMd
@@ -578,8 +589,17 @@ Rectangle {
                     color: AppTheme.borderColor
                 }
 
+                Label {
+                    Layout.fillWidth: true
+                    visible: card.detailLoading
+                    text: qsTr("Loading model breakdown")
+                    color: AppTheme.textTertiary
+                    font.pixelSize: AppTheme.fontSizeSm
+                    elide: Text.ElideRight
+                }
+
                 Repeater {
-                    model: card.provider.models || []
+                    model: card.detailModels
 
                     delegate: RowLayout {
                         Layout.fillWidth: true

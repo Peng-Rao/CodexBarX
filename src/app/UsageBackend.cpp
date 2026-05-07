@@ -42,7 +42,9 @@ UsageBackend::UsageBackend(QObject* parent)
     qRegisterMetaType<UsageBackendResult>("UsageBackendResult");
     qRegisterMetaType<CostUsageViewDataPayload>("CostUsageViewDataPayload");
     qRegisterMetaType<CostUsageRefreshPayload>("CostUsageRefreshPayload");
+    qRegisterMetaType<CostUsageProviderDetailPayload>("CostUsageProviderDetailPayload");
     qRegisterMetaType<ProviderFetchResult>("ProviderFetchResult");
+    qRegisterMetaType<CredentialCacheUpdatePayload>("CredentialCacheUpdatePayload");
     qRegisterMetaType<ProviderRefreshPayload>("ProviderRefreshPayload");
     qRegisterMetaType<ProviderConnectionTestPayload>("ProviderConnectionTestPayload");
     qRegisterMetaType<ProviderStatusesPayload>("ProviderStatusesPayload");
@@ -51,6 +53,7 @@ UsageBackend::UsageBackend(QObject* parent)
     qRegisterMetaType<CodexCreditsFetcher::FetchResult>("CodexCreditsFetcher::FetchResult");
     qRegisterMetaType<CodexCreditsRefreshPayload>("CodexCreditsRefreshPayload");
     qRegisterMetaType<CredentialStatusPayload>("CredentialStatusPayload");
+    qRegisterMetaType<CredentialPreloadPayload>("CredentialPreloadPayload");
     qRegisterMetaType<ProviderSecretResultPayload>("ProviderSecretResultPayload");
     qRegisterMetaType<ProviderLoginStartPayload>("ProviderLoginStartPayload");
     qRegisterMetaType<ProviderLoginPollPayload>("ProviderLoginPollPayload");

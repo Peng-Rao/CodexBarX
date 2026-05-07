@@ -9,7 +9,6 @@
 #include <QTimer>
 #include <QVariantMap>
 #include <QAtomicInt>
-#include <QThreadPool>
 #include <optional>
 #include "../models/UsageSnapshot.h"
 #include "../models/CreditsSnapshot.h"
@@ -18,8 +17,10 @@
 #include "../providers/IFetchStrategy.h"
 #include "../providers/ProviderFetchContext.h"
 #include "../providers/ProviderFetchResult.h"
+#include "../providers/ProviderCatalogSnapshot.h"
 #include "../providers/codex/CodexConsumerProjection.h"
 #include "../providers/codex/CodexCreditsFetcher.h"
+#include "UsageBackendJobs.h"
 
 class ProviderRegistry;
 class ProviderPipeline;
@@ -84,10 +85,15 @@ public:
     Q_INVOKABLE QVariantMap costUsageData() const;
     Q_INVOKABLE QVariantList providerCostUsageList() const;
     Q_INVOKABLE QVariantMap providerCostUsageData(const QString& providerId) const;
+    QVariantList costUsageDetailsRows() const;
+    int costUsageTokenProviderCount() const;
+    QVariantMap costUsageProviderDetail(const QString& providerId) const;
+    void requestCostUsageProviderDetail(const QString& providerId) const;
 
     Q_INVOKABLE QVariantList utilizationChartData(const QString& providerId, const QString& seriesName) const;
     Q_INVOKABLE QVariantList codexFetchAttempts() const;
     Q_INVOKABLE QVariantMap providerDashboardData(const QString& providerId) const;
+    QVariantMap codexConsumerProjectionData() const;
     QString lastKnownSessionWindowSource() const;
 
     // Codex multi-account management
@@ -119,7 +125,6 @@ public:
     Q_INVOKABLE QString requestSetTokenAccountSourceMode(const QString& accountId, int sourceMode);
     Q_INVOKABLE QString requestSetDefaultTokenAccount(const QString& providerId, const QString& accountId);
 
-    QThreadPool* threadPool() const { return m_threadPool; }
     void shutdown();
     Q_INVOKABLE bool isCodexRemoving() const;
     Q_INVOKABLE QString codexAuthenticatingAccountID() const;
@@ -145,6 +150,7 @@ public:
 
     // Preload all provider credentials into cache (runs on background thread)
     void preloadCredentials();
+    void requestPreloadCredentials();
 
     // Rebuild the cached snapshot of system environment variables.
     // Call after qputenv() in tests so that the cache picks up the new values.
@@ -158,6 +164,7 @@ signals:
     void costUsageEnabledChanged();
     void costUsageRefreshingChanged();
     void costUsageChanged();
+    void costUsageProviderDetailChanged(const QString& providerId);
     void snapshotRevisionChanged();
     void providerConnectionTestChanged(const QString& providerId);
     void providerLoginStateChanged(const QString& providerId);
@@ -206,13 +213,14 @@ private:
 
     std::optional<ProviderSettingsDescriptor> settingDescriptor(const QString& providerId,
                                                                 const QString& key) const;
+    void rebuildProviderCatalogSnapshot();
     QVariantList buildProviderListNow() const;
     QVariantMap buildProviderDescriptorDataNow(const QString& id) const;
     void setProviderLoginState(const QString& providerId, const QVariantMap& state);
     void setProviderConnectionTest(const QString& providerId, const QVariantMap& state);
     void setProviderStatus(const QString& providerId, const QVariantMap& status);
     void setProviderStatuses(const QHash<QString, QVariantMap>& statuses);
-    void refreshProviderWithPool(const QString& providerId, QThreadPool* pool);
+    void refreshProviderWithBackend(const QString& providerId);
     void applyProviderRefreshResult(const QString& providerId, const ProviderFetchResult& result);
     void completeProviderRefresh();
     void applyProviderConnectionTestResult(const QString& providerId,
@@ -226,6 +234,9 @@ private:
                                      const CodexAccountRefreshGuard& expectedGuard);
     void dispatchProviderLoginPoll(const ProviderLoginStartPayload& startPayload,
                                    const QSharedPointer<QAtomicInt>& cancelFlag);
+    UsageBackendJobs::ProviderFetchCommandInput buildProviderFetchCommandInput(const QString& providerId) const;
+    QVector<UsageBackendJobs::CredentialPreloadItem> buildCredentialPreloadItems() const;
+    void applyCredentialCacheUpdates(const QVector<CredentialCacheUpdatePayload>& updates);
 
     QTimer m_refreshTimer;
     QTimer m_statusTimer;
@@ -249,8 +260,9 @@ private:
     QVector<ProviderCostUsageSnapshot> m_allProviderCostUsage;
     UsageBackend* m_backend = nullptr;
     ProviderPipeline* m_pipeline = nullptr;
-    QThreadPool* m_interactiveThreadPool = nullptr;
     SettingsStore* m_settingsStore = nullptr;
+    ProviderCatalogSnapshot m_providerCatalog;
+    int m_providerCatalogGeneration = 0;
     PlanUtilizationHistoryStore* m_historyStore = nullptr;
     int m_pendingRefreshes = 0;
     int m_snapshotRevision = 0;
@@ -278,10 +290,16 @@ private:
     // costUsageData() / providerCostUsageList() result caches — invalidated on costUsageChanged
     mutable QVariantMap m_costUsageDataCache;
     mutable QVariantList m_providerCostUsageListCache;
+    mutable QVariantList m_costUsageDetailsRowsCache;
+    mutable int m_costUsageTokenProviderCountCache = 0;
+    mutable QHash<QString, QVariantMap> m_costUsageProviderDetailCache;
+    mutable QSet<QString> m_costUsageProviderDetailQueued;
     mutable bool m_costUsageDataCacheValid = false;
     mutable bool m_providerCostUsageListCacheValid = false;
+    mutable bool m_costUsageDetailsRowsCacheValid = false;
     mutable bool m_costUsageViewDataBuildQueued = false;
     mutable int m_costUsageViewDataBuildGeneration = 0;
+    mutable int m_costUsageProviderDetailBuildGeneration = 0;
     int m_costUsageRefreshGeneration = 0;
 
     // providerList() result cache — invalidated on providerIDsChanged / snapshotRevisionChanged / statusRevisionChanged
@@ -321,16 +339,11 @@ private:
     QString codexCreditsError() const;
     bool codexCreditsRefreshing() const { return m_codexCreditsRefreshing; }
 
-    // Codex consumer projection
-    QVariantMap codexConsumerProjectionData() const;
-
     // Wait for codex snapshot to be at least as fresh as minimumUpdatedAt (mirrors original CodexBar)
     UsageSnapshot waitForCodexSnapshot(const QDateTime& minimumUpdatedAt, int timeoutMs = 6000) const;
 
     void clearCodexOpenAIWebState();
     void doRefresh(const QStringList& ids);
-    QThreadPool* m_threadPool = nullptr;
-
     // Batch update controller (merges UI signals to avoid signal storm)
     BatchUpdateController* m_batchUpdater = nullptr;
 

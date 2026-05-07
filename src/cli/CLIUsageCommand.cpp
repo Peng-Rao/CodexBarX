@@ -1,22 +1,23 @@
 #include "CLIUsageCommand.h"
+#include "../providers/ProviderCatalogSnapshot.h"
 #include "../providers/ProviderRegistry.h"
 #include "../providers/ProviderPipeline.h"
 #include "../providers/IProvider.h"
 #include "../account/TokenAccountStore.h"
 #include "../runtime/ProviderRuntimeManager.h"
 #include "../runtime/IProviderRuntime.h"
-#include "../app/SettingsStore.h"
 #include <QJsonArray>
 #include <QDateTime>
 
 int CLIUsageCommand::execute(const CLIUsageOptions& opts, CLIRenderer& out)
 {
+    ProviderRegistry& registry = ProviderRegistry::instance();
+    const ProviderCatalogSnapshot catalog = ProviderCatalogSnapshot::fromRegistry(registry, 0);
+
     QStringList providerIds;
     if (opts.providerId == "all") {
-        for (auto* p : ProviderRegistry::instance().allProviders()) {
-            if (SettingsStore().isProviderEnabled(p->id())) {
-                providerIds.append(p->id());
-            }
+        for (const QString& id : catalog.enabledProviderIDs()) {
+            providerIds.append(id);
         }
     } else {
         providerIds.append(opts.providerId);
@@ -26,8 +27,14 @@ int CLIUsageCommand::execute(const CLIUsageOptions& opts, CLIRenderer& out)
     QJsonArray errors;
 
     for (const QString& id : providerIds) {
-        IProvider* provider = ProviderRegistry::instance().provider(id);
+        IProvider* provider = registry.provider(id);
         if (!provider) continue;
+        const auto catalogEntry = catalog.provider(id);
+        QString displayName = id;
+        if (catalogEntry.has_value() && catalogEntry->hasDescriptor
+            && !catalogEntry->descriptor.metadata.displayName.isEmpty()) {
+            displayName = catalogEntry->descriptor.metadata.displayName;
+        }
 
         ProviderFetchContext ctx;
         ctx.providerId = id;
@@ -68,7 +75,7 @@ int CLIUsageCommand::execute(const CLIUsageOptions& opts, CLIRenderer& out)
         if (result.success) {
             QJsonObject obj;
             obj["id"] = id;
-            obj["displayName"] = provider->displayName();
+            obj["displayName"] = displayName;
             obj["success"] = true;
 
             if (result.usage.primary.has_value()) {
@@ -97,7 +104,7 @@ int CLIUsageCommand::execute(const CLIUsageOptions& opts, CLIRenderer& out)
             results.append(obj);
 
             if (!out.isJsonMode()) {
-                out.heading(provider->displayName());
+                out.heading(displayName);
                 if (result.usage.primary.has_value()) {
                     out.line(QString("  Primary: %1% used (%2 remaining)")
                              .arg(result.usage.primary->usedPercent, 0, 'f', 1)

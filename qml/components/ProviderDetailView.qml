@@ -8,10 +8,16 @@ ScrollView {
     id: root
     property string providerId: ""
     property var descriptor: null
+    property string detailState: "idle"
     property var connectionTest: ({"state": "idle"})
     property var providerStatus: ({"state": "unknown"})
     property var providerError: ""
     property var usageSnapshot: null
+    property var codexAccountState: ({})
+    property var codexProjection: ({})
+    property var tokenAccounts: []
+    property string defaultTokenAccountId: ""
+    property var tokenAccountOperationState: ({})
     property bool detailsExpanded: false
 
     property color brandColor: descriptor && descriptor.brandColor ? descriptor.brandColor : AppTheme.accentColor
@@ -24,6 +30,17 @@ ScrollView {
     signal settingChanged(string key, var value)
     signal secretSaveRequested(string key, string value)
     signal secretClearRequested(string key)
+    signal addTokenAccountRequested(string displayName, int sourceMode, string apiKey)
+    signal removeTokenAccountRequested(string accountId)
+    signal setDefaultTokenAccountRequested(string accountId)
+    signal setTokenAccountSourceModeRequested(string accountId, int sourceMode)
+    signal setTokenAccountVisibilityRequested(string accountId, int visibility)
+    signal setCodexActiveAccountRequested(string accountId)
+    signal addCodexAccountRequested()
+    signal cancelCodexAuthenticationRequested()
+    signal removeCodexAccountRequested(string accountId)
+    signal reauthenticateCodexAccountRequested(string accountId)
+    signal promoteCodexAccountRequested(string accountId)
 
     clip: true
     contentWidth: availableWidth
@@ -33,50 +50,11 @@ ScrollView {
 
     onProviderIdChanged: {
         detailsExpanded = false
-        reloadTokenAccounts()
     }
-    onDescriptorChanged: reloadTokenAccounts()
-    onVisibleChanged: if (visible) reloadTokenAccounts()
-
-    property var codexAccountState: root.providerId === "codex"
-        ? UsageStore.codexAccountState
-        : ({})
-    property var codexProjection: root.providerId === "codex"
-        ? UsageStore.codexConsumerProjectionData()
-        : ({})
-    property var tokenAccounts: []
-    property string defaultTokenAccountId: ""
-    property var tokenAccountOperationState: UsageStore.tokenAccountOperationState
     property bool tokenAccountBusy: {
         var byProvider = tokenAccountOperationState && tokenAccountOperationState.pendingByProvider
             ? tokenAccountOperationState.pendingByProvider : ({})
         return byProvider[root.providerId] === true
-    }
-
-    // Reactive binding for codexAccountState
-    Connections {
-        enabled: root.visible
-        target: UsageStore
-        function onCodexAccountStateChanged() {
-            if (root.providerId === "codex") {
-                root.codexAccountState = UsageStore.codexAccountState
-            }
-        }
-        function onCodexCreditsChanged() {
-            if (root.providerId === "codex") {
-                root.codexProjection = UsageStore.codexConsumerProjectionData()
-            }
-        }
-        function onSnapshotChanged(providerId) {
-            if (providerId === "codex" && root.providerId === "codex") {
-                root.codexProjection = UsageStore.codexConsumerProjectionData()
-            }
-        }
-        function onTokenAccountsChanged(providerId) {
-            if (providerId === root.providerId) {
-                root.reloadTokenAccounts()
-            }
-        }
     }
 
     function statusText(state) {
@@ -120,16 +98,6 @@ ScrollView {
         return providerId !== "codex"
             && (tokenAccountConfig().supportsMultipleAccounts === true
                 || (tokenAccounts && tokenAccounts.length > 0))
-    }
-
-    function reloadTokenAccounts() {
-        if (!root.providerId || root.providerId === "codex") {
-            tokenAccounts = []
-            defaultTokenAccountId = ""
-            return
-        }
-        tokenAccounts = UsageStore.tokenAccountsForProvider(root.providerId)
-        defaultTokenAccountId = UsageStore.defaultTokenAccount(root.providerId)
     }
 
     property bool isDetailProvider: root.providerId === "deepseek"
@@ -640,23 +608,19 @@ ScrollView {
                         busy: root.tokenAccountBusy
 
                         onAddAccount: function(displayName, sourceMode, apiKey) {
-                            if (apiKey && apiKey.trim() !== "") {
-                                UsageStore.requestAddTokenAccountWithApiKey(root.providerId, displayName, sourceMode, apiKey)
-                            } else {
-                                UsageStore.requestAddTokenAccount(root.providerId, displayName, sourceMode)
-                            }
+                            root.addTokenAccountRequested(displayName, sourceMode, apiKey)
                         }
                         onRemoveAccount: function(accountId) {
-                            UsageStore.requestRemoveTokenAccount(accountId)
+                            root.removeTokenAccountRequested(accountId)
                         }
                         onSetDefaultAccount: function(accountId) {
-                            UsageStore.requestSetDefaultTokenAccount(root.providerId, accountId)
+                            root.setDefaultTokenAccountRequested(accountId)
                         }
                         onSetSourceMode: function(accountId, sourceMode) {
-                            UsageStore.requestSetTokenAccountSourceMode(accountId, sourceMode)
+                            root.setTokenAccountSourceModeRequested(accountId, sourceMode)
                         }
                         onSetVisibility: function(accountId, visibility) {
-                            UsageStore.requestSetTokenAccountVisibility(accountId, visibility)
+                            root.setTokenAccountVisibilityRequested(accountId, visibility)
                         }
                     }
                 }
@@ -699,13 +663,13 @@ ScrollView {
                         userCode: root.codexAccountState.userCode || ""
 
                         onSetActiveAccount: function(accountID) {
-                            UsageStore.setCodexActiveAccount(accountID)
+                            root.setCodexActiveAccountRequested(accountID)
                         }
                         onAddAccount: function() {
-                            UsageStore.addCodexAccount("", "")
+                            root.addCodexAccountRequested()
                         }
                         onCancelAuthentication: function() {
-                            UsageStore.cancelCodexAuthentication()
+                            root.cancelCodexAuthenticationRequested()
                         }
                         onOpenVerificationUrl: function(url) {
                             AppController.openExternalUrl(url)
@@ -714,13 +678,13 @@ ScrollView {
                             AppController.copyText(text)
                         }
                         onRemoveAccount: function(accountID) {
-                            UsageStore.removeCodexAccount(accountID)
+                            root.removeCodexAccountRequested(accountID)
                         }
                         onReauthenticateAccount: function(accountID) {
-                            UsageStore.reauthenticateCodexAccount(accountID)
+                            root.reauthenticateCodexAccountRequested(accountID)
                         }
                         onPromoteAccount: function(accountID) {
-                            UsageStore.promoteCodexAccount(accountID)
+                            root.promoteCodexAccountRequested(accountID)
                         }
                     }
                 }

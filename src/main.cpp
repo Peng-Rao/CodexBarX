@@ -64,6 +64,7 @@ static void fileMessageHandler(QtMsgType type, const QMessageLogContext& context
 }
 
 #include "app/SettingsStore.h"
+#include "app/SettingsProvidersModel.h"
 #include "app/TrayViewModel.h"
 #include "app/UiFreezeWatchdog.h"
 #include "app/UsageDetailsViewModel.h"
@@ -350,6 +351,8 @@ int main(int argc, char* argv[]) {
 
     qmlRegisterSingletonInstance("CodexBar", 1, 0, "SettingsStore", settings);
     qmlRegisterSingletonInstance("CodexBar", 1, 0, "UsageStore", usageStore);
+    auto* settingsProvidersModel = new SettingsProvidersModel(usageStore, &app);
+    qmlRegisterSingletonInstance("CodexBar", 1, 0, "SettingsProvidersModel", settingsProvidersModel);
     auto* trayViewModel = new TrayViewModel(usageStore, &app);
     qmlRegisterSingletonInstance("CodexBar", 1, 0, "TrayViewModel", trayViewModel);
     auto* usageDetailsViewModel = new UsageDetailsViewModel(usageStore, &app);
@@ -393,9 +396,7 @@ int main(int argc, char* argv[]) {
 
     // Preload credentials on background thread to avoid blocking main thread on first refresh
     QTimer::singleShot(500, usageStore, [usageStore]() {
-        QtConcurrent::run(usageStore->threadPool(), [usageStore]() {
-            usageStore->preloadCredentials();
-        });
+        usageStore->requestPreloadCredentials();
     });
 
     QTimer::singleShot(1500, usageStore, [usageStore]() {

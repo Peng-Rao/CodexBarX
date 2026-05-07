@@ -247,108 +247,79 @@ Rectangle {
 
                         sourceComponent: ProvidersPane {
                             id: providersPane
-                            providers: UsageStore.providerList()
-                            selectedProvider: ""
-                            selectedDescriptor: null
-                            selectedConnectionTest: ({"state": "idle", "message": "", "details": "", "startedAt": 0, "finishedAt": 0, "durationMs": 0})
-                            selectedProviderStatus: ({"state": "unknown"})
-                            selectedProviderError: ""
-                            selectedUsageSnapshot: null
+                            providers: SettingsProvidersModel.providers
+                            providerCount: SettingsProvidersModel.providerCount
+                            selectedProvider: SettingsProvidersModel.selectedProvider
+                            selectedDescriptor: SettingsProvidersModel.selectedDescriptor
+                            detailState: SettingsProvidersModel.detailState
+                            selectedConnectionTest: SettingsProvidersModel.selectedConnectionTest
+                            selectedProviderStatus: SettingsProvidersModel.selectedProviderStatus
+                            selectedProviderError: SettingsProvidersModel.selectedProviderError
+                            selectedUsageSnapshot: SettingsProvidersModel.selectedUsageSnapshot
+                            tokenAccounts: SettingsProvidersModel.selectedTokenAccounts
+                            defaultTokenAccountId: SettingsProvidersModel.selectedDefaultTokenAccountId
+                            tokenAccountOperationState: SettingsProvidersModel.tokenAccountOperationState
+                            codexAccountState: SettingsProvidersModel.codexAccountState
+                            codexProjection: SettingsProvidersModel.codexProjection
 
-                            Component.onCompleted: UsageStore.requestProviderList()
-
-                            function reloadProvider(providerId) {
-                                if (providerId === "") return
-                                providersPane.selectedProvider = providerId
-                                providersPane.selectedDescriptor = UsageStore.providerDescriptorData(providerId)
-                                UsageStore.requestProviderDescriptor(providerId)
-                                providersPane.selectedConnectionTest = UsageStore.providerConnectionTest(providerId)
-                                providersPane.selectedProviderStatus = UsageStore.providerStatus(providerId)
-                                providersPane.selectedProviderError = UsageStore.providerError(providerId)
-                                providersPane.selectedUsageSnapshot = UsageStore.providerUsageSnapshot(providerId)
-                            }
-                            function refreshProviderListSoon() {
-                                providerListRefreshTimer.restart()
-                            }
-                            function refreshSelectedConnection(providerId) {
-                                if (providersPane.selectedProvider === providerId) {
-                                    providersPane.selectedConnectionTest = UsageStore.providerConnectionTest(providerId)
-                                }
-                            }
-                            function refreshSelectedStatus(providerId) {
-                                if (providersPane.selectedProvider === providerId) {
-                                    providersPane.selectedProviderStatus = UsageStore.providerStatus(providerId)
-                                }
-                            }
-                            function refreshSelectedSnapshot() {
-                                if (providersPane.selectedProvider !== "") {
-                                    providersPane.selectedUsageSnapshot = UsageStore.providerUsageSnapshot(providersPane.selectedProvider)
-                                }
-                            }
-                            function refreshSelectedDescriptor(providerId) {
-                                if (providersPane.selectedProvider === providerId) {
-                                    providersPane.selectedDescriptor = UsageStore.providerDescriptorData(providerId)
-                                }
-                            }
-
-                            Timer {
-                                id: providerListRefreshTimer
-                                interval: 80
-                                repeat: false
-                                onTriggered: UsageStore.requestProviderList()
-                            }
+                            Component.onCompleted: SettingsProvidersModel.requestOpenProvidersTab()
 
                             onProviderSelected: function(providerId) {
-                                reloadProvider(providerId)
+                                SettingsProvidersModel.selectProvider(providerId)
                             }
                             onProviderEnabled: function(providerId, enabled) {
-                                UsageStore.setProviderEnabled(providerId, enabled)
-                                reloadProvider(providerId)
-                                UsageStore.requestProviderList()
+                                SettingsProvidersModel.setProviderEnabled(providerId, enabled)
                             }
                             onTestConnection: function(providerId) {
-                                UsageStore.testProviderConnection(providerId)
-                                providersPane.selectedConnectionTest = UsageStore.providerConnectionTest(providerId)
+                                SettingsProvidersModel.testConnection(providerId)
                             }
                             onRefreshProvider: function(providerId) {
-                                UsageStore.refreshProvider(providerId)
+                                SettingsProvidersModel.refreshProvider(providerId)
                             }
                             onSettingChanged: function(providerId, key, value) {
-                                UsageStore.setProviderSetting(providerId, key, value)
+                                SettingsProvidersModel.setProviderSetting(providerId, key, value)
                             }
                             onSecretSaveRequested: function(providerId, key, value) {
-                                UsageStore.setProviderSecret(providerId, key, value)
+                                SettingsProvidersModel.setProviderSecret(providerId, key, value)
                             }
                             onSecretClearRequested: function(providerId, key) {
-                                UsageStore.clearProviderSecret(providerId, key)
+                                SettingsProvidersModel.clearProviderSecret(providerId, key)
                             }
-
-                            Connections {
-                                enabled: settingsWindow.visible
-                                target: UsageStore
-                                function onProviderIDsChanged() {
-                                    UsageStore.requestProviderList()
+                            onMoveProvider: function(fromIndex, toIndex) {
+                                SettingsProvidersModel.moveProvider(fromIndex, toIndex)
+                            }
+                            onAddTokenAccount: function(providerId, displayName, sourceMode, apiKey) {
+                                if (apiKey && apiKey.trim() !== "") {
+                                    SettingsProvidersModel.requestAddTokenAccountWithApiKey(providerId, displayName, sourceMode, apiKey)
+                                } else {
+                                    SettingsProvidersModel.requestAddTokenAccount(providerId, displayName, sourceMode)
                                 }
-                                function onProviderListModelChanged() {
-                                    providersPane.providers = UsageStore.providerList()
-                                }
-                                function onProviderDescriptorChanged(providerId) {
-                                    providersPane.refreshSelectedDescriptor(providerId)
-                                }
-                                function onProviderConnectionTestChanged(providerId) {
-                                    providersPane.refreshSelectedConnection(providerId)
-                                    providersPane.refreshProviderListSoon()
-                                }
-                                function onProviderSecretChanged(providerId, key) {
-                                    providersPane.refreshSelectedDescriptor(providerId)
-                                }
-                                function onProviderStatusChanged(providerId) {
-                                    providersPane.refreshSelectedStatus(providerId)
-                                    providersPane.refreshProviderListSoon()
-                                }
-                                function onSnapshotRevisionChanged() {
-                                    providersPane.refreshSelectedSnapshot()
-                                }
+                            }
+                            onRemoveTokenAccount: function(accountId) {
+                                SettingsProvidersModel.requestRemoveTokenAccount(accountId)
+                            }
+                            onSetDefaultTokenAccount: function(providerId, accountId) {
+                                SettingsProvidersModel.requestSetDefaultTokenAccount(providerId, accountId)
+                            }
+                            onSetTokenAccountSourceMode: function(accountId, sourceMode) {
+                                SettingsProvidersModel.requestSetTokenAccountSourceMode(accountId, sourceMode)
+                            }
+                            onSetTokenAccountVisibility: function(accountId, visibility) {
+                                SettingsProvidersModel.requestSetTokenAccountVisibility(accountId, visibility)
+                            }
+                            onSetCodexActiveAccount: function(accountId) {
+                                SettingsProvidersModel.setCodexActiveAccount(accountId)
+                            }
+                            onAddCodexAccount: SettingsProvidersModel.addCodexAccount()
+                            onCancelCodexAuthentication: SettingsProvidersModel.cancelCodexAuthentication()
+                            onRemoveCodexAccount: function(accountId) {
+                                SettingsProvidersModel.removeCodexAccount(accountId)
+                            }
+                            onReauthenticateCodexAccount: function(accountId) {
+                                SettingsProvidersModel.reauthenticateCodexAccount(accountId)
+                            }
+                            onPromoteCodexAccount: function(accountId) {
+                                SettingsProvidersModel.promoteCodexAccount(accountId)
                             }
                         }
                     }

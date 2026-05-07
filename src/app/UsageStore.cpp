@@ -4,6 +4,7 @@
 #include "PlanUtilizationHistoryStore.h"
 #include "SessionQuotaNotifications.h"
 #include "UsageBackend.h"
+#include "UsageBackendJobs.h"
 #include "UsageBackendTypes.h"
 #include "../providers/ProviderRegistry.h"
 #include "../providers/ProviderPipeline.h"
@@ -21,7 +22,6 @@
 #include "../providers/codex/CodexDashboardCache.h"
 #include "../account/TokenAccountStore.h"
 #include "../runtime/ProviderRuntimeManager.h"
-#include "../runtime/IProviderRuntime.h"
 
 #include <QDateTime>
 #include <QJsonObject>
@@ -33,7 +33,6 @@
 #include <QUrl>
 #include <QUrlQuery>
 #include <QUuid>
-#include <QFutureWatcher>
 #include <QElapsedTimer>
 
 #include <memory>
@@ -91,24 +90,6 @@ void rebuildSystemEnvCache()
         g_systemEnvCache.insert(key, systemEnv.value(key));
     }
     g_systemEnvCachePopulated = true;
-}
-
-bool isSourceModeAllowed(const QString& providerId, ProviderSourceMode mode)
-{
-    if (mode == ProviderSourceMode::Auto) return true;
-    auto desc = ProviderRegistry::instance().descriptor(providerId);
-    if (!desc.has_value()) return true;
-    return desc->fetchPlan.allowedSourceModes.contains(sourceModeToString(mode));
-}
-
-QString statusEndpointFor(const QString& statusPageURL)
-{
-    return ProviderStatusFetcher::statusEndpointFor(statusPageURL);
-}
-
-QString mappedStatusFromIndicator(const QString& indicator)
-{
-    return ProviderStatusFetcher::mappedStatusFromIndicator(indicator);
 }
 
 struct CostUsageScanPlan {
@@ -247,6 +228,233 @@ QVariantList providerCostUsageSnapshotsToVariantList(const QVector<ProviderCostU
         result.append(m);
     }
     return result;
+}
+
+QString usageDetailsFallbackBrandColor(const QString& providerId)
+{
+    static const QHash<QString, QString> colors = {
+        {QStringLiteral("codex"), QStringLiteral("#49A3B0")},
+        {QStringLiteral("claude"), QStringLiteral("#CC7C5E")},
+        {QStringLiteral("cursor"), QStringLiteral("#5B8DFA")},
+        {QStringLiteral("gemini"), QStringLiteral("#8860D0")},
+        {QStringLiteral("copilot"), QStringLiteral("#2DA44E")},
+        {QStringLiteral("zai"), QStringLiteral("#E85A6A")},
+        {QStringLiteral("opencode"), QStringLiteral("#E44D26")},
+        {QStringLiteral("opencodego"), QStringLiteral("#3B82F6")},
+        {QStringLiteral("warp"), QStringLiteral("#00BCD4")},
+        {QStringLiteral("mistral"), QStringLiteral("#F77F00")},
+        {QStringLiteral("openrouter"), QStringLiteral("#FF6B6B")},
+        {QStringLiteral("ollama"), QStringLiteral("#E6EF6C")},
+        {QStringLiteral("kilo"), QStringLiteral("#7C3AED")},
+        {QStringLiteral("kiro"), QStringLiteral("#F59E0B")},
+        {QStringLiteral("kimik2"), QStringLiteral("#06B6D4")},
+        {QStringLiteral("minimax"), QStringLiteral("#EC4899")},
+        {QStringLiteral("perplexity"), QStringLiteral("#22C55E")},
+        {QStringLiteral("kimi"), QStringLiteral("#8B5CF6")},
+        {QStringLiteral("abacus"), QStringLiteral("#6366F1")},
+        {QStringLiteral("alibaba"), QStringLiteral("#F97316")},
+        {QStringLiteral("augment"), QStringLiteral("#14B8A6")},
+        {QStringLiteral("amp"), QStringLiteral("#D946EF")},
+        {QStringLiteral("factory"), QStringLiteral("#84CC16")},
+        {QStringLiteral("jetbrains"), QStringLiteral("#F000F0")},
+        {QStringLiteral("vertexai"), QStringLiteral("#4285F4")},
+        {QStringLiteral("deepseek"), QStringLiteral("#4D6BFE")},
+        {QStringLiteral("antigravity"), QStringLiteral("#10B981")},
+        {QStringLiteral("synthetic"), QStringLiteral("#6366F1")},
+    };
+    return colors.value(providerId, QStringLiteral("#4A90D9"));
+}
+
+QString usageDetailsDisplayNameFor(const QString& providerId, const QVariantMap& provider)
+{
+    const QString providerName = provider.value(QStringLiteral("name")).toString();
+    if (!providerName.isEmpty()) {
+        return providerName;
+    }
+    static const QHash<QString, QString> names = {
+        {QStringLiteral("codex"), QStringLiteral("Codex")},
+        {QStringLiteral("claude"), QStringLiteral("Claude")},
+        {QStringLiteral("opencodego"), QStringLiteral("OpenCode Go")},
+        {QStringLiteral("opencode"), QStringLiteral("OpenCode")},
+        {QStringLiteral("kimi"), QStringLiteral("Kimi")},
+        {QStringLiteral("kimik2"), QStringLiteral("Kimi K2")},
+        {QStringLiteral("copilot"), QStringLiteral("Copilot")},
+        {QStringLiteral("cursor"), QStringLiteral("Cursor")},
+    };
+    return names.value(providerId, providerId);
+}
+
+QString usageDetailsBrandColorFor(const QString& providerId, const QVariantMap& provider)
+{
+    const QString providerColor = provider.value(QStringLiteral("brandColor")).toString();
+    return providerColor.isEmpty() ? usageDetailsFallbackBrandColor(providerId) : providerColor;
+}
+
+QString usageDetailsProviderKind(const QVariantMap& provider)
+{
+    const QString id = provider.value(QStringLiteral("id")).toString();
+    if (id.isEmpty()) {
+        return {};
+    }
+    if (id == QLatin1String("codex") || id == QLatin1String("claude") ||
+        id == QLatin1String("opencodego") || id == QLatin1String("opencode")) {
+        return QStringLiteral("token");
+    }
+    if (id == QLatin1String("kimi") || id == QLatin1String("kimik2")) {
+        return QStringLiteral("credit");
+    }
+    if (id == QLatin1String("copilot") || id == QLatin1String("cursor")) {
+        return QStringLiteral("quota");
+    }
+    if (provider.value(QStringLiteral("supportsCredits"), false).toBool()) {
+        return QStringLiteral("credit");
+    }
+    return {};
+}
+
+QVariantList usageDetailsDailyEntries(const CostUsageSnapshot& snapshot)
+{
+    QVariantList daily;
+    for (const auto& d : snapshot.daily) {
+        if (d.totalTokens() == 0) continue;
+        QVariantMap dm;
+        dm["date"] = d.date;
+        dm["totalTokens"] = d.totalTokens();
+        dm["costUSD"] = d.costUSD;
+        daily.append(dm);
+    }
+    return daily;
+}
+
+QVariantList usageDetailsModelEntries(const ProviderCostUsageSnapshot& provider)
+{
+    QVariantList models;
+    for (const auto& model : provider.modelSummary) {
+        QVariantMap mm;
+        mm["name"] = model.modelName;
+        mm["tokens"] = model.totalTokens();
+        mm["costUSD"] = model.costUSD;
+        models.append(mm);
+    }
+    return models;
+}
+
+QVariantMap usageDetailsProviderDetail(const QString& providerId,
+                                       const QVector<ProviderCostUsageSnapshot>& providers)
+{
+    QVariantMap detail;
+    detail["providerId"] = providerId;
+    detail["state"] = QStringLiteral("empty");
+    detail["models"] = QVariantList();
+    detail["daily"] = QVariantList();
+
+    for (const auto& provider : providers) {
+        if (provider.providerId != providerId) {
+            continue;
+        }
+        detail["state"] = QStringLiteral("ready");
+        detail["models"] = usageDetailsModelEntries(provider);
+        detail["daily"] = usageDetailsDailyEntries(provider.snapshot);
+        return detail;
+    }
+
+    return detail;
+}
+
+QVariantMap usageDetailsTokenRow(const QString& providerId,
+                                 const ProviderCostUsageSnapshot* token,
+                                 const QVariantMap& provider)
+{
+    const CostUsageSnapshot emptySnapshot;
+    const CostUsageSnapshot& snapshot = token ? token->snapshot : emptySnapshot;
+    return {
+        {QStringLiteral("providerId"), providerId},
+        {QStringLiteral("displayName"), usageDetailsDisplayNameFor(providerId, provider)},
+        {QStringLiteral("brandColor"), usageDetailsBrandColorFor(providerId, provider)},
+        {QStringLiteral("kind"), QStringLiteral("token")},
+        {QStringLiteral("hasTokenData"), true},
+        {QStringLiteral("hasDetailAvailable"), token && !token->modelSummary.isEmpty()},
+        {QStringLiteral("sessionTokens"), snapshot.sessionTokens},
+        {QStringLiteral("sessionCostUSD"), snapshot.sessionCostUSD},
+        {QStringLiteral("last30DaysTokens"), snapshot.last30DaysTokens},
+        {QStringLiteral("last30DaysCostUSD"), snapshot.last30DaysCostUSD},
+        {QStringLiteral("daily"), usageDetailsDailyEntries(snapshot)},
+        {QStringLiteral("enabled"), provider.isEmpty() || provider.value(QStringLiteral("enabled"), true).toBool()},
+    };
+}
+
+QVariantMap usageDetailsQuotaRow(const QVariantMap& provider, const QString& kind)
+{
+    const QString providerId = provider.value(QStringLiteral("id")).toString();
+    return {
+        {QStringLiteral("providerId"), providerId},
+        {QStringLiteral("displayName"), usageDetailsDisplayNameFor(providerId, provider)},
+        {QStringLiteral("brandColor"), usageDetailsBrandColorFor(providerId, provider)},
+        {QStringLiteral("kind"), kind},
+        {QStringLiteral("hasTokenData"), false},
+        {QStringLiteral("hasDetailAvailable"), false},
+        {QStringLiteral("sessionTokens"), 0},
+        {QStringLiteral("sessionCostUSD"), 0.0},
+        {QStringLiteral("last30DaysTokens"), 0},
+        {QStringLiteral("last30DaysCostUSD"), 0.0},
+        {QStringLiteral("daily"), QVariantList{}},
+        {QStringLiteral("enabled"), provider.value(QStringLiteral("enabled"), true).toBool()},
+    };
+}
+
+QVariantList usageDetailsRows(const QVector<ProviderCostUsageSnapshot>& tokenProviders,
+                              const QVariantList& appProviders,
+                              int* tokenProviderCount)
+{
+    QHash<QString, QVariantMap> providerById;
+    QVariantList rows;
+    QSet<QString> seen;
+    int tokenCount = 0;
+
+    for (const QVariant& item : appProviders) {
+        const QVariantMap provider = item.toMap();
+        const QString id = provider.value(QStringLiteral("id")).toString();
+        if (!id.isEmpty()) {
+            providerById.insert(id, provider);
+        }
+    }
+
+    for (const auto& token : tokenProviders) {
+        if (token.providerId.isEmpty()) {
+            continue;
+        }
+        rows.append(usageDetailsTokenRow(token.providerId, &token, providerById.value(token.providerId)));
+        seen.insert(token.providerId);
+        ++tokenCount;
+    }
+
+    for (const QVariant& item : appProviders) {
+        const QVariantMap provider = item.toMap();
+        const QString id = provider.value(QStringLiteral("id")).toString();
+        if (id.isEmpty() || seen.contains(id)) {
+            continue;
+        }
+        if (!provider.value(QStringLiteral("enabled"), true).toBool()) {
+            continue;
+        }
+
+        const QString kind = usageDetailsProviderKind(provider);
+        if (kind.isEmpty()) {
+            continue;
+        }
+
+        if (kind == QLatin1String("token")) {
+            rows.append(usageDetailsTokenRow(id, nullptr, provider));
+            ++tokenCount;
+        } else {
+            rows.append(usageDetailsQuotaRow(provider, kind));
+        }
+    }
+
+    if (tokenProviderCount) {
+        *tokenProviderCount = tokenCount;
+    }
+    return rows;
 }
 
 struct ProviderListBuildItem {
@@ -437,13 +645,8 @@ UsageStore::UsageStore(QObject* parent)
     , m_backend(new UsageBackend(this))
     , m_pipeline(new ProviderPipeline(this))
     , m_historyStore(new PlanUtilizationHistoryStore(this))
-    , m_threadPool(new QThreadPool(this))
-    , m_interactiveThreadPool(new QThreadPool(this))
 {
-    m_threadPool->setMaxThreadCount(qMax(4, QThread::idealThreadCount()));
-    m_threadPool->setExpiryTimeout(30000);
-    m_interactiveThreadPool->setMaxThreadCount(qMax(2, QThread::idealThreadCount() / 2));
-    m_interactiveThreadPool->setExpiryTimeout(30000);
+    rebuildProviderCatalogSnapshot();
     rebuildTokenAccountOperationState();
     connect(m_backend, &UsageBackend::jobFinished,
             this, &UsageStore::handleBackendResult);
@@ -554,7 +757,10 @@ UsageSnapshot UsageStore::snapshot(const QString& providerId) const {
 }
 
 bool UsageStore::isProviderEnabled(const QString& id) const {
-    return ProviderRegistry::instance().isProviderEnabled(id);
+    if (auto entry = m_providerCatalog.provider(id); entry.has_value()) {
+        return entry->enabled;
+    }
+    return false;
 }
 
 void UsageStore::setProviderEnabled(const QString& id, bool enabled) {
@@ -569,8 +775,9 @@ void UsageStore::setProviderEnabled(const QString& id, bool enabled) {
 }
 
 QString UsageStore::providerDisplayName(const QString& id) const {
-    auto desc = ProviderRegistry::instance().descriptor(id);
-    if (desc.has_value()) return desc->metadata.displayName;
+    if (auto entry = m_providerCatalog.provider(id); entry.has_value() && entry->hasDescriptor) {
+        return entry->descriptor.metadata.displayName;
+    }
     return id;
 }
 
@@ -584,32 +791,125 @@ void UsageStore::rebuildSystemEnvCache()
 }
 
 void UsageStore::preloadCredentials() {
-    const auto ids = ProviderRegistry::instance().providerIDs();
-    for (const auto& id : ids) {
-        auto* provider = ProviderRegistry::instance().provider(id);
-        if (!provider) continue;
-        for (const auto& desc : provider->settingsDescriptors()) {
+    const CredentialPreloadPayload payload =
+        UsageBackendJobs::preloadCredentials(buildCredentialPreloadItems());
+    applyCredentialCacheUpdates(payload.updates);
+}
+
+void UsageStore::requestPreloadCredentials()
+{
+    const QVector<UsageBackendJobs::CredentialPreloadItem> items = buildCredentialPreloadItems();
+    if (items.isEmpty()) {
+        return;
+    }
+
+    m_backend->dispatchValueJob(QStringLiteral("credentialPreload"), 0,
+                                [items]() -> QVariant {
+        return QVariant::fromValue(UsageBackendJobs::preloadCredentials(items));
+    });
+}
+
+QVector<UsageBackendJobs::CredentialPreloadItem> UsageStore::buildCredentialPreloadItems() const
+{
+    QVector<UsageBackendJobs::CredentialPreloadItem> items;
+    for (const auto& provider : m_providerCatalog.providers()) {
+        for (const auto& desc : provider.settingsDescriptors) {
             if (!desc.sensitive || desc.credentialTarget.isEmpty()) continue;
             {
                 QMutexLocker locker(&m_credentialCacheMutex);
                 if (m_credentialCache.contains(desc.credentialTarget)) continue;
                 if (m_credentialMissing.contains(desc.credentialTarget)) continue;
             }
-            auto stored = ProviderCredentialStore::read(desc.credentialTarget);
-            {
-                QMutexLocker locker(&m_credentialCacheMutex);
-                if (stored.has_value()) {
-                    m_credentialCache[desc.credentialTarget] = {stored.value(), QDateTime::currentDateTime()};
-                    m_credentialExisting.insert(desc.credentialTarget);
-                    m_credentialMissing.remove(desc.credentialTarget);
-                } else {
-                    m_credentialExisting.remove(desc.credentialTarget);
-                    m_credentialMissing[desc.credentialTarget] = true;
+            UsageBackendJobs::CredentialPreloadItem item;
+            item.providerId = provider.id;
+            item.key = desc.key;
+            item.target = desc.credentialTarget;
+            items.append(item);
+        }
+    }
+    return items;
+}
+
+void UsageStore::applyCredentialCacheUpdates(const QVector<CredentialCacheUpdatePayload>& updates)
+{
+    if (updates.isEmpty()) {
+        return;
+    }
+
+    QMutexLocker locker(&m_credentialCacheMutex);
+    for (const auto& update : updates) {
+        if (update.target.isEmpty()) {
+            continue;
+        }
+        if (update.exists) {
+            m_credentialCache[update.target] = {update.data, QDateTime::currentDateTime()};
+            m_credentialExisting.insert(update.target);
+            m_credentialMissing.remove(update.target);
+        } else {
+            m_credentialCache.remove(update.target);
+            m_credentialExisting.remove(update.target);
+            m_credentialMissing[update.target] = true;
+        }
+        m_credentialStatusInFlight.remove(update.target);
+    }
+}
+
+UsageBackendJobs::ProviderFetchCommandInput
+UsageStore::buildProviderFetchCommandInput(const QString& providerId) const
+{
+    UsageBackendJobs::ProviderFetchCommandInput input;
+    input.providerId = providerId;
+    input.env = cachedSystemEnv();
+
+    auto addProviderSetting = [&](const QString& key, const QVariant& defaultValue = QVariant()) {
+        const QVariant value = m_settingsStore
+            ? m_settingsStore->providerSetting(providerId, key, defaultValue)
+            : defaultValue;
+        input.providerSettings.insert(key, value);
+        return value;
+    };
+
+    if (const auto entry = m_providerCatalog.provider(providerId); entry.has_value()) {
+        for (const auto& descriptor : entry->settingsDescriptors) {
+            UsageBackendJobs::ProviderFetchSettingInput field;
+            field.descriptor = descriptor;
+            field.value = addProviderSetting(descriptor.key, descriptor.defaultValue);
+            input.settingsFields.append(field);
+
+            if (descriptor.sensitive && !descriptor.credentialTarget.isEmpty()) {
+                UsageBackendJobs::CredentialCacheInput cache;
+                cache.target = descriptor.credentialTarget;
+                {
+                    QMutexLocker locker(&m_credentialCacheMutex);
+                    auto cacheIt = m_credentialCache.find(descriptor.credentialTarget);
+                    if (cacheIt != m_credentialCache.end()
+                        && cacheIt.value().cachedAt.msecsTo(QDateTime::currentDateTime()) < CREDENTIAL_CACHE_TTL_MS) {
+                        cache.hasValue = true;
+                        cache.value = cacheIt.value().data;
+                    }
+                    cache.missing = m_credentialMissing.contains(descriptor.credentialTarget);
                 }
-                m_credentialStatusInFlight.remove(desc.credentialTarget);
+                input.credentialCache.insert(descriptor.credentialTarget, cache);
             }
         }
     }
+
+    addProviderSetting(QStringLiteral("sourceMode"), QStringLiteral("auto"));
+    addProviderSetting(QStringLiteral("codexDataSource"), QStringLiteral("auto"));
+    addProviderSetting(QStringLiteral("claudeDataSource"), QStringLiteral("auto"));
+    addProviderSetting(QStringLiteral("cookieSource"), QStringLiteral("auto"));
+    addProviderSetting(QStringLiteral("cursorCookieSource"), QStringLiteral("auto"));
+    addProviderSetting(QStringLiteral("manualCookieHeader"), QString());
+    addProviderSetting(QStringLiteral("accountID"), QString());
+    addProviderSetting(QStringLiteral("networkTimeoutMs"), ProviderPipeline::STRATEGY_TIMEOUT_MS);
+    addProviderSetting(QStringLiteral("apiRegion"), QStringLiteral("global"));
+
+    if (providerId == QLatin1String("codex") && m_codexAccountService) {
+        input.codexActiveAccountId = m_codexAccountService->activeAccountID();
+        input.codexManagedHomePath = m_codexAccountService->activeManagedHomePath();
+    }
+    input.defaultTokenAccountId = TokenAccountStore::instance()->defaultAccountId(providerId);
+    return input;
 }
 
 ProviderFetchContext UsageStore::buildFetchContextForProvider(const QString& providerId) const {
@@ -636,9 +936,8 @@ ProviderFetchContext UsageStore::buildFetchContextForProvider(const QString& pro
         return value;
     };
 
-    auto* provider = ProviderRegistry::instance().provider(providerId);
-    if (provider) {
-        for (const auto& descriptor : provider->settingsDescriptors()) {
+    if (const auto entry = m_providerCatalog.provider(providerId); entry.has_value()) {
+        for (const auto& descriptor : entry->settingsDescriptors) {
             if (descriptor.sensitive) {
                 QString secret;
                 if (!descriptor.envVar.isEmpty() && ctx.env.contains(descriptor.envVar)) {
@@ -760,8 +1059,15 @@ ProviderFetchContext UsageStore::buildFetchContextForProvider(const QString& pro
     return ctx;
 }
 
+void UsageStore::rebuildProviderCatalogSnapshot()
+{
+    m_providerCatalog = ProviderCatalogSnapshot::fromRegistry(ProviderRegistry::instance(),
+                                                              ++m_providerCatalogGeneration);
+}
+
 void UsageStore::updateProviderIDs() {
-    m_providerIDs = ProviderRegistry::instance().enabledProviderIDs();
+    rebuildProviderCatalogSnapshot();
+    m_providerIDs = m_providerCatalog.enabledProviderIDs();
     m_providerListCacheValid = false;
     emit providerIDsChanged();
 }
@@ -774,7 +1080,10 @@ QVariantMap UsageStore::snapshotData(const QString& id) const {
     }
 
     auto snap = snapshot(id);
-    auto* prov = ProviderRegistry::instance().provider(id);
+    const auto catalogEntry = m_providerCatalog.provider(id);
+    const ProviderDescriptor* descriptor = (catalogEntry.has_value() && catalogEntry->hasDescriptor)
+        ? &catalogEntry->descriptor
+        : nullptr;
     QVariantMap m;
     const bool showUsedPercent = m_settingsStore ? m_settingsStore->usageBarsShowUsed() : false;
     const bool showAbsoluteResetTimes = m_settingsStore ? m_settingsStore->resetTimesShowAbsolute() : false;
@@ -810,10 +1119,13 @@ QVariantMap UsageStore::snapshotData(const QString& id) const {
         }
     };
 
-    m["sessionLabel"] = Localization::providerLabel(prov ? prov->sessionLabel() : "Session");
-    m["weeklyLabel"] = Localization::providerLabel(prov ? prov->weeklyLabel() : "Weekly");
-    m["opusLabel"] = Localization::providerLabel(prov ? prov->opusLabel() : QString());
-    m["supportsCredits"] = prov ? prov->supportsCredits() : false;
+    m["sessionLabel"] = Localization::providerLabel(descriptor ? descriptor->metadata.sessionLabel : QStringLiteral("Session"));
+    m["weeklyLabel"] = Localization::providerLabel(descriptor ? descriptor->metadata.weeklyLabel : QStringLiteral("Weekly"));
+    m["opusLabel"] = Localization::providerLabel(
+        descriptor && descriptor->metadata.opusLabel.has_value()
+            ? descriptor->metadata.opusLabel.value()
+            : QString());
+    m["supportsCredits"] = descriptor ? descriptor->metadata.supportsCredits : false;
     m["displayName"] = providerDisplayName(id);
 
     const bool isDetailProvider = (id == "deepseek" || id == "warp" || id == "kilo" ||
@@ -1044,15 +1356,21 @@ void UsageStore::ensureCostUsageEnabled() {
 void UsageStore::releaseCostUsageViewCaches() const {
     m_costUsageDataCache.clear();
     m_providerCostUsageListCache.clear();
+    m_costUsageDetailsRowsCache.clear();
+    m_costUsageProviderDetailCache.clear();
+    m_costUsageProviderDetailQueued.clear();
     m_costUsageDataCacheValid = false;
     m_providerCostUsageListCacheValid = false;
+    m_costUsageDetailsRowsCacheValid = false;
+    m_costUsageTokenProviderCountCache = 0;
     m_costUsageViewDataBuildQueued = false;
     ++m_costUsageViewDataBuildGeneration;
+    ++m_costUsageProviderDetailBuildGeneration;
 }
 
 void UsageStore::requestCostUsageViewData()
 {
-    if ((m_costUsageDataCacheValid && m_providerCostUsageListCacheValid)
+    if ((m_costUsageDataCacheValid && m_providerCostUsageListCacheValid && m_costUsageDetailsRowsCacheValid)
         || m_costUsageViewDataBuildQueued) {
         return;
     }
@@ -1061,13 +1379,15 @@ void UsageStore::requestCostUsageViewData()
     const int generation = ++m_costUsageViewDataBuildGeneration;
     const CostUsageSnapshot costUsage = m_costUsage;
     const QVector<ProviderCostUsageSnapshot> allProviders = m_allProviderCostUsage;
+    const QVariantList appProviders = m_providerListCacheValid ? m_providerListCache : QVariantList();
 
     m_backend->dispatchValueJob(QStringLiteral("costUsageViewData"), generation,
-                                [costUsage, allProviders]() -> QVariant {
+                                [costUsage, allProviders, appProviders]() -> QVariant {
         PERF_PROBE("costUsageViewData_worker", 5000);
         CostUsageViewDataPayload payload;
         payload.costData = costUsageSnapshotToVariantMap(costUsage);
         payload.providerList = providerCostUsageSnapshotsToVariantList(allProviders);
+        payload.detailsRows = usageDetailsRows(allProviders, appProviders, &payload.tokenProviderCount);
         return QVariant::fromValue(payload);
     });
 }
@@ -1087,10 +1407,16 @@ void UsageStore::refreshCostUsage() {
         m_allProviderCostUsage.clear();
         m_costUsageDataCache.clear();
         m_providerCostUsageListCache.clear();
+        m_costUsageDetailsRowsCache.clear();
+        m_costUsageProviderDetailCache.clear();
+        m_costUsageProviderDetailQueued.clear();
         m_costUsageDataCacheValid = false;
         m_providerCostUsageListCacheValid = false;
+        m_costUsageDetailsRowsCacheValid = false;
+        m_costUsageTokenProviderCountCache = 0;
         m_costUsageViewDataBuildQueued = false;
         ++m_costUsageViewDataBuildGeneration;
+        ++m_costUsageProviderDetailBuildGeneration;
         if (hadData) {
             emit costUsageChanged();
         }
@@ -1255,6 +1581,50 @@ QVariantList UsageStore::providerCostUsageList() const {
     return m_providerCostUsageListCache;
 }
 
+QVariantList UsageStore::costUsageDetailsRows() const
+{
+    PERF_PROBE("costUsageDetailsRows", 1000);
+    if (m_costUsageDetailsRowsCacheValid) {
+        return m_costUsageDetailsRowsCache;
+    }
+    QMetaObject::invokeMethod(const_cast<UsageStore*>(this),
+                              &UsageStore::requestCostUsageViewData,
+                              Qt::QueuedConnection);
+    return m_costUsageDetailsRowsCache;
+}
+
+int UsageStore::costUsageTokenProviderCount() const
+{
+    return m_costUsageTokenProviderCountCache;
+}
+
+QVariantMap UsageStore::costUsageProviderDetail(const QString& providerId) const
+{
+    return m_costUsageProviderDetailCache.value(providerId);
+}
+
+void UsageStore::requestCostUsageProviderDetail(const QString& providerId) const
+{
+    if (providerId.isEmpty()
+        || m_costUsageProviderDetailCache.contains(providerId)
+        || m_costUsageProviderDetailQueued.contains(providerId)) {
+        return;
+    }
+
+    m_costUsageProviderDetailQueued.insert(providerId);
+    const int generation = m_costUsageProviderDetailBuildGeneration;
+    const QVector<ProviderCostUsageSnapshot> allProviders = m_allProviderCostUsage;
+
+    m_backend->dispatchValueJob(QStringLiteral("costUsageProviderDetail"), generation,
+                                [providerId, allProviders]() -> QVariant {
+        PERF_PROBE("costUsageProviderDetail_worker", 5000);
+        CostUsageProviderDetailPayload payload;
+        payload.providerId = providerId;
+        payload.detail = usageDetailsProviderDetail(providerId, allProviders);
+        return QVariant::fromValue(payload);
+    });
+}
+
 void UsageStore::handleBackendResult(const UsageBackendResult& result)
 {
     if (result.kind == QLatin1String("providerRefresh")) {
@@ -1270,6 +1640,7 @@ void UsageStore::handleBackendResult(const UsageBackendResult& result)
         }
 
         const auto payload = result.payload.value<ProviderRefreshPayload>();
+        applyCredentialCacheUpdates(payload.credentialUpdates);
         applyProviderRefreshResult(payload.providerId, payload.fetchResult);
         return;
     }
@@ -1294,6 +1665,7 @@ void UsageStore::handleBackendResult(const UsageBackendResult& result)
         }
 
         const auto payload = result.payload.value<ProviderConnectionTestPayload>();
+        applyCredentialCacheUpdates(payload.credentialUpdates);
         applyProviderConnectionTestResult(payload.providerId, payload.fetchResult, payload.startedAt);
         return;
     }
@@ -1325,6 +1697,10 @@ void UsageStore::handleBackendResult(const UsageBackendResult& result)
         const auto payload = result.payload.value<ProviderListPayload>();
         m_providerListCache = payload.providers;
         m_providerListCacheValid = true;
+        m_costUsageDetailsRowsCacheValid = false;
+        m_costUsageProviderDetailCache.clear();
+        m_costUsageProviderDetailQueued.clear();
+        ++m_costUsageProviderDetailBuildGeneration;
         emit providerListModelChanged();
         return;
     }
@@ -1377,6 +1753,16 @@ void UsageStore::handleBackendResult(const UsageBackendResult& result)
             }
         }
         emit providerSecretChanged(payload.providerId, payload.key);
+        return;
+    }
+
+    if (result.kind == QLatin1String("credentialPreload")) {
+        if (!result.success) {
+            qWarning() << "Credential preload backend job failed:" << result.message;
+            return;
+        }
+        const auto payload = result.payload.value<CredentialPreloadPayload>();
+        applyCredentialCacheUpdates(payload.updates);
         return;
     }
 
@@ -1453,9 +1839,28 @@ void UsageStore::handleBackendResult(const UsageBackendResult& result)
         const auto payload = result.payload.value<CostUsageViewDataPayload>();
         m_costUsageDataCache = payload.costData;
         m_providerCostUsageListCache = payload.providerList;
+        m_costUsageDetailsRowsCache = payload.detailsRows;
+        m_costUsageTokenProviderCountCache = payload.tokenProviderCount;
         m_costUsageDataCacheValid = true;
         m_providerCostUsageListCacheValid = true;
+        m_costUsageDetailsRowsCacheValid = true;
         emit costUsageChanged();
+        return;
+    }
+
+    if (result.kind == QLatin1String("costUsageProviderDetail")) {
+        const auto payload = result.payload.value<CostUsageProviderDetailPayload>();
+        const QString providerId = payload.providerId;
+        m_costUsageProviderDetailQueued.remove(providerId);
+        if (result.generation != m_costUsageProviderDetailBuildGeneration) {
+            return;
+        }
+        if (!result.success) {
+            qWarning() << "Cost usage provider detail backend job failed:" << result.message;
+            return;
+        }
+        m_costUsageProviderDetailCache.insert(providerId, payload.detail);
+        emit costUsageProviderDetailChanged(providerId);
         return;
     }
 
@@ -1478,8 +1883,13 @@ void UsageStore::handleBackendResult(const UsageBackendResult& result)
         m_costUsageRefreshing = false;
         m_costUsageDataCacheValid = false;
         m_providerCostUsageListCacheValid = false;
+        m_costUsageDetailsRowsCacheValid = false;
+        m_costUsageProviderDetailCache.clear();
+        m_costUsageProviderDetailQueued.clear();
+        m_costUsageTokenProviderCountCache = 0;
         m_costUsageViewDataBuildQueued = false;
         ++m_costUsageViewDataBuildGeneration;
+        ++m_costUsageProviderDetailBuildGeneration;
         emit costUsageRefreshingChanged();
         emit costUsageChanged();
         return;
@@ -1665,12 +2075,14 @@ QVariantMap UsageStore::providerCostUsageData(const QString& providerId) const {
 }
 
 void UsageStore::refresh() {
-    auto ids = ProviderRegistry::instance().enabledProviderIDs();
+    QStringList ids;
+    for (const QString& id : m_providerCatalog.enabledProviderIDs()) ids.append(id);
     doRefresh(ids);
 }
 
 void UsageStore::refreshAll() {
-    auto ids = ProviderRegistry::instance().providerIDs();
+    QStringList ids;
+    for (const QString& id : m_providerCatalog.providerIDs()) ids.append(id);
     doRefresh(ids);
 }
 
@@ -1712,12 +2124,12 @@ void UsageStore::doRefresh(const QStringList& ids) {
     }
 
     for (const auto& id : ids) {
-        refreshProviderWithPool(id, m_threadPool);
+        refreshProviderWithBackend(id);
     }
 }
 
 void UsageStore::clearCache() {
-    const auto ids = ProviderRegistry::instance().providerIDs();
+    const QVector<QString> ids = m_providerCatalog.providerIDs();
     m_snapshots.clear();
     m_errors.clear();
     m_connectionTests.clear();
@@ -1736,12 +2148,10 @@ void UsageStore::clearCache() {
 }
 
 void UsageStore::refreshProvider(const QString& providerId) {
-    refreshProviderWithPool(providerId, m_interactiveThreadPool);
+    refreshProviderWithBackend(providerId);
 }
 
-void UsageStore::refreshProviderWithPool(const QString& providerId, QThreadPool* pool) {
-    Q_UNUSED(pool)
-
+void UsageStore::refreshProviderWithBackend(const QString& providerId) {
     // Ensure count is sane when called individually (outside doRefresh).
     if (m_pendingRefreshes <= 0) {
         m_batchRefreshInProgress = false;
@@ -1768,37 +2178,10 @@ void UsageStore::refreshProviderWithPool(const QString& providerId, QThreadPool*
         return;
     }
 
+    const UsageBackendJobs::ProviderFetchCommandInput input = buildProviderFetchCommandInput(providerId);
     const UsageBackendRequest request = m_backend->dispatchValueJob(
-        QStringLiteral("providerRefresh"), 0, [this, providerId, provider]() {
-        ProviderFetchContext ctx = buildFetchContextForProvider(providerId);
-        ProviderFetchResult result;
-        if (!isSourceModeAllowed(providerId, ctx.sourceMode)) {
-            result.success = false;
-            result.errorMessage = QString("unsupported source mode: %1")
-                .arg(sourceModeToString(ctx.sourceMode));
-        } else {
-            // Use ProviderRuntime if available (GenericRuntime is a thin wrapper around Pipeline).
-            bool usedRuntime = false;
-            if (ProviderRuntimeManager* rtMgr = ProviderRuntimeManager::instance()) {
-                if (IProviderRuntime* runtime = rtMgr->runtimeFor(providerId)) {
-                    if (runtime->state() == RuntimeState::Running) {
-                        result = runtime->fetch(ctx);
-                        usedRuntime = true;
-                    }
-                }
-            }
-
-            if (!usedRuntime) {
-                // Fall back to direct pipeline execution for backward compatibility.
-                ProviderPipeline pipeline;
-                result = pipeline.executeProvider(provider, ctx);
-            }
-        }
-
-        ProviderRefreshPayload payload;
-        payload.providerId = providerId;
-        payload.fetchResult = result;
-        return QVariant::fromValue(payload);
+        QStringLiteral("providerRefresh"), 0, [provider, input]() {
+        return QVariant::fromValue(UsageBackendJobs::refreshProvider(provider, input));
     });
     m_backendRequestProviderIds.insert(request.requestId, providerId);
 }
@@ -1919,7 +2302,9 @@ QString UsageStore::providerError(const QString& providerId) const {
 }
 
 QStringList UsageStore::allProviderIDs() const {
-    return ProviderRegistry::instance().providerIDs();
+    QStringList ids;
+    for (const QString& id : m_providerCatalog.providerIDs()) ids.append(id);
+    return ids;
 }
 
 QVariantList UsageStore::utilizationChartData(const QString& providerId, const QString& seriesName) const {
@@ -1939,85 +2324,51 @@ QVariantList UsageStore::providerList() const {
 
 QVariantList UsageStore::buildProviderListNow() const {
     PERF_PROBE("providerList.build", 5000);
-    QVariantList list;
-    auto ids = ProviderRegistry::instance().providerIDs();
-    
-    // Sort by provider order from settings if available
-    if (m_settingsStore) {
-        QStringList order = m_settingsStore->providerOrder();
-        if (!order.isEmpty()) {
-            std::sort(ids.begin(), ids.end(), [&](const QString& a, const QString& b) {
-                int idxA = order.indexOf(a);
-                int idxB = order.indexOf(b);
-                if (idxA == -1 && idxB == -1) return a < b;
-                if (idxA == -1) return false;
-                if (idxB == -1) return true;
-                return idxA < idxB;
-            });
-        }
-    }
-    
-    for (const auto& id : ids) {
-        auto* prov = ProviderRegistry::instance().provider(id);
-        auto desc = ProviderRegistry::instance().descriptor(id);
-        QVariantMap entry;
-        entry["id"] = id;
-        entry["enabled"] = ProviderRegistry::instance().isProviderEnabled(id);
-        if (prov) {
-            entry["name"] = desc.has_value() ? desc->metadata.displayName : prov->displayName();
-            entry["sessionLabel"] = Localization::providerLabel(
-                desc.has_value() ? desc->metadata.sessionLabel : prov->sessionLabel());
-            entry["weeklyLabel"] = Localization::providerLabel(
-                desc.has_value() ? desc->metadata.weeklyLabel : prov->weeklyLabel());
-            entry["supportsCredits"] = desc.has_value() ? desc->metadata.supportsCredits : prov->supportsCredits();
-            entry["dashboardURL"] = desc.has_value() ? desc->metadata.dashboardURL : prov->dashboardURL();
-            entry["statusPageURL"] = desc.has_value() ? desc->metadata.statusPageURL : prov->statusPageURL();
-            entry["statusLinkURL"] = desc.has_value() ? desc->metadata.statusLinkURL : prov->statusLinkURL();
-            entry["statusWorkspaceProductID"] = desc.has_value()
-                ? desc->metadata.statusWorkspaceProductID : prov->statusWorkspaceProductID();
-            entry["brandColor"] = prov->brandColor();
-            QVariantList sourceModes;
-            const auto modes = desc.has_value() ? desc->fetchPlan.allowedSourceModes : prov->supportedSourceModes();
-            for (const auto& mode : modes) sourceModes.append(mode);
-            entry["sourceModes"] = sourceModes;
-            QVariantMap tokenAccount;
-            tokenAccount["supportsMultipleAccounts"] = desc.has_value()
-                ? desc->tokenAccounts.supportsMultipleAccounts : prov->supportsMultipleAccounts();
-            QVariantList requiredCredentials;
-            const auto credentials = desc.has_value()
-                ? desc->tokenAccounts.requiredCredentialTypes : prov->requiredCredentialTypes();
-            for (const auto& credential : credentials) requiredCredentials.append(credential);
-            tokenAccount["requiredCredentialTypes"] = requiredCredentials;
-            entry["tokenAccount"] = tokenAccount;
-            entry["defaultTokenAccount"] = TokenAccountStore::instance()->defaultAccountId(id);
-            entry["tokenAccountCount"] = TokenAccountStore::instance()->accountCountForProvider(id);
+    QVector<ProviderListBuildItem> items;
+    for (const auto& provider : m_providerCatalog.providers()) {
+        const QString id = provider.id;
+        ProviderListBuildItem item;
+        item.id = id;
+        item.enabled = provider.enabled;
+        if (provider.hasDescriptor) {
+            const auto& desc = provider.descriptor;
+            item.name = desc.metadata.displayName;
+            item.sessionLabel = desc.metadata.sessionLabel;
+            item.weeklyLabel = desc.metadata.weeklyLabel;
+            item.supportsCredits = desc.metadata.supportsCredits;
+            item.dashboardURL = desc.metadata.dashboardURL;
+            item.statusPageURL = desc.metadata.statusPageURL;
+            item.statusLinkURL = desc.metadata.statusLinkURL;
+            item.statusWorkspaceProductID = desc.metadata.statusWorkspaceProductID;
+            item.brandColor = provider.brandColor;
+            item.sourceModes = desc.fetchPlan.allowedSourceModes;
+            item.supportsMultipleAccounts = desc.tokenAccounts.supportsMultipleAccounts;
+            item.requiredCredentialTypes = desc.tokenAccounts.requiredCredentialTypes;
+            item.defaultTokenAccount = TokenAccountStore::instance()->defaultAccountId(id);
+            item.tokenAccountCount = TokenAccountStore::instance()->accountCountForProvider(id);
         } else {
-            entry["name"] = id;
-            entry["sessionLabel"] = Localization::providerLabel("Session");
-            entry["weeklyLabel"] = Localization::providerLabel("Weekly");
-            entry["supportsCredits"] = false;
+            item.name = id;
+            item.sessionLabel = QStringLiteral("Session");
+            item.weeklyLabel = QStringLiteral("Weekly");
+            item.supportsCredits = false;
         }
-        
-        // Add usage data if available
+
         auto snapIt = m_snapshots.find(id);
-        if (snapIt != m_snapshots.end()) {
-            const auto& snap = snapIt.value();
-            QVariantMap usage;
-            if (snap.primary.has_value()) {
-                usage["percent"] = snap.primary->usedPercent;
-                usage["remaining"] = 100.0 - snap.primary->usedPercent;
-            }
-            entry["usage"] = usage;
+        if (snapIt != m_snapshots.end() && snapIt.value().primary.has_value()) {
+            item.hasUsage = true;
+            item.usagePercent = snapIt.value().primary->usedPercent;
         }
-        
-        // Add status
+
         auto statusIt = m_providerStatuses.find(id);
         if (statusIt != m_providerStatuses.end()) {
-            entry["status"] = statusIt.value().value("state", "unknown").toString();
+            item.status = statusIt.value().value(QStringLiteral("state"), QStringLiteral("unknown")).toString();
         }
-        
-        list.append(entry);
+
+        items.append(item);
     }
+
+    const QStringList order = m_settingsStore ? m_settingsStore->providerOrder() : QStringList();
+    const QVariantList list = buildProviderListFromItems(items, order);
     m_providerListCacheValid = true;
     m_providerListCache = list;
     return list;
@@ -2032,30 +2383,26 @@ void UsageStore::requestProviderList()
     const int generation = ++m_providerListRefreshGeneration;
 
     QVector<ProviderListBuildItem> items;
-    auto ids = ProviderRegistry::instance().providerIDs();
-    for (const auto& id : ids) {
-        auto* prov = ProviderRegistry::instance().provider(id);
-        auto desc = ProviderRegistry::instance().descriptor(id);
-
+    const ProviderCatalogSnapshot catalog = m_providerCatalog;
+    for (const auto& provider : catalog.providers()) {
+        const QString id = provider.id;
         ProviderListBuildItem item;
         item.id = id;
-        item.enabled = ProviderRegistry::instance().isProviderEnabled(id);
-        if (prov) {
-            item.name = desc.has_value() ? desc->metadata.displayName : prov->displayName();
-            item.sessionLabel = desc.has_value() ? desc->metadata.sessionLabel : prov->sessionLabel();
-            item.weeklyLabel = desc.has_value() ? desc->metadata.weeklyLabel : prov->weeklyLabel();
-            item.supportsCredits = desc.has_value() ? desc->metadata.supportsCredits : prov->supportsCredits();
-            item.dashboardURL = desc.has_value() ? desc->metadata.dashboardURL : prov->dashboardURL();
-            item.statusPageURL = desc.has_value() ? desc->metadata.statusPageURL : prov->statusPageURL();
-            item.statusLinkURL = desc.has_value() ? desc->metadata.statusLinkURL : prov->statusLinkURL();
-            item.statusWorkspaceProductID = desc.has_value()
-                ? desc->metadata.statusWorkspaceProductID : prov->statusWorkspaceProductID();
-            item.brandColor = prov->brandColor();
-            item.sourceModes = desc.has_value() ? desc->fetchPlan.allowedSourceModes : prov->supportedSourceModes();
-            item.supportsMultipleAccounts = desc.has_value()
-                ? desc->tokenAccounts.supportsMultipleAccounts : prov->supportsMultipleAccounts();
-            item.requiredCredentialTypes = desc.has_value()
-                ? desc->tokenAccounts.requiredCredentialTypes : prov->requiredCredentialTypes();
+        item.enabled = provider.enabled;
+        if (provider.hasDescriptor) {
+            const auto& desc = provider.descriptor;
+            item.name = desc.metadata.displayName;
+            item.sessionLabel = desc.metadata.sessionLabel;
+            item.weeklyLabel = desc.metadata.weeklyLabel;
+            item.supportsCredits = desc.metadata.supportsCredits;
+            item.dashboardURL = desc.metadata.dashboardURL;
+            item.statusPageURL = desc.metadata.statusPageURL;
+            item.statusLinkURL = desc.metadata.statusLinkURL;
+            item.statusWorkspaceProductID = desc.metadata.statusWorkspaceProductID;
+            item.brandColor = provider.brandColor;
+            item.sourceModes = desc.fetchPlan.allowedSourceModes;
+            item.supportsMultipleAccounts = desc.tokenAccounts.supportsMultipleAccounts;
+            item.requiredCredentialTypes = desc.tokenAccounts.requiredCredentialTypes;
             item.defaultTokenAccount = TokenAccountStore::instance()->defaultAccountId(id);
             item.tokenAccountCount = TokenAccountStore::instance()->accountCountForProvider(id);
         } else {
@@ -2107,6 +2454,8 @@ void UsageStore::moveProvider(int fromIndex, int toIndex) {
     if (fromIndex < order.size() && toIndex < order.size()) {
         order.move(fromIndex, toIndex);
         m_settingsStore->setProviderOrder(order);
+        rebuildProviderCatalogSnapshot();
+        m_providerListCacheValid = false;
         emit providerIDsChanged();
     }
 }
@@ -2132,42 +2481,33 @@ QVariantMap UsageStore::providerDescriptorData(const QString& id) const {
 
 QVariantMap UsageStore::buildProviderDescriptorDataNow(const QString& id) const {
     PERF_PROBE("providerDescriptorData.build", 1000);
-    QVariantMap data;
-    auto desc = ProviderRegistry::instance().descriptor(id);
-    if (!desc.has_value()) return data;
-    data["id"] = desc->id;
-    data["displayName"] = desc->metadata.displayName;
-    data["sessionLabel"] = Localization::providerLabel(desc->metadata.sessionLabel);
-    data["weeklyLabel"] = Localization::providerLabel(desc->metadata.weeklyLabel);
-    data["dashboardURL"] = desc->metadata.dashboardURL;
-    data["subscriptionDashboardURL"] = desc->metadata.subscriptionDashboardURL;
-    data["statusPageURL"] = desc->metadata.statusPageURL;
-    data["statusLinkURL"] = desc->metadata.statusLinkURL;
-    data["statusWorkspaceProductID"] = desc->metadata.statusWorkspaceProductID;
-    data["statusURL"] = providerStatusURL(id);
-    data["supportsCredits"] = desc->metadata.supportsCredits;
-    data["cliName"] = desc->metadata.cliName;
-    data["enabled"] = ProviderRegistry::instance().isProviderEnabled(id);
-    data["settingsFields"] = providerSettingsFields(id);
-    auto* prov = ProviderRegistry::instance().provider(id);
-    if (prov) {
-        data["brandColor"] = prov->brandColor();
+    ProviderDescriptorBuildInput input;
+    input.providerId = id;
+    const auto catalogEntry = m_providerCatalog.provider(id);
+    if (!catalogEntry.has_value()) {
+        return {};
     }
-    QVariantList modes;
-    for (const auto& mode : desc->fetchPlan.allowedSourceModes) modes.append(mode);
-    data["sourceModes"] = modes;
-    data["defaultSourceMode"] = desc->fetchPlan.defaultSourceMode;
-    QVariantMap tokenAccount;
-    tokenAccount["supportsMultipleAccounts"] = desc->tokenAccounts.supportsMultipleAccounts;
-    QVariantList requiredCredentials;
-    for (const auto& credential : desc->tokenAccounts.requiredCredentialTypes) {
-        requiredCredentials.append(credential);
+    input.hasDescriptor = catalogEntry->hasDescriptor;
+    input.descriptor = catalogEntry->descriptor;
+    input.enabled = catalogEntry->enabled;
+    input.brandColor = catalogEntry->brandColor;
+    input.statusURL = providerStatusURL(id);
+    input.defaultTokenAccount = TokenAccountStore::instance()->defaultAccountId(id);
+    input.tokenAccountCount = TokenAccountStore::instance()->accountCountForProvider(id);
+    for (const auto& d : catalogEntry->settingsDescriptors) {
+        ProviderSettingFieldBuildInput field;
+        field.descriptor = d;
+        field.value = d.sensitive
+            ? QVariant()
+            : (m_settingsStore ? m_settingsStore->providerSetting(id, d.key, d.defaultValue)
+                               : d.defaultValue);
+        if (d.sensitive) {
+            field.secretStatus = providerSecretStatus(id, d.key);
+        }
+        input.settingsFields.append(field);
     }
-    tokenAccount["requiredCredentialTypes"] = requiredCredentials;
-    data["tokenAccount"] = tokenAccount;
-    data["supportsMultipleAccounts"] = desc->tokenAccounts.supportsMultipleAccounts;
-    data["defaultTokenAccount"] = TokenAccountStore::instance()->defaultAccountId(id);
-    data["tokenAccountCount"] = TokenAccountStore::instance()->accountCountForProvider(id);
+
+    const QVariantMap data = buildProviderDescriptorFromInput(input);
     m_providerDescriptorDataCache.insert(id, data);
     return data;
 }
@@ -2183,18 +2523,18 @@ void UsageStore::requestProviderDescriptor(const QString& providerId)
 
     ProviderDescriptorBuildInput input;
     input.providerId = providerId;
-    if (auto desc = ProviderRegistry::instance().descriptor(providerId); desc.has_value()) {
-        input.hasDescriptor = true;
-        input.descriptor = desc.value();
+    const auto catalogEntry = m_providerCatalog.provider(providerId);
+    if (catalogEntry.has_value()) {
+        input.hasDescriptor = catalogEntry->hasDescriptor;
+        input.descriptor = catalogEntry->descriptor;
+        input.enabled = catalogEntry->enabled;
+        input.brandColor = catalogEntry->brandColor;
     }
-    input.enabled = ProviderRegistry::instance().isProviderEnabled(providerId);
     input.statusURL = providerStatusURL(providerId);
     input.defaultTokenAccount = TokenAccountStore::instance()->defaultAccountId(providerId);
     input.tokenAccountCount = TokenAccountStore::instance()->accountCountForProvider(providerId);
-    if (auto* provider = ProviderRegistry::instance().provider(providerId)) {
-        input.brandColor = provider->brandColor();
-        const auto descriptors = provider->settingsDescriptors();
-        for (const auto& d : descriptors) {
+    if (catalogEntry.has_value()) {
+        for (const auto& d : catalogEntry->settingsDescriptors) {
             ProviderSettingFieldBuildInput field;
             field.descriptor = d;
             field.value = d.sensitive
@@ -2219,39 +2559,25 @@ void UsageStore::requestProviderDescriptor(const QString& providerId)
 
 QVariantList UsageStore::providerSettingsFields(const QString& id) const {
     PERF_PROBE("providerSettingsFields", 1000);
-    QVariantList list;
-    auto* provider = ProviderRegistry::instance().provider(id);
-    if (!provider) return list;
-    auto descriptors = provider->settingsDescriptors();
-    for (const auto& d : descriptors) {
-        QVariantMap field;
-        field["key"] = d.key;
-        field["label"] = Localization::providerSettingLabel(d.label);
-        field["type"] = d.type;
-        field["defaultValue"] = d.defaultValue;
-        field["value"] = d.sensitive
-            ? QVariant()
-            : (m_settingsStore ? m_settingsStore->providerSetting(id, d.key, d.defaultValue) : d.defaultValue);
-        field["credentialTarget"] = d.credentialTarget;
-        field["envVar"] = d.envVar;
-        field["placeholder"] = d.placeholder;
-        field["helpText"] = d.helpText;
-        field["multiline"] = d.multiline;
-        field["sensitive"] = d.sensitive;
-        if (d.sensitive) {
-            field["secretStatus"] = providerSecretStatus(id, d.key);
-        }
-        QVariantList options;
-        for (const auto& option : d.options) {
-            QVariantMap opt;
-            opt["value"] = option.value;
-            opt["label"] = Localization::providerSettingLabel(option.label);
-            options.append(opt);
-        }
-        field["options"] = options;
-        list.append(field);
+    const auto entry = m_providerCatalog.provider(id);
+    if (!entry.has_value()) {
+        return {};
     }
-    return list;
+
+    QVector<ProviderSettingFieldBuildInput> inputs;
+    for (const auto& d : entry->settingsDescriptors) {
+        ProviderSettingFieldBuildInput field;
+        field.descriptor = d;
+        field.value = d.sensitive
+            ? QVariant()
+            : (m_settingsStore ? m_settingsStore->providerSetting(id, d.key, d.defaultValue)
+                               : d.defaultValue);
+        if (d.sensitive) {
+            field.secretStatus = providerSecretStatus(id, d.key);
+        }
+        inputs.append(field);
+    }
+    return buildProviderSettingsFieldsFromInputs(inputs);
 }
 
 void UsageStore::setProviderSetting(const QString& providerId, const QString& key, const QVariant& value) {
@@ -2264,15 +2590,20 @@ void UsageStore::setProviderSetting(const QString& providerId, const QString& ke
     }
     m_settingsStore->setProviderSetting(providerId, key, value);
     m_providerDescriptorDataCache.remove(providerId);
+    if (key == QLatin1String("sourceMode")) {
+        rebuildProviderCatalogSnapshot();
+        m_providerListCacheValid = false;
+        emit providerIDsChanged();
+    }
     emit providerDescriptorChanged(providerId);
 }
 
 std::optional<ProviderSettingsDescriptor> UsageStore::settingDescriptor(const QString& providerId,
                                                                         const QString& key) const
 {
-    auto* provider = ProviderRegistry::instance().provider(providerId);
-    if (!provider) return std::nullopt;
-    for (const auto& descriptor : provider->settingsDescriptors()) {
+    const auto entry = m_providerCatalog.provider(providerId);
+    if (!entry.has_value()) return std::nullopt;
+    for (const auto& descriptor : entry->settingsDescriptors) {
         if (descriptor.key == key) return descriptor;
     }
     return std::nullopt;
@@ -2488,26 +2819,11 @@ void UsageStore::testProviderConnection(const QString& providerId) {
         {"durationMs", 0}
     });
 
+    const UsageBackendJobs::ProviderFetchCommandInput input = buildProviderFetchCommandInput(providerId);
     const UsageBackendRequest request = m_backend->dispatchValueJob(
         QStringLiteral("providerConnectionTest"), 0,
-        [this, providerId, provider, startedAt]() {
-        ProviderFetchContext ctx = buildFetchContextForProvider(providerId);
-        ctx.allowInteractiveAuth = false;
-        ProviderFetchResult result;
-        if (!isSourceModeAllowed(providerId, ctx.sourceMode)) {
-            result.success = false;
-            result.errorMessage = QString("Unsupported source mode: %1")
-                .arg(sourceModeToString(ctx.sourceMode));
-        } else {
-            ProviderPipeline pipeline;
-            result = pipeline.executeProvider(provider, ctx);
-        }
-
-        ProviderConnectionTestPayload payload;
-        payload.providerId = providerId;
-        payload.fetchResult = result;
-        payload.startedAt = startedAt;
-        return QVariant::fromValue(payload);
+        [provider, input, startedAt]() {
+        return QVariant::fromValue(UsageBackendJobs::testProviderConnection(provider, input, startedAt));
     });
     m_backendRequestProviderIds.insert(request.requestId, providerId);
 }
@@ -2640,12 +2956,13 @@ QVariantMap UsageStore::providerStatus(const QString& providerId) const {
 }
 
 QString UsageStore::providerStatusURL(const QString& providerId) const {
-    auto desc = ProviderRegistry::instance().descriptor(providerId);
-    if (!desc.has_value()) return {};
+    const auto entry = m_providerCatalog.provider(providerId);
+    if (!entry.has_value() || !entry->hasDescriptor) return {};
+    const auto& desc = entry->descriptor;
     return ProviderStatusFetcher::openURL(
-        desc->metadata.statusPageURL,
-        desc->metadata.statusLinkURL,
-        desc->metadata.statusWorkspaceProductID);
+        desc.metadata.statusPageURL,
+        desc.metadata.statusLinkURL,
+        desc.metadata.statusWorkspaceProductID);
 }
 
 QVariantMap UsageStore::providerUsageSnapshot(const QString& providerId) const {
@@ -2690,15 +3007,14 @@ void UsageStore::refreshProviderStatuses() {
     const bool enabled = m_settingsStore ? m_settingsStore->statusChecksEnabled() : true;
     if (!enabled) return;
 
-    const auto ids = ProviderRegistry::instance().providerIDs();
     QVector<ProviderStatusPollTarget> targets;
-    for (const auto& id : ids) {
-        auto desc = ProviderRegistry::instance().descriptor(id);
-        if (!desc.has_value()) continue;
+    for (const auto& provider : m_providerCatalog.providers()) {
+        if (!provider.hasDescriptor) continue;
+        const auto& desc = provider.descriptor;
 
         const auto providerTargets = ProviderStatusFetcher::buildPollTargets(
-            {id}, desc->metadata.statusPageURL, desc->metadata.statusLinkURL,
-            desc->metadata.statusWorkspaceProductID);
+            {provider.id}, desc.metadata.statusPageURL, desc.metadata.statusLinkURL,
+            desc.metadata.statusWorkspaceProductID);
         targets.append(providerTargets);
     }
 
@@ -3245,12 +3561,6 @@ void UsageStore::clearCodexOpenAIWebState()
 void UsageStore::shutdown()
 {
     stopAutoRefresh();
-    if (m_threadPool) {
-        m_threadPool->clear();
-    }
-    if (m_interactiveThreadPool) {
-        m_interactiveThreadPool->clear();
-    }
     if (m_historyStore) {
         m_historyStore->stopSaveTimer();
     }
