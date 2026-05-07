@@ -73,7 +73,7 @@ SettingsPage {
 
             SettingsButton {
                 text: qsTr("Open GitHub")
-                onClicked: AppController.openExternalUrl("https://github.com/anomalyco/CodexBar")
+                onClicked: AppController.openExternalUrl("https://github.com/basil520/WinCodexBar")
             }
         }
     }
