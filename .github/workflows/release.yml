@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Qt 6.5.3
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.5.3'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2019_64'
+          modules: 'qtwebsockets'
+          cache: true
+
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Configure CMake
+        run: |
+          cmake -B build `
+            -DCMAKE_PREFIX_PATH="${{ env.Qt6_DIR }}" `
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build Release
+        run: cmake --build build --config Release --parallel
+
+      - name: Deploy Qt dependencies
+        run: |
+          $exePath = "build\Release\WinCodexBar.exe"
+          $qmlDir = "qml"
+          windeployqt --qmldir $qmlDir $exePath
+
+      - name: Prepare release package
+        run: |
+          $tagName = "${{ github.event.release.tag_name }}"
+          $packageName = "WinCodexBar-$tagName"
+          
+          New-Item -ItemType Directory -Path "release_package" -Force | Out-Null
+          
+          Copy-Item -Path "build\Release\*" -Destination "release_package" -Recurse -Force
+          
+          if (Test-Path "build\translations") {
+            New-Item -ItemType Directory -Path "release_package\translations" -Force | Out-Null
+            Copy-Item -Path "build\translations\*.qm" -Destination "release_package\translations" -Force
+          }
+          
+          Compress-Archive -Path "release_package\*" -DestinationPath "$packageName.zip" -Force
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: WinCodexBar-${{ github.event.release.tag_name }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
