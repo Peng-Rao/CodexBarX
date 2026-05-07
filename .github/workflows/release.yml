@@ -1,8 +1,9 @@
 name: Release
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*.*.*'
 
 jobs:
   build-and-release:
@@ -80,7 +81,7 @@ jobs:
 
       - name: Prepare release package
         run: |
-          $tagName = "${{ github.event.release.tag_name }}"
+          $tagName = "${{ github.ref_name }}"
           $packageName = "WinCodexBar-$tagName"
           
           New-Item -ItemType Directory -Path "release_package" -Force | Out-Null
@@ -94,9 +95,15 @@ jobs:
           
           Compress-Archive -Path "release_package\*" -DestinationPath "$packageName.zip" -Force
 
-      - name: Upload release asset
+      - name: Create Release and upload asset
         uses: softprops/action-gh-release@v2
         with:
-          files: WinCodexBar-${{ github.event.release.tag_name }}.zip
+          name: WinCodexBar ${{ github.ref_name }}
+          body: |
+            ## Changes
+            See commit history for details.
+          files: WinCodexBar-${{ github.ref_name }}.zip
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
