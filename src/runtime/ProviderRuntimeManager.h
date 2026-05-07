@@ -3,7 +3,6 @@
 #include <QHash>
 #include <QTimer>
 #include "IProviderRuntime.h"
-#include "IProviderLoginFlow.h"
 
 class ProviderRuntimeManager : public QObject {
     Q_OBJECT
@@ -31,11 +30,6 @@ public:
     void stopBackgroundRefresh();
     bool isBackgroundRefreshRunning() const;
 
-    // Login flows
-    void registerLoginFlow(const QString& providerId, IProviderLoginFlow* flow);
-    void unregisterLoginFlow(const QString& providerId);
-    IProviderLoginFlow* loginFlowFor(const QString& providerId) const;
-
     // Status aggregation
     struct RuntimeStatus {
         QString providerId;
@@ -53,7 +47,6 @@ signals:
 private:
     explicit ProviderRuntimeManager(QObject* parent = nullptr);
     QHash<QString, IProviderRuntime*> m_runtimes;
-    QHash<QString, IProviderLoginFlow*> m_loginFlows;
     QTimer* m_refreshTimer = nullptr;
     int m_refreshIntervalMs = 300000; // 5 minutes default
 };

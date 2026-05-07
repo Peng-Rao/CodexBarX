@@ -203,29 +203,6 @@ bool ProviderRuntimeManager::isBackgroundRefreshRunning() const
     return m_refreshTimer && m_refreshTimer->isActive();
 }
 
-void ProviderRuntimeManager::registerLoginFlow(const QString& providerId, IProviderLoginFlow* flow)
-{
-    if (!flow) return;
-    if (m_loginFlows.contains(providerId)) {
-        m_loginFlows[providerId]->deleteLater();
-    }
-    m_loginFlows[providerId] = flow;
-}
-
-void ProviderRuntimeManager::unregisterLoginFlow(const QString& providerId)
-{
-    auto it = m_loginFlows.find(providerId);
-    if (it != m_loginFlows.end()) {
-        it.value()->deleteLater();
-        m_loginFlows.erase(it);
-    }
-}
-
-IProviderLoginFlow* ProviderRuntimeManager::loginFlowFor(const QString& providerId) const
-{
-    return m_loginFlows.value(providerId, nullptr);
-}
-
 QList<ProviderRuntimeManager::RuntimeStatus> ProviderRuntimeManager::allStatuses() const
 {
     QList<RuntimeStatus> result;

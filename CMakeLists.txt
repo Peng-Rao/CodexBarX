@@ -69,9 +69,6 @@ set(CORE_SOURCES
     src/providers/codex/CodexHomeScope.cpp
     src/providers/codex/CodexOpenAIWorkspaceResolver.cpp
     src/providers/codex/CodexOpenAIWorkspaceIdentityCache.cpp
-    src/providers/codex/CodexPlanFormatting.cpp
-    src/providers/codex/CodexProviderSettingsBuilder.cpp
-    src/providers/codex/CodexUsageDataSource.cpp
     src/providers/codex/ManagedCodexAccountService.cpp
     src/providers/codex/CodexLoginRunner.cpp
     src/providers/claude/ClaudeProvider.cpp
@@ -102,7 +99,6 @@ set(CORE_SOURCES
 
     src/network/NetworkManager.cpp
 
-    src/app/CodexBarApp.cpp
     src/app/AppTheme.cpp
     src/app/CostUsageService.cpp
     src/app/SettingsStore.cpp
@@ -115,7 +111,6 @@ set(CORE_SOURCES
     src/app/UsageBackendJobs.cpp
     src/app/UiFreezeWatchdog.cpp
     src/app/BatchUpdateController.cpp
-    src/app/CredentialAccessGate.cpp
     src/app/PlanUtilizationHistoryStore.cpp
     src/app/SessionQuotaNotifications.cpp
     src/app/LanguageManager.cpp
@@ -135,12 +130,10 @@ set(CORE_SOURCES
     src/account/TokenAccountStore.cpp
 
     src/runtime/IProviderRuntime.cpp
-    src/runtime/IProviderLoginFlow.cpp
     src/runtime/ProviderRuntimeManager.cpp
     src/runtime/GenericRuntime.cpp
     src/runtime/CodexRuntime.cpp
     src/runtime/AugmentRuntime.cpp
-    src/runtime/OAuthDeviceFlow.cpp
 
     src/cli/CLIEntry.cpp
     src/cli/CLIRenderer.cpp
@@ -185,9 +178,6 @@ set(CORE_HEADERS
     src/providers/codex/CodexHomeScope.h
     src/providers/codex/CodexOpenAIWorkspaceResolver.h
     src/providers/codex/CodexOpenAIWorkspaceIdentityCache.h
-    src/providers/codex/CodexPlanFormatting.h
-    src/providers/codex/CodexProviderSettingsBuilder.h
-    src/providers/codex/CodexUsageDataSource.h
     src/providers/codex/ManagedCodexAccountService.h
     src/providers/codex/CodexLoginRunner.h
     src/providers/kimi/KimiProvider.h
@@ -238,7 +228,6 @@ set(CORE_HEADERS
 
     src/network/NetworkManager.h
 
-    src/app/CodexBarApp.h
     src/app/AppTheme.h
     src/app/CostUsageService.h
     src/app/SettingsStore.h
@@ -252,7 +241,6 @@ set(CORE_HEADERS
     src/app/UsageBackendTypes.h
     src/app/UiFreezeWatchdog.h
     src/app/BatchUpdateController.h
-    src/app/CredentialAccessGate.h
     src/app/PlanUtilizationHistoryStore.h
     src/app/SessionQuotaNotifications.h
     src/app/Localization.h
@@ -274,12 +262,10 @@ set(CORE_HEADERS
     src/account/SecureString.h
 
     src/runtime/IProviderRuntime.h
-    src/runtime/IProviderLoginFlow.h
     src/runtime/ProviderRuntimeManager.h
     src/runtime/GenericRuntime.h
     src/runtime/CodexRuntime.h
     src/runtime/AugmentRuntime.h
-    src/runtime/OAuthDeviceFlow.h
 
     src/cli/CLIEntry.h
     src/cli/CLIRenderer.h
