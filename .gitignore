@@ -24,6 +24,7 @@
 *.user
 *.env
 *.local
+AGENTS.md
 
 # Local documentation moved from the macOS parent repository
 /docs/
