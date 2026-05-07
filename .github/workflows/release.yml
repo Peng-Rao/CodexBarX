@@ -23,6 +23,16 @@ jobs:
           modules: 'qtwebsockets'
           cache: true
 
+      - name: Install Qt Installer Framework
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.5.3'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2019_64'
+          tools: 'tools_qtinstallerfw'
+          cache: true
+
       - name: Setup MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
 
@@ -79,10 +89,10 @@ jobs:
           
           Get-ChildItem -Path $releaseDir -Filter "*.pdb" -Recurse | Remove-Item -Force
 
-      - name: Prepare release package
+      - name: Prepare portable package
         run: |
           $tagName = "${{ github.ref_name }}"
-          $packageName = "WinCodexBar-$tagName"
+          $packageName = "WinCodexBar-$tagName-portable"
           
           New-Item -ItemType Directory -Path "release_package" -Force | Out-Null
           
@@ -95,14 +105,70 @@ jobs:
           
           Compress-Archive -Path "release_package\*" -DestinationPath "$packageName.zip" -Force
 
-      - name: Create Release and upload asset
+      - name: Build installer
+        run: |
+          $tagName = "${{ github.ref_name }}"
+          $version = $tagName -replace '^v', ''
+          
+          # Find Qt IFW bin directory
+          $ifwBin = Get-ChildItem -Path "${{ env.Qt6_DIR }}\..\..\Tools\QtInstallerFramework" -Filter "binarycreator.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $ifwBin) {
+            Write-Host "Searching in Qt Tools directory..."
+            $ifwBin = Get-ChildItem -Path "C:\Qt\Tools\QtInstallerFramework" -Filter "binarycreator.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          }
+          
+          if ($ifwBin) {
+            $binDir = Split-Path $ifwBin.FullName
+            $env:PATH = "$binDir;$env:PATH"
+            Write-Host "Found Qt IFW at: $binDir"
+          } else {
+            Write-Warning "Qt IFW not found, skipping installer build"
+            exit 0
+          }
+          
+          # Prepare installer data
+          $dataDir = "installer\packages\com.wincodexbar.app\data"
+          if (Test-Path $dataDir) { Remove-Item -Recurse -Force $dataDir }
+          New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
+          Copy-Item -Path "build\Release\*" -Destination $dataDir -Recurse -Force
+          
+          if (Test-Path "build\translations") {
+            Copy-Item -Path "build\translations" -Destination $dataDir -Recurse -Force
+          }
+          
+          # Update version
+          $releaseDate = Get-Date -Format "yyyy-MM-dd"
+          $configXml = "installer\config\config.xml"
+          $packageXml = "installer\packages\com.wincodexbar.app\meta\package.xml"
+          
+          (Get-Content $configXml) -replace '<Version>[^<]*</Version>', "<Version>$version</Version>" | Set-Content $configXml
+          (Get-Content $packageXml) -replace '<Version>[^<]*</Version>', "<Version>$version</Version>" -replace '<ReleaseDate>[^<]*</ReleaseDate>', "<ReleaseDate>$releaseDate</ReleaseDate>" | Set-Content $packageXml
+          
+          # Build installer
+          Push-Location installer
+          try {
+            binarycreator.exe -c "config\config.xml" -p "packages" "..\WinCodexBar-$version-Installer.exe"
+          } finally {
+            Pop-Location
+          }
+          
+          Write-Host "Installer created: WinCodexBar-$version-Installer.exe"
+
+      - name: Create Release and upload assets
         uses: softprops/action-gh-release@v2
         with:
           name: WinCodexBar ${{ github.ref_name }}
           body: |
+            ## Downloads
+            
+            - **WinCodexBar-${{ github.ref_name }}-portable.zip** - Portable version (no installation required)
+            - **WinCodexBar-${{ github.ref_name }}-Installer.exe** - Windows installer
+            
             ## Changes
-            See commit history for details.
-          files: WinCodexBar-${{ github.ref_name }}.zip
+            See [commit history](https://github.com/${{ github.repository }}/commits/${{ github.ref_name }}) for details.
+          files: |
+            WinCodexBar-${{ github.ref_name }}-portable.zip
+            WinCodexBar-*-Installer.exe
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
         env:

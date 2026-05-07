@@ -8,6 +8,9 @@
 /CTestTestfile.cmake
 /_deps/
 
+# Installer data (generated during build)
+/installer/packages/*/data/
+
 # Generated project files
 /*.sln
 /*.vcxproj

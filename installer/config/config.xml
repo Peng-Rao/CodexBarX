@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Installer>
+    <Name>WinCodexBar</Name>
+    <Version>0.1.0</Version>
+    <Title>WinCodexBar Setup</Title>
+    <Publisher>WinCodexBar</Publisher>
+    <ProductUrl>https://github.com/basil520/WinCodexBar</ProductUrl>
+    <InstallerWindowIcon>icon</InstallerWindowIcon>
+    <InstallerApplicationIcon>icon</InstallerApplicationIcon>
+    <StartMenuDir>WinCodexBar</StartMenuDir>
+    <TargetDir>@ApplicationsDirX86@/WinCodexBar</TargetDir>
+    <RunProgram>@TargetDir@/WinCodexBar.exe</RunProgram>
+    <RunProgramDescription>Launch WinCodexBar after installation</RunProgramDescription>
+    <MaintenanceToolName>Uninstall</MaintenanceToolName>
+    <AllowNonAsciiCharacters>true</AllowNonAsciiCharacters>
+    <DisableLicenseAutoAcceptCheckBox>false</DisableLicenseAutoAcceptCheckBox>
+</Installer>
