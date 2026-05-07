@@ -20,6 +20,24 @@
 
 static std::atomic<bool> g_shuttingDown{false};
 
+namespace {
+
+QString canonicalOpenCodeProviderId(const QString& rawProviderId)
+{
+    if (rawProviderId == QLatin1String("opencode-go")) return QStringLiteral("opencodego");
+    if (rawProviderId == QLatin1String("kimi-for-coding")) return QStringLiteral("kimi");
+    if (rawProviderId == QLatin1String("kimi")) return QStringLiteral("kimi");
+    return rawProviderId;
+}
+
+bool providerAllowedForScan(const QString& rawProviderId, const QSet<QString>& allowedProviderIds)
+{
+    return allowedProviderIds.isEmpty()
+        || allowedProviderIds.contains(canonicalOpenCodeProviderId(rawProviderId));
+}
+
+} // namespace
+
 void CostUsageScanner::setShuttingDown(bool shuttingDown)
 {
     g_shuttingDown = shuttingDown;
@@ -924,7 +942,9 @@ CostUsageSnapshot CostUsageScanner::scanOpenCodeGo(const QDate& since, const QDa
     return CostUsageSnapshot();
 }
 
-QHash<QString, CostUsageSnapshot> CostUsageScanner::scanOpenCodeDB(const QDate& since, const QDate& until) {
+QHash<QString, CostUsageSnapshot> CostUsageScanner::scanOpenCodeDB(const QDate& since,
+                                                                   const QDate& until,
+                                                                   const QSet<QString>& allowedProviderIds) {
     QHash<QString, CostUsageSnapshot> result;
 
     // OpenCode stores session data in SQLite at ~/.local/share/opencode/opencode.db
@@ -1029,7 +1049,8 @@ QHash<QString, CostUsageSnapshot> CostUsageScanner::scanOpenCodeDB(const QDate& 
                     const QJsonObject modelObj = obj["model"].toObject();
                     const QString provider = modelObj["providerID"].toString().trimmed();
                     const QString model = modelObj["modelID"].toString().trimmed();
-                    if (!provider.isEmpty() && !model.isEmpty()) {
+                    if (!provider.isEmpty() && !model.isEmpty()
+                        && providerAllowedForScan(provider, allowedProviderIds)) {
                         sessionModels[sessionId] = { provider, model };
                     }
                     continue;
@@ -1045,7 +1066,11 @@ QHash<QString, CostUsageSnapshot> CostUsageScanner::scanOpenCodeDB(const QDate& 
                 const auto modelIt = sessionModels.constFind(sessionId);
                 if (modelIt == sessionModels.constEnd()) continue;
                 const QString providerId = modelIt->provider;
-                if (providerId.isEmpty() || providerId == "baiduqianfancodingplan") continue;
+                if (providerId.isEmpty()
+                    || providerId == "baiduqianfancodingplan"
+                    || !providerAllowedForScan(providerId, allowedProviderIds)) {
+                    continue;
+                }
 
                 const QString day = QDateTime::fromMSecsSinceEpoch(timeCreated, Qt::UTC)
                     .date()
@@ -1068,17 +1093,14 @@ QHash<QString, CostUsageSnapshot> CostUsageScanner::scanOpenCodeDB(const QDate& 
 
     QSqlDatabase::removeDatabase(connName);
 
-    // Map raw provider IDs from opencode.db to standard CodexBar provider IDs
-    QHash<QString, QString> providerIdMap;
-    providerIdMap["opencode-go"] = "opencodego";
-    providerIdMap["kimi-for-coding"] = "kimi";
-    providerIdMap["kimi"] = "kimi";
-
     // Build snapshots for each provider found in the database
     for (auto pit = providerData.constBegin(); pit != providerData.constEnd(); ++pit) {
         if (g_shuttingDown) break;
         QString rawProviderId = pit.key();
-        QString providerId = providerIdMap.value(rawProviderId, rawProviderId);
+        QString providerId = canonicalOpenCodeProviderId(rawProviderId);
+        if (!allowedProviderIds.isEmpty() && !allowedProviderIds.contains(providerId)) {
+            continue;
+        }
         CostUsageSnapshot snap;
         snap.updatedAt = QDateTime::currentDateTime();
 

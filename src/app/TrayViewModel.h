@@ -32,7 +32,7 @@ public:
     Q_INVOKABLE void refreshProvider(const QString& providerId);
     Q_INVOKABLE void ensureCostUsageEnabled();
     Q_INVOKABLE void requestCostUsageViewData();
-    Q_INVOKABLE QVariantList providerCostUsageList() const;
+    Q_INVOKABLE QVariantList providerCostUsageList();
     Q_INVOKABLE QString requestSetDefaultTokenAccount(const QString& providerId, const QString& accountId);
 
 signals:

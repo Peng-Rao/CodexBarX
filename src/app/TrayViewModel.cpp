@@ -55,12 +55,15 @@ void TrayViewModel::ensureCostUsageEnabled()
 void TrayViewModel::requestCostUsageViewData()
 {
     if (m_store) {
-        m_store->requestCostUsageViewData();
+        m_store->requestCostUsageSummary();
     }
 }
 
-QVariantList TrayViewModel::providerCostUsageList() const
+QVariantList TrayViewModel::providerCostUsageList()
 {
+    if (m_store) {
+        m_providerCostRows = m_store->providerCostUsageList();
+    }
     return m_providerCostRows;
 }
 
@@ -119,10 +122,5 @@ void TrayViewModel::syncCostData()
         m_costData = nextCostData;
         emit costDataChanged();
     }
-
-    const QVariantList nextProviderRows = m_store->providerCostUsageList();
-    if (m_providerCostRows != nextProviderRows) {
-        m_providerCostRows = nextProviderRows;
-        emit providerCostRowsChanged();
-    }
+    emit providerCostRowsChanged();
 }

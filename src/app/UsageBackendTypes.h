@@ -29,9 +29,15 @@ struct UsageBackendResult {
     QVariant payload;
 };
 
-struct CostUsageViewDataPayload {
+struct CostUsageSummaryPayload {
     QVariantMap costData;
+};
+
+struct CostUsageProviderRowsPayload {
     QVariantList providerList;
+};
+
+struct CostUsageDetailsRowsPayload {
     QVariantList detailsRows;
     int tokenProviderCount = 0;
 };
@@ -122,7 +128,9 @@ struct ProviderLoginPollPayload {
 
 Q_DECLARE_METATYPE(UsageBackendRequest)
 Q_DECLARE_METATYPE(UsageBackendResult)
-Q_DECLARE_METATYPE(CostUsageViewDataPayload)
+Q_DECLARE_METATYPE(CostUsageSummaryPayload)
+Q_DECLARE_METATYPE(CostUsageProviderRowsPayload)
+Q_DECLARE_METATYPE(CostUsageDetailsRowsPayload)
 Q_DECLARE_METATYPE(CostUsageRefreshPayload)
 Q_DECLARE_METATYPE(CostUsageProviderDetailPayload)
 Q_DECLARE_METATYPE(ProviderFetchResult)

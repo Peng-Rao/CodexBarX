@@ -40,7 +40,9 @@ UsageBackend::UsageBackend(QObject* parent)
 {
     qRegisterMetaType<UsageBackendRequest>("UsageBackendRequest");
     qRegisterMetaType<UsageBackendResult>("UsageBackendResult");
-    qRegisterMetaType<CostUsageViewDataPayload>("CostUsageViewDataPayload");
+    qRegisterMetaType<CostUsageSummaryPayload>("CostUsageSummaryPayload");
+    qRegisterMetaType<CostUsageProviderRowsPayload>("CostUsageProviderRowsPayload");
+    qRegisterMetaType<CostUsageDetailsRowsPayload>("CostUsageDetailsRowsPayload");
     qRegisterMetaType<CostUsageRefreshPayload>("CostUsageRefreshPayload");
     qRegisterMetaType<CostUsageProviderDetailPayload>("CostUsageProviderDetailPayload");
     qRegisterMetaType<ProviderFetchResult>("ProviderFetchResult");

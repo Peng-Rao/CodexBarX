@@ -146,7 +146,7 @@ SettingsPage {
                 SettingsButton {
                     text: qsTr("Test")
                     primary: true
-                    onClicked: UsageStore.testProviderConnection("codex")
+                    onClicked: SettingsProvidersModel.testConnection("codex")
                 }
             }
 

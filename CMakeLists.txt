@@ -104,6 +104,7 @@ set(CORE_SOURCES
 
     src/app/CodexBarApp.cpp
     src/app/AppTheme.cpp
+    src/app/CostUsageService.cpp
     src/app/SettingsStore.cpp
     src/app/SettingsProvidersModel.cpp
     src/app/UsageStore.cpp
@@ -239,6 +240,7 @@ set(CORE_HEADERS
 
     src/app/CodexBarApp.h
     src/app/AppTheme.h
+    src/app/CostUsageService.h
     src/app/SettingsStore.h
     src/app/SettingsProvidersModel.h
     src/app/UsageStore.h

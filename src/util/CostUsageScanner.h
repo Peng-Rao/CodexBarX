@@ -3,6 +3,7 @@
 #include <QString>
 #include <QDateTime>
 #include <QHash>
+#include <QSet>
 #include <QVector>
 #include <QRegularExpression>
 #include <optional>
@@ -26,7 +27,9 @@ public:
     PiScanResult scanPi(const QDate& since, const QDate& until);
 
     // Scan opencode.db and return per-provider snapshots (provider_id -> snapshot)
-    QHash<QString, CostUsageSnapshot> scanOpenCodeDB(const QDate& since, const QDate& until);
+    QHash<QString, CostUsageSnapshot> scanOpenCodeDB(const QDate& since,
+                                                     const QDate& until,
+                                                     const QSet<QString>& allowedProviderIds = {});
     CostUsageSnapshot scanOpenCodeGo(const QDate& since, const QDate& until);
 
     QString cacheDir();

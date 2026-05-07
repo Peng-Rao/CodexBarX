@@ -15,7 +15,10 @@ private slots:
     void usageStoreCleanupJobsUseBackend();
     void settingsProvidersUsesSettingsProvidersModel();
     void usageDetailsRowsArePreparedByBackend();
+    void costUsageViewDataIsLayered();
+    void usageStoreLegacyApisAreNotQmlInvokable();
     void providerUiBuildersUseCatalogSnapshot();
+    void costUsageScanUsesCostUsageService();
 };
 
 void QmlArchitectureTest::trayPanelDoesNotUseSynchronousUsageStoreGetters()
@@ -239,8 +242,10 @@ void QmlArchitectureTest::usageDetailsRowsArePreparedByBackend()
     const QString storeContents = QString::fromUtf8(usageStore.readAll());
     QVERIFY2(storeContents.contains(QStringLiteral("QStringLiteral(\"costUsageProviderDetail\")")),
              "UsageStore must dispatch provider detail preparation through UsageBackend.");
-    QVERIFY2(storeContents.contains(QStringLiteral("usageDetailsRows(allProviders")),
-             "Cost usage view data must build Usage details rows in the backend job.");
+    QVERIFY2(storeContents.contains(QStringLiteral("QStringLiteral(\"costUsageDetailsRows\")")),
+             "UsageStore must dispatch Usage details row preparation through UsageBackend.");
+    QVERIFY2(storeContents.contains(QStringLiteral("CostUsageService::detailsRows")),
+             "Cost usage details rows must be built by CostUsageService in the backend job.");
 
     QFile pane(QStringLiteral(PROJECT_SOURCE_DIR "/qml/panes/TokenUsagePane.qml"));
     QVERIFY2(pane.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(pane.errorString()));
@@ -251,6 +256,160 @@ void QmlArchitectureTest::usageDetailsRowsArePreparedByBackend()
              "Provider usage cards must start collapsed.");
     QVERIFY2(!paneContents.contains(QStringLiteral("model: card.provider.models")),
              "TokenUsagePane must not render model breakdown from first-screen provider rows.");
+}
+
+void QmlArchitectureTest::costUsageViewDataIsLayered()
+{
+    QFile usageStore(QStringLiteral(PROJECT_SOURCE_DIR "/src/app/UsageStore.cpp"));
+    QVERIFY2(usageStore.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(usageStore.errorString()));
+    const QString storeContents = QString::fromUtf8(usageStore.readAll());
+
+    const QStringList requiredJobKinds = {
+        QStringLiteral("QStringLiteral(\"costUsageSummary\")"),
+        QStringLiteral("QStringLiteral(\"costUsageProviderRows\")"),
+        QStringLiteral("QStringLiteral(\"costUsageDetailsRows\")"),
+        QStringLiteral("QStringLiteral(\"costUsageProviderDetail\")"),
+    };
+    for (const QString& jobKind : requiredJobKinds) {
+        QVERIFY2(storeContents.contains(jobKind),
+                 qPrintable(QStringLiteral("Cost usage view data must be dispatched as layered backend jobs: %1").arg(jobKind)));
+    }
+    QVERIFY2(!storeContents.contains(QStringLiteral("QStringLiteral(\"costUsageViewData\")")),
+             "UsageStore must not dispatch one combined costUsageViewData job.");
+
+    const QString summaryStart = QStringLiteral("QVariantMap UsageStore::costUsageData() const");
+    const QString providerRowsStart = QStringLiteral("QVariantList UsageStore::providerCostUsageList() const");
+    const QString detailsRowsStart = QStringLiteral("QVariantList UsageStore::costUsageDetailsRows() const");
+    const QString tokenCountStart = QStringLiteral("int UsageStore::costUsageTokenProviderCount() const");
+    const int summaryStartIndex = storeContents.indexOf(summaryStart);
+    QVERIFY2(summaryStartIndex >= 0, "Missing UsageStore::costUsageData().");
+    const int providerRowsStartIndex = storeContents.indexOf(providerRowsStart, summaryStartIndex + summaryStart.size());
+    QVERIFY2(providerRowsStartIndex > summaryStartIndex, "Missing UsageStore::providerCostUsageList().");
+    const int detailsRowsStartIndex = storeContents.indexOf(detailsRowsStart, providerRowsStartIndex + providerRowsStart.size());
+    QVERIFY2(detailsRowsStartIndex > providerRowsStartIndex, "Missing UsageStore::costUsageDetailsRows().");
+    const int tokenCountStartIndex = storeContents.indexOf(tokenCountStart, detailsRowsStartIndex + detailsRowsStart.size());
+    QVERIFY2(tokenCountStartIndex > detailsRowsStartIndex, "Missing UsageStore::costUsageTokenProviderCount().");
+
+    const QString summaryBody = storeContents.mid(summaryStartIndex, providerRowsStartIndex - summaryStartIndex);
+    QVERIFY2(summaryBody.contains(QStringLiteral("requestCostUsageSummary")),
+             "costUsageData() must only schedule the summary builder.");
+    QVERIFY2(!summaryBody.contains(QStringLiteral("requestCostUsageProviderRows")),
+             "costUsageData() must not schedule provider row construction.");
+    QVERIFY2(!summaryBody.contains(QStringLiteral("requestCostUsageDetailsRows")),
+             "costUsageData() must not schedule Usage details rows.");
+
+    const QString providerRowsBody = storeContents.mid(providerRowsStartIndex, detailsRowsStartIndex - providerRowsStartIndex);
+    QVERIFY2(providerRowsBody.contains(QStringLiteral("requestCostUsageProviderRows")),
+             "providerCostUsageList() must schedule only the provider rows builder.");
+    QVERIFY2(!providerRowsBody.contains(QStringLiteral("requestCostUsageDetailsRows")),
+             "providerCostUsageList() must not schedule Usage details rows.");
+
+    const QString detailsRowsBody = storeContents.mid(detailsRowsStartIndex, tokenCountStartIndex - detailsRowsStartIndex);
+    QVERIFY2(detailsRowsBody.contains(QStringLiteral("requestCostUsageDetailsRows")),
+             "costUsageDetailsRows() must be the only getter that schedules Usage details rows.");
+    QVERIFY2(!detailsRowsBody.contains(QStringLiteral("requestCostUsageSummary")),
+             "costUsageDetailsRows() must not request a combined view-data build.");
+
+    QFile trayViewModel(QStringLiteral(PROJECT_SOURCE_DIR "/src/app/TrayViewModel.cpp"));
+    QVERIFY2(trayViewModel.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(trayViewModel.errorString()));
+    const QString trayContents = QString::fromUtf8(trayViewModel.readAll());
+    const QString traySyncStart = QStringLiteral("void TrayViewModel::syncCostData()");
+    const int traySyncStartIndex = trayContents.indexOf(traySyncStart);
+    QVERIFY2(traySyncStartIndex >= 0, "Missing TrayViewModel::syncCostData().");
+    const QString traySyncBody = trayContents.mid(traySyncStartIndex);
+    QVERIFY2(!traySyncBody.contains(QStringLiteral("m_store->providerCostUsageList()")),
+             "TrayViewModel must keep the tray-visible sync path to summary-only cost usage data.");
+
+    QFile detailsViewModel(QStringLiteral(PROJECT_SOURCE_DIR "/src/app/UsageDetailsViewModel.cpp"));
+    QVERIFY2(detailsViewModel.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(detailsViewModel.errorString()));
+    const QString detailsVmContents = QString::fromUtf8(detailsViewModel.readAll());
+    QVERIFY2(detailsVmContents.contains(QStringLiteral("requestCostUsageSummary")),
+             "UsageDetailsViewModel must request the summary layer explicitly.");
+    QVERIFY2(detailsVmContents.contains(QStringLiteral("requestCostUsageDetailsRows")),
+             "UsageDetailsViewModel must request details rows only while active.");
+    QVERIFY2(!detailsVmContents.contains(QStringLiteral("requestCostUsageViewData")),
+             "UsageDetailsViewModel must not request a combined view-data build.");
+
+    QFile service(QStringLiteral(PROJECT_SOURCE_DIR "/src/app/CostUsageService.cpp"));
+    QVERIFY2(service.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(service.errorString()));
+    const QString serviceContents = QString::fromUtf8(service.readAll());
+    QVERIFY2(serviceContents.contains(QStringLiteral("CostUsageService::summaryData")),
+             "CostUsageService must own cost summary view-data construction.");
+    QVERIFY2(serviceContents.contains(QStringLiteral("CostUsageService::providerRows")),
+             "CostUsageService must own provider row view-data construction.");
+    QVERIFY2(serviceContents.contains(QStringLiteral("CostUsageService::detailsRows")),
+             "CostUsageService must own Usage details row view-data construction.");
+}
+
+void QmlArchitectureTest::usageStoreLegacyApisAreNotQmlInvokable()
+{
+    QFile usageStoreHeader(QStringLiteral(PROJECT_SOURCE_DIR "/src/app/UsageStore.h"));
+    QVERIFY2(usageStoreHeader.open(QIODevice::ReadOnly | QIODevice::Text),
+             qPrintable(usageStoreHeader.errorString()));
+    const QString headerContents = QString::fromUtf8(usageStoreHeader.readAll());
+
+    const QStringList forbiddenInvokables = {
+        QStringLiteral("Q_INVOKABLE void setProviderEnabled"),
+        QStringLiteral("Q_INVOKABLE void setProviderSetting"),
+        QStringLiteral("Q_INVOKABLE bool setProviderSecret"),
+        QStringLiteral("Q_INVOKABLE bool clearProviderSecret"),
+        QStringLiteral("Q_INVOKABLE void testProviderConnection"),
+        QStringLiteral("Q_INVOKABLE void startProviderLogin"),
+        QStringLiteral("Q_INVOKABLE void cancelProviderLogin"),
+        QStringLiteral("Q_INVOKABLE void refreshProviderStatuses"),
+        QStringLiteral("Q_INVOKABLE QVariantMap providerCostUsageData"),
+        QStringLiteral("Q_INVOKABLE QVariantList providerSettingsFields"),
+    };
+    for (const QString& signature : forbiddenInvokables) {
+        QVERIFY2(!headerContents.contains(signature),
+                 qPrintable(QStringLiteral("Legacy UsageStore API must not remain QML-invokable: %1").arg(signature)));
+    }
+
+    QVERIFY2(!headerContents.contains(QStringLiteral("providerCostUsageData(")),
+             "providerCostUsageData() must be removed after UsageDetailsModel/CostUsageService layering.");
+    QVERIFY2(!headerContents.contains(QStringLiteral("providerSettingsFields(")),
+             "providerSettingsFields() direct QML path must be removed; descriptor data carries settings fields.");
+
+    QFile usageStoreSource(QStringLiteral(PROJECT_SOURCE_DIR "/src/app/UsageStore.cpp"));
+    QVERIFY2(usageStoreSource.open(QIODevice::ReadOnly | QIODevice::Text),
+             qPrintable(usageStoreSource.errorString()));
+    const QString sourceContents = QString::fromUtf8(usageStoreSource.readAll());
+    QVERIFY2(!sourceContents.contains(QStringLiteral("UsageStore::providerCostUsageData")),
+             "providerCostUsageData() implementation must be deleted.");
+    QVERIFY2(!sourceContents.contains(QStringLiteral("UsageStore::providerSettingsFields")),
+             "providerSettingsFields() implementation must be deleted.");
+
+    const QStringList qmlFiles = {
+        QStringLiteral(PROJECT_SOURCE_DIR "/qml/TrayPanel.qml"),
+        QStringLiteral(PROJECT_SOURCE_DIR "/qml/SettingsWindow.qml"),
+        QStringLiteral(PROJECT_SOURCE_DIR "/qml/UsageWindow.qml"),
+        QStringLiteral(PROJECT_SOURCE_DIR "/qml/PlanUtilizationChart.qml"),
+        QStringLiteral(PROJECT_SOURCE_DIR "/qml/panes/DebugPane.qml"),
+        QStringLiteral(PROJECT_SOURCE_DIR "/qml/panes/ProvidersPane.qml"),
+        QStringLiteral(PROJECT_SOURCE_DIR "/qml/panes/TokenUsagePane.qml"),
+        QStringLiteral(PROJECT_SOURCE_DIR "/qml/components/ProviderDetailView.qml"),
+    };
+    const QStringList forbiddenQmlCalls = {
+        QStringLiteral("UsageStore.setProviderEnabled("),
+        QStringLiteral("UsageStore.setProviderSetting("),
+        QStringLiteral("UsageStore.setProviderSecret("),
+        QStringLiteral("UsageStore.clearProviderSecret("),
+        QStringLiteral("UsageStore.testProviderConnection("),
+        QStringLiteral("UsageStore.startProviderLogin("),
+        QStringLiteral("UsageStore.cancelProviderLogin("),
+        QStringLiteral("UsageStore.providerCostUsageData("),
+        QStringLiteral("UsageStore.providerSettingsFields("),
+    };
+    for (const QString& fileName : qmlFiles) {
+        QFile file(fileName);
+        QVERIFY2(file.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(file.errorString()));
+        const QString contents = QString::fromUtf8(file.readAll());
+        for (const QString& call : forbiddenQmlCalls) {
+            QVERIFY2(!contents.contains(call),
+                     qPrintable(QStringLiteral("%1 must route legacy UsageStore access through a ViewModel/request command, not %2")
+                                    .arg(fileName, call)));
+        }
+    }
 }
 
 void QmlArchitectureTest::providerUiBuildersUseCatalogSnapshot()
@@ -282,7 +441,7 @@ void QmlArchitectureTest::providerUiBuildersUseCatalogSnapshot()
              "Provider list backend input must iterate catalog snapshot entries.");
 
     const QString descriptorStart = QStringLiteral("void UsageStore::requestProviderDescriptor");
-    const QString descriptorEnd = QStringLiteral("QVariantList UsageStore::providerSettingsFields");
+    const QString descriptorEnd = QStringLiteral("void UsageStore::setProviderSetting");
     const int descriptorStartIndex = contents.indexOf(descriptorStart);
     QVERIFY2(descriptorStartIndex >= 0, "Missing UsageStore::requestProviderDescriptor().");
     const int descriptorEndIndex = contents.indexOf(descriptorEnd, descriptorStartIndex + descriptorStart.size());
@@ -295,15 +454,8 @@ void QmlArchitectureTest::providerUiBuildersUseCatalogSnapshot()
     QVERIFY2(descriptorBody.contains(QStringLiteral("m_providerCatalog.provider(providerId)")),
              "Provider descriptor backend input must look up provider metadata in the catalog snapshot.");
 
-    const QString settingsStart = QStringLiteral("QVariantList UsageStore::providerSettingsFields");
-    const QString settingsEnd = QStringLiteral("void UsageStore::setProviderSetting");
-    const int settingsStartIndex = contents.indexOf(settingsStart);
-    QVERIFY2(settingsStartIndex >= 0, "Missing UsageStore::providerSettingsFields().");
-    const int settingsEndIndex = contents.indexOf(settingsEnd, settingsStartIndex + settingsStart.size());
-    QVERIFY2(settingsEndIndex > settingsStartIndex, "Missing method after UsageStore::providerSettingsFields().");
-    const QString settingsBody = contents.mid(settingsStartIndex, settingsEndIndex - settingsStartIndex);
-    QVERIFY2(!settingsBody.contains(QStringLiteral("ProviderRegistry::instance()")),
-             "Provider settings field builder must use snapshotted setting descriptors.");
+    QVERIFY2(!contents.contains(QStringLiteral("UsageStore::providerSettingsFields")),
+             "Provider settings fields must be prepared through providerDescriptorData instead of a direct QML getter.");
 
     QFile bootstrap(QStringLiteral(PROJECT_SOURCE_DIR "/src/providers/ProviderBootstrap.cpp"));
     QVERIFY2(bootstrap.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(bootstrap.errorString()));
@@ -320,6 +472,56 @@ void QmlArchitectureTest::providerUiBuildersUseCatalogSnapshot()
              "CLI usage command must share provider metadata through ProviderCatalogSnapshot.");
     QVERIFY2(!cliUsageContents.contains(QStringLiteral("allProviders()")),
              "CLI usage command must use catalog enabled IDs instead of iterating live provider objects for metadata.");
+}
+
+void QmlArchitectureTest::costUsageScanUsesCostUsageService()
+{
+    QFile serviceHeader(QStringLiteral(PROJECT_SOURCE_DIR "/src/app/CostUsageService.h"));
+    QVERIFY2(serviceHeader.open(QIODevice::ReadOnly | QIODevice::Text),
+             qPrintable(serviceHeader.errorString()));
+    const QString serviceHeaderContents = QString::fromUtf8(serviceHeader.readAll());
+    QVERIFY2(serviceHeaderContents.contains(QStringLiteral("CostUsageScanPlan")),
+             "CostUsageService must own the cost scan plan DTO.");
+
+    QFile serviceSource(QStringLiteral(PROJECT_SOURCE_DIR "/src/app/CostUsageService.cpp"));
+    QVERIFY2(serviceSource.open(QIODevice::ReadOnly | QIODevice::Text),
+             qPrintable(serviceSource.errorString()));
+    const QString serviceContents = QString::fromUtf8(serviceSource.readAll());
+    QVERIFY2(serviceContents.contains(QStringLiteral("CostUsageScanner scanner")),
+             "CostUsageService must own CostUsageScanner work.");
+    QVERIFY2(serviceContents.contains(QStringLiteral("CostUsageCache::instance()")),
+             "CostUsageService must own CostUsageCache loading/saving.");
+
+    QFile usageStore(QStringLiteral(PROJECT_SOURCE_DIR "/src/app/UsageStore.cpp"));
+    QVERIFY2(usageStore.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(usageStore.errorString()));
+    const QString contents = QString::fromUtf8(usageStore.readAll());
+    QVERIFY2(!contents.contains(QStringLiteral("#include \"../util/CostUsageScanner.h\"")),
+             "UsageStore must not include CostUsageScanner directly after CostUsageService extraction.");
+    QVERIFY2(!contents.contains(QStringLiteral("#include \"../util/CostUsageCache.h\"")),
+             "UsageStore must not include CostUsageCache directly after CostUsageService extraction.");
+
+    const QString refreshStart = QStringLiteral("void UsageStore::refreshCostUsage()");
+    const QString refreshEnd = QStringLiteral("QVariantMap UsageStore::costUsageData()");
+    const int refreshStartIndex = contents.indexOf(refreshStart);
+    QVERIFY2(refreshStartIndex >= 0, "Missing UsageStore::refreshCostUsage().");
+    const int refreshEndIndex = contents.indexOf(refreshEnd, refreshStartIndex + refreshStart.size());
+    QVERIFY2(refreshEndIndex > refreshStartIndex, "Missing method after UsageStore::refreshCostUsage().");
+    const QString refreshBody = contents.mid(refreshStartIndex, refreshEndIndex - refreshStartIndex);
+    QVERIFY2(refreshBody.contains(QStringLiteral("CostUsageService::buildScanPlan")),
+             "UsageStore must build cost scan plans through CostUsageService.");
+    QVERIFY2(refreshBody.contains(QStringLiteral("costUsageSubscribedProviderIDs")),
+             "UsageStore must pass provider subscriptions into the cost scan plan.");
+    QVERIFY2(refreshBody.contains(QStringLiteral("CostUsageService::refresh")),
+             "UsageStore must dispatch CostUsageService refresh work.");
+    QVERIFY2(!refreshBody.contains(QStringLiteral("CostUsageScanner")),
+             "UsageStore refresh path must not instantiate or reference CostUsageScanner.");
+    QVERIFY2(!refreshBody.contains(QStringLiteral("CostUsageCache")),
+             "UsageStore refresh path must not load/save CostUsageCache.");
+    QVERIFY2(!refreshBody.contains(QStringLiteral("scanOpenCodeDB")),
+             "UsageStore refresh path must not own SQLite/opencode scan details.");
+
+    QVERIFY2(serviceContents.contains(QStringLiteral("scanOpenCodeDB(since, today, plan.openCodeDBProviderIds)")),
+             "CostUsageService must pass an enabled+subscribed provider allow-list into OpenCode DB scans.");
 }
 
 QTEST_MAIN(QmlArchitectureTest)

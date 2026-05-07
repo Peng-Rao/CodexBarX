@@ -53,7 +53,8 @@ void UsageDetailsViewModel::activate()
     }
 
     m_store->ensureCostUsageEnabled();
-    m_store->requestCostUsageViewData();
+    m_store->requestCostUsageSummary();
+    m_store->requestCostUsageDetailsRows();
     syncCostFlags();
     scheduleSync();
 }
@@ -130,7 +131,8 @@ void UsageDetailsViewModel::syncNow()
 
     syncCostFlags();
 
-    m_store->requestCostUsageViewData();
+    m_store->requestCostUsageSummary();
+    m_store->requestCostUsageDetailsRows();
     const QVariantMap nextCostData = m_store->costUsageData();
     const QVariantList nextRows = m_store->costUsageDetailsRows();
     const int nextTokenProviderCount = m_store->costUsageTokenProviderCount();

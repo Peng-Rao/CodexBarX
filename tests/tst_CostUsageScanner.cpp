@@ -89,6 +89,10 @@ private slots:
                  "OpenCode DB scans should spill SQLite temp structures to disk");
         QVERIFY2(text.contains("PRAGMA mmap_size = 33554432"),
                  "OpenCode DB scans should cap mmap at 32MB");
+        QVERIFY2(text.contains("const QSet<QString>& allowedProviderIds"),
+                 "OpenCode DB scans should accept a provider allow-list before parsing large results");
+        QVERIFY2(text.contains("providerAllowedForScan"),
+                 "OpenCode DB scans should filter providers while streaming rows");
         QVERIFY2(!text.contains("QStringList jsonlFiles"),
                  "JSONL scanners should stream QDirIterator results instead of collecting all paths first");
     }

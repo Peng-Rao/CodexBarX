@@ -1,5 +1,6 @@
 #include "UsageStore.h"
 #include "BatchUpdateController.h"
+#include "CostUsageService.h"
 #include "Localization.h"
 #include "PlanUtilizationHistoryStore.h"
 #include "SessionQuotaNotifications.h"
@@ -13,8 +14,6 @@
 #include "../providers/shared/ProviderStatusFetcher.h"
 #include "../app/SettingsStore.h"
 #include "../network/NetworkManager.h"
-#include "../util/CostUsageScanner.h"
-#include "../util/CostUsageCache.h"
 #include "../util/UsagePaceText.h"
 #include "../models/UsagePace.h"
 #include "../providers/codex/ManagedCodexAccountService.h"
@@ -90,371 +89,6 @@ void rebuildSystemEnvCache()
         g_systemEnvCache.insert(key, systemEnv.value(key));
     }
     g_systemEnvCachePopulated = true;
-}
-
-struct CostUsageScanPlan {
-    QSet<QString> enabledProviderIds;
-    bool scanClaude = false;
-    bool scanCodex = false;
-    bool scanPi = false;
-    bool scanOpenCodeDB = false;
-    bool includeAllOpenCodeDBProviders = false;
-    bool scanOpenCodeGo = false;
-
-    bool hasWork() const
-    {
-        return scanClaude || scanCodex || scanPi || scanOpenCodeDB || scanOpenCodeGo;
-    }
-};
-
-CostUsageScanPlan buildCostUsageScanPlan()
-{
-    CostUsageScanPlan plan;
-    const auto enabledIds = ProviderRegistry::instance().enabledProviderIDs();
-    for (const auto& id : enabledIds) {
-        plan.enabledProviderIds.insert(id);
-    }
-
-    plan.scanClaude = plan.enabledProviderIds.contains("claude");
-    plan.scanCodex = plan.enabledProviderIds.contains("codex");
-    plan.scanPi = plan.scanClaude || plan.scanCodex;
-    plan.scanOpenCodeGo = plan.enabledProviderIds.contains("opencodego");
-    plan.includeAllOpenCodeDBProviders = plan.enabledProviderIds.contains("opencode");
-    plan.scanOpenCodeDB = plan.includeAllOpenCodeDBProviders || plan.scanOpenCodeGo;
-    return plan;
-}
-
-CostUsageSnapshot mergeCostUsageSnapshots(const QVector<CostUsageSnapshot>& snapshots)
-{
-    CostUsageSnapshot merged;
-    merged.updatedAt = QDateTime::currentDateTime();
-
-    QHash<QString, CostUsageDailyEntry> dayMap;
-    for (const auto& snap : snapshots) {
-        merged.sessionTokens += snap.sessionTokens;
-        merged.sessionCostUSD += snap.sessionCostUSD;
-        merged.last30DaysTokens += snap.last30DaysTokens;
-        merged.last30DaysCostUSD += snap.last30DaysCostUSD;
-
-        for (const auto& day : snap.daily) {
-            auto& entry = dayMap[day.date];
-            entry.date = day.date;
-            entry.inputTokens += day.inputTokens;
-            entry.cacheReadTokens += day.cacheReadTokens;
-            entry.cacheCreationTokens += day.cacheCreationTokens;
-            entry.outputTokens += day.outputTokens;
-            entry.costUSD += day.costUSD;
-            for (const auto& model : day.models) {
-                entry.models.append(model);
-            }
-        }
-    }
-
-    for (auto it = dayMap.constBegin(); it != dayMap.constEnd(); ++it) {
-        merged.daily.append(it.value());
-    }
-    std::sort(merged.daily.begin(), merged.daily.end(),
-              [](const CostUsageDailyEntry& a, const CostUsageDailyEntry& b) {
-                  return a.date < b.date;
-              });
-
-    return merged;
-}
-
-QVariantMap costUsageSnapshotToVariantMap(const CostUsageSnapshot& snapshot)
-{
-    QVariantMap m;
-    m["sessionTokens"] = snapshot.sessionTokens;
-    m["sessionCostUSD"] = snapshot.sessionCostUSD;
-    m["last30DaysTokens"] = snapshot.last30DaysTokens;
-    m["last30DaysCostUSD"] = snapshot.last30DaysCostUSD;
-    m["updatedAt"] = snapshot.updatedAt.toMSecsSinceEpoch();
-    m["hasData"] = snapshot.last30DaysTokens > 0;
-
-    QVariantList dailyList;
-    for (const auto& d : snapshot.daily) {
-        if (d.totalTokens() == 0) continue;
-        QVariantMap dm;
-        dm["date"] = d.date;
-        dm["totalTokens"] = d.totalTokens();
-        dm["costUSD"] = d.costUSD;
-
-        QVariantList models;
-        for (const auto& md : d.models) {
-            QVariantMap mm;
-            mm["name"] = md.modelName;
-            mm["tokens"] = md.totalTokens();
-            mm["costUSD"] = md.costUSD;
-            models.append(mm);
-        }
-        dm["models"] = models;
-        dailyList.append(dm);
-    }
-    m["daily"] = dailyList;
-    return m;
-}
-
-QVariantList providerCostUsageSnapshotsToVariantList(const QVector<ProviderCostUsageSnapshot>& providers)
-{
-    QVariantList result;
-    for (const auto& pcs : providers) {
-        QVariantMap m;
-        m["providerId"] = pcs.providerId;
-        m["sessionTokens"] = pcs.snapshot.sessionTokens;
-        m["sessionCostUSD"] = pcs.snapshot.sessionCostUSD;
-        m["last30DaysTokens"] = pcs.snapshot.last30DaysTokens;
-        m["last30DaysCostUSD"] = pcs.snapshot.last30DaysCostUSD;
-
-        QVariantList models;
-        for (const auto& model : pcs.modelSummary) {
-            QVariantMap mm;
-            mm["name"] = model.modelName;
-            mm["tokens"] = model.totalTokens();
-            mm["costUSD"] = model.costUSD;
-            models.append(mm);
-        }
-        m["models"] = models;
-
-        QVariantList daily;
-        for (const auto& d : pcs.snapshot.daily) {
-            if (d.totalTokens() == 0) continue;
-            QVariantMap dm;
-            dm["date"] = d.date;
-            dm["totalTokens"] = d.totalTokens();
-            dm["costUSD"] = d.costUSD;
-            daily.append(dm);
-        }
-        m["daily"] = daily;
-        result.append(m);
-    }
-    return result;
-}
-
-QString usageDetailsFallbackBrandColor(const QString& providerId)
-{
-    static const QHash<QString, QString> colors = {
-        {QStringLiteral("codex"), QStringLiteral("#49A3B0")},
-        {QStringLiteral("claude"), QStringLiteral("#CC7C5E")},
-        {QStringLiteral("cursor"), QStringLiteral("#5B8DFA")},
-        {QStringLiteral("gemini"), QStringLiteral("#8860D0")},
-        {QStringLiteral("copilot"), QStringLiteral("#2DA44E")},
-        {QStringLiteral("zai"), QStringLiteral("#E85A6A")},
-        {QStringLiteral("opencode"), QStringLiteral("#E44D26")},
-        {QStringLiteral("opencodego"), QStringLiteral("#3B82F6")},
-        {QStringLiteral("warp"), QStringLiteral("#00BCD4")},
-        {QStringLiteral("mistral"), QStringLiteral("#F77F00")},
-        {QStringLiteral("openrouter"), QStringLiteral("#FF6B6B")},
-        {QStringLiteral("ollama"), QStringLiteral("#E6EF6C")},
-        {QStringLiteral("kilo"), QStringLiteral("#7C3AED")},
-        {QStringLiteral("kiro"), QStringLiteral("#F59E0B")},
-        {QStringLiteral("kimik2"), QStringLiteral("#06B6D4")},
-        {QStringLiteral("minimax"), QStringLiteral("#EC4899")},
-        {QStringLiteral("perplexity"), QStringLiteral("#22C55E")},
-        {QStringLiteral("kimi"), QStringLiteral("#8B5CF6")},
-        {QStringLiteral("abacus"), QStringLiteral("#6366F1")},
-        {QStringLiteral("alibaba"), QStringLiteral("#F97316")},
-        {QStringLiteral("augment"), QStringLiteral("#14B8A6")},
-        {QStringLiteral("amp"), QStringLiteral("#D946EF")},
-        {QStringLiteral("factory"), QStringLiteral("#84CC16")},
-        {QStringLiteral("jetbrains"), QStringLiteral("#F000F0")},
-        {QStringLiteral("vertexai"), QStringLiteral("#4285F4")},
-        {QStringLiteral("deepseek"), QStringLiteral("#4D6BFE")},
-        {QStringLiteral("antigravity"), QStringLiteral("#10B981")},
-        {QStringLiteral("synthetic"), QStringLiteral("#6366F1")},
-    };
-    return colors.value(providerId, QStringLiteral("#4A90D9"));
-}
-
-QString usageDetailsDisplayNameFor(const QString& providerId, const QVariantMap& provider)
-{
-    const QString providerName = provider.value(QStringLiteral("name")).toString();
-    if (!providerName.isEmpty()) {
-        return providerName;
-    }
-    static const QHash<QString, QString> names = {
-        {QStringLiteral("codex"), QStringLiteral("Codex")},
-        {QStringLiteral("claude"), QStringLiteral("Claude")},
-        {QStringLiteral("opencodego"), QStringLiteral("OpenCode Go")},
-        {QStringLiteral("opencode"), QStringLiteral("OpenCode")},
-        {QStringLiteral("kimi"), QStringLiteral("Kimi")},
-        {QStringLiteral("kimik2"), QStringLiteral("Kimi K2")},
-        {QStringLiteral("copilot"), QStringLiteral("Copilot")},
-        {QStringLiteral("cursor"), QStringLiteral("Cursor")},
-    };
-    return names.value(providerId, providerId);
-}
-
-QString usageDetailsBrandColorFor(const QString& providerId, const QVariantMap& provider)
-{
-    const QString providerColor = provider.value(QStringLiteral("brandColor")).toString();
-    return providerColor.isEmpty() ? usageDetailsFallbackBrandColor(providerId) : providerColor;
-}
-
-QString usageDetailsProviderKind(const QVariantMap& provider)
-{
-    const QString id = provider.value(QStringLiteral("id")).toString();
-    if (id.isEmpty()) {
-        return {};
-    }
-    if (id == QLatin1String("codex") || id == QLatin1String("claude") ||
-        id == QLatin1String("opencodego") || id == QLatin1String("opencode")) {
-        return QStringLiteral("token");
-    }
-    if (id == QLatin1String("kimi") || id == QLatin1String("kimik2")) {
-        return QStringLiteral("credit");
-    }
-    if (id == QLatin1String("copilot") || id == QLatin1String("cursor")) {
-        return QStringLiteral("quota");
-    }
-    if (provider.value(QStringLiteral("supportsCredits"), false).toBool()) {
-        return QStringLiteral("credit");
-    }
-    return {};
-}
-
-QVariantList usageDetailsDailyEntries(const CostUsageSnapshot& snapshot)
-{
-    QVariantList daily;
-    for (const auto& d : snapshot.daily) {
-        if (d.totalTokens() == 0) continue;
-        QVariantMap dm;
-        dm["date"] = d.date;
-        dm["totalTokens"] = d.totalTokens();
-        dm["costUSD"] = d.costUSD;
-        daily.append(dm);
-    }
-    return daily;
-}
-
-QVariantList usageDetailsModelEntries(const ProviderCostUsageSnapshot& provider)
-{
-    QVariantList models;
-    for (const auto& model : provider.modelSummary) {
-        QVariantMap mm;
-        mm["name"] = model.modelName;
-        mm["tokens"] = model.totalTokens();
-        mm["costUSD"] = model.costUSD;
-        models.append(mm);
-    }
-    return models;
-}
-
-QVariantMap usageDetailsProviderDetail(const QString& providerId,
-                                       const QVector<ProviderCostUsageSnapshot>& providers)
-{
-    QVariantMap detail;
-    detail["providerId"] = providerId;
-    detail["state"] = QStringLiteral("empty");
-    detail["models"] = QVariantList();
-    detail["daily"] = QVariantList();
-
-    for (const auto& provider : providers) {
-        if (provider.providerId != providerId) {
-            continue;
-        }
-        detail["state"] = QStringLiteral("ready");
-        detail["models"] = usageDetailsModelEntries(provider);
-        detail["daily"] = usageDetailsDailyEntries(provider.snapshot);
-        return detail;
-    }
-
-    return detail;
-}
-
-QVariantMap usageDetailsTokenRow(const QString& providerId,
-                                 const ProviderCostUsageSnapshot* token,
-                                 const QVariantMap& provider)
-{
-    const CostUsageSnapshot emptySnapshot;
-    const CostUsageSnapshot& snapshot = token ? token->snapshot : emptySnapshot;
-    return {
-        {QStringLiteral("providerId"), providerId},
-        {QStringLiteral("displayName"), usageDetailsDisplayNameFor(providerId, provider)},
-        {QStringLiteral("brandColor"), usageDetailsBrandColorFor(providerId, provider)},
-        {QStringLiteral("kind"), QStringLiteral("token")},
-        {QStringLiteral("hasTokenData"), true},
-        {QStringLiteral("hasDetailAvailable"), token && !token->modelSummary.isEmpty()},
-        {QStringLiteral("sessionTokens"), snapshot.sessionTokens},
-        {QStringLiteral("sessionCostUSD"), snapshot.sessionCostUSD},
-        {QStringLiteral("last30DaysTokens"), snapshot.last30DaysTokens},
-        {QStringLiteral("last30DaysCostUSD"), snapshot.last30DaysCostUSD},
-        {QStringLiteral("daily"), usageDetailsDailyEntries(snapshot)},
-        {QStringLiteral("enabled"), provider.isEmpty() || provider.value(QStringLiteral("enabled"), true).toBool()},
-    };
-}
-
-QVariantMap usageDetailsQuotaRow(const QVariantMap& provider, const QString& kind)
-{
-    const QString providerId = provider.value(QStringLiteral("id")).toString();
-    return {
-        {QStringLiteral("providerId"), providerId},
-        {QStringLiteral("displayName"), usageDetailsDisplayNameFor(providerId, provider)},
-        {QStringLiteral("brandColor"), usageDetailsBrandColorFor(providerId, provider)},
-        {QStringLiteral("kind"), kind},
-        {QStringLiteral("hasTokenData"), false},
-        {QStringLiteral("hasDetailAvailable"), false},
-        {QStringLiteral("sessionTokens"), 0},
-        {QStringLiteral("sessionCostUSD"), 0.0},
-        {QStringLiteral("last30DaysTokens"), 0},
-        {QStringLiteral("last30DaysCostUSD"), 0.0},
-        {QStringLiteral("daily"), QVariantList{}},
-        {QStringLiteral("enabled"), provider.value(QStringLiteral("enabled"), true).toBool()},
-    };
-}
-
-QVariantList usageDetailsRows(const QVector<ProviderCostUsageSnapshot>& tokenProviders,
-                              const QVariantList& appProviders,
-                              int* tokenProviderCount)
-{
-    QHash<QString, QVariantMap> providerById;
-    QVariantList rows;
-    QSet<QString> seen;
-    int tokenCount = 0;
-
-    for (const QVariant& item : appProviders) {
-        const QVariantMap provider = item.toMap();
-        const QString id = provider.value(QStringLiteral("id")).toString();
-        if (!id.isEmpty()) {
-            providerById.insert(id, provider);
-        }
-    }
-
-    for (const auto& token : tokenProviders) {
-        if (token.providerId.isEmpty()) {
-            continue;
-        }
-        rows.append(usageDetailsTokenRow(token.providerId, &token, providerById.value(token.providerId)));
-        seen.insert(token.providerId);
-        ++tokenCount;
-    }
-
-    for (const QVariant& item : appProviders) {
-        const QVariantMap provider = item.toMap();
-        const QString id = provider.value(QStringLiteral("id")).toString();
-        if (id.isEmpty() || seen.contains(id)) {
-            continue;
-        }
-        if (!provider.value(QStringLiteral("enabled"), true).toBool()) {
-            continue;
-        }
-
-        const QString kind = usageDetailsProviderKind(provider);
-        if (kind.isEmpty()) {
-            continue;
-        }
-
-        if (kind == QLatin1String("token")) {
-            rows.append(usageDetailsTokenRow(id, nullptr, provider));
-            ++tokenCount;
-        } else {
-            rows.append(usageDetailsQuotaRow(provider, kind));
-        }
-    }
-
-    if (tokenProviderCount) {
-        *tokenProviderCount = tokenCount;
-    }
-    return rows;
 }
 
 struct ProviderListBuildItem {
@@ -1354,54 +988,111 @@ void UsageStore::ensureCostUsageEnabled() {
 }
 
 void UsageStore::releaseCostUsageViewCaches() const {
-    m_costUsageDataCache.clear();
-    m_providerCostUsageListCache.clear();
     m_costUsageDetailsRowsCache.clear();
     m_costUsageProviderDetailCache.clear();
     m_costUsageProviderDetailQueued.clear();
-    m_costUsageDataCacheValid = false;
-    m_providerCostUsageListCacheValid = false;
     m_costUsageDetailsRowsCacheValid = false;
     m_costUsageTokenProviderCountCache = 0;
-    m_costUsageViewDataBuildQueued = false;
-    ++m_costUsageViewDataBuildGeneration;
+    m_costUsageDetailsRowsBuildQueued = false;
+    ++m_costUsageDetailsRowsBuildGeneration;
     ++m_costUsageProviderDetailBuildGeneration;
 }
 
 void UsageStore::requestCostUsageViewData()
 {
-    if ((m_costUsageDataCacheValid && m_providerCostUsageListCacheValid && m_costUsageDetailsRowsCacheValid)
-        || m_costUsageViewDataBuildQueued) {
+    requestCostUsageSummary();
+}
+
+void UsageStore::requestCostUsageSummary() const
+{
+    if (m_costUsageDataCacheValid || m_costUsageSummaryBuildQueued) {
         return;
     }
 
-    m_costUsageViewDataBuildQueued = true;
-    const int generation = ++m_costUsageViewDataBuildGeneration;
+    m_costUsageSummaryBuildQueued = true;
+    const int generation = ++m_costUsageSummaryBuildGeneration;
     const CostUsageSnapshot costUsage = m_costUsage;
-    const QVector<ProviderCostUsageSnapshot> allProviders = m_allProviderCostUsage;
-    const QVariantList appProviders = m_providerListCacheValid ? m_providerListCache : QVariantList();
 
-    m_backend->dispatchValueJob(QStringLiteral("costUsageViewData"), generation,
-                                [costUsage, allProviders, appProviders]() -> QVariant {
-        PERF_PROBE("costUsageViewData_worker", 5000);
-        CostUsageViewDataPayload payload;
-        payload.costData = costUsageSnapshotToVariantMap(costUsage);
-        payload.providerList = providerCostUsageSnapshotsToVariantList(allProviders);
-        payload.detailsRows = usageDetailsRows(allProviders, appProviders, &payload.tokenProviderCount);
+    m_backend->dispatchValueJob(QStringLiteral("costUsageSummary"), generation,
+                                [costUsage]() -> QVariant {
+        PERF_PROBE("costUsageSummary_worker", 5000);
+        CostUsageSummaryPayload payload;
+        payload.costData = CostUsageService::summaryData(costUsage);
         return QVariant::fromValue(payload);
     });
+}
+
+void UsageStore::requestCostUsageProviderRows() const
+{
+    if (m_providerCostUsageListCacheValid || m_costUsageProviderRowsBuildQueued) {
+        return;
+    }
+
+    m_costUsageProviderRowsBuildQueued = true;
+    const int generation = ++m_costUsageProviderRowsBuildGeneration;
+    const QVector<ProviderCostUsageSnapshot> allProviders = m_allProviderCostUsage;
+
+    m_backend->dispatchValueJob(QStringLiteral("costUsageProviderRows"), generation,
+                                [allProviders]() -> QVariant {
+        PERF_PROBE("costUsageProviderRows_worker", 5000);
+        CostUsageProviderRowsPayload payload;
+        payload.providerList = CostUsageService::providerRows(allProviders);
+        return QVariant::fromValue(payload);
+    });
+}
+
+void UsageStore::requestCostUsageDetailsRows() const
+{
+    if (m_costUsageDetailsRowsCacheValid || m_costUsageDetailsRowsBuildQueued) {
+        return;
+    }
+
+    if (!m_providerListCacheValid) {
+        QMetaObject::invokeMethod(const_cast<UsageStore*>(this),
+                                  &UsageStore::requestProviderList,
+                                  Qt::QueuedConnection);
+        return;
+    }
+
+    m_costUsageDetailsRowsBuildQueued = true;
+    const int generation = ++m_costUsageDetailsRowsBuildGeneration;
+    const QVector<ProviderCostUsageSnapshot> allProviders = m_allProviderCostUsage;
+    const QVariantList appProviders = m_providerListCache;
+
+    m_backend->dispatchValueJob(QStringLiteral("costUsageDetailsRows"), generation,
+                                [allProviders, appProviders]() -> QVariant {
+        PERF_PROBE("costUsageDetailsRows_worker", 5000);
+        return QVariant::fromValue(CostUsageService::detailsRows(allProviders, appProviders));
+    });
+}
+
+QSet<QString> UsageStore::costUsageSubscribedProviderIDs() const
+{
+    QSet<QString> providerIds;
+    for (const auto& provider : m_providerCatalog.providers()) {
+        if (!provider.enabled) {
+            continue;
+        }
+        if (!TokenAccountStore::instance()->visibleAccountsForProvider(provider.id).isEmpty()) {
+            providerIds.insert(provider.id);
+        }
+    }
+    return providerIds;
 }
 
 void UsageStore::refreshCostUsage() {
     if (!m_costUsageEnabled || m_costUsageRefreshing) return;
 
-    const CostUsageScanPlan plan = buildCostUsageScanPlan();
+    const CostUsageScanPlan plan = CostUsageService::buildScanPlan(
+        m_providerCatalog.enabledProviderIDs(), costUsageSubscribedProviderIDs());
     if (!plan.hasWork()) {
         const bool hadData = m_costUsage.last30DaysTokens > 0
             || !m_perProviderCostUsage.isEmpty()
             || !m_allProviderCostUsage.isEmpty()
             || m_costUsageDataCacheValid
-            || m_providerCostUsageListCacheValid;
+            || m_providerCostUsageListCacheValid
+            || m_costUsageDetailsRowsCacheValid
+            || !m_costUsageProviderDetailCache.isEmpty();
         m_costUsage = CostUsageSnapshot{};
         m_perProviderCostUsage.clear();
         m_allProviderCostUsage.clear();
@@ -1414,8 +1105,12 @@ void UsageStore::refreshCostUsage() {
         m_providerCostUsageListCacheValid = false;
         m_costUsageDetailsRowsCacheValid = false;
         m_costUsageTokenProviderCountCache = 0;
-        m_costUsageViewDataBuildQueued = false;
-        ++m_costUsageViewDataBuildGeneration;
+        m_costUsageSummaryBuildQueued = false;
+        m_costUsageProviderRowsBuildQueued = false;
+        m_costUsageDetailsRowsBuildQueued = false;
+        ++m_costUsageSummaryBuildGeneration;
+        ++m_costUsageProviderRowsBuildGeneration;
+        ++m_costUsageDetailsRowsBuildGeneration;
         ++m_costUsageProviderDetailBuildGeneration;
         if (hadData) {
             emit costUsageChanged();
@@ -1430,132 +1125,7 @@ void UsageStore::refreshCostUsage() {
     m_backend->dispatchValueJob(QStringLiteral("costUsageRefresh"), generation,
                                 [plan]() -> QVariant {
         PERF_PROBE("refreshCostUsage_worker", 5000);
-
-        CostUsageCache& cache = CostUsageCache::instance();
-        cache.load();
-
-        CostUsageScanner scanner(&cache);
-
-        QDate today = QDate::currentDate();
-        QDate since = today.addDays(-29);
-
-        CostUsageSnapshot claude;
-        CostUsageSnapshot codex;
-        CostUsageScanner::PiScanResult piResult;
-        QHash<QString, CostUsageSnapshot> openCodeDBResults;
-        CostUsageSnapshot opencodego;
-
-        if (plan.scanClaude) {
-            claude = scanner.scanClaude({}, since, today);
-        }
-        if (plan.scanCodex) {
-            codex = scanner.scanCodex({}, since, today);
-        }
-        if (plan.scanPi) {
-            piResult = scanner.scanPi(since, today);
-        }
-        if (plan.scanOpenCodeDB) {
-            openCodeDBResults = scanner.scanOpenCodeDB(since, today);
-        }
-        if (plan.scanOpenCodeGo) {
-            opencodego = scanner.scanOpenCodeGo(since, today);
-        }
-
-        cache.save();
-
-        // Per-provider storage
-        QHash<QString, CostUsageSnapshot> perProvider;
-
-        // Claude (merge native Claude scan + Pi Claude only when Claude is enabled)
-        CostUsageSnapshot mergedClaude = mergeCostUsageSnapshots({claude, piResult.claude});
-        if (plan.enabledProviderIds.contains("claude") && mergedClaude.last30DaysTokens > 0)
-            perProvider["claude"] = mergedClaude;
-
-        // Codex (merge native Codex scan + Pi Codex only when Codex is enabled)
-        CostUsageSnapshot mergedCodex = mergeCostUsageSnapshots({codex, piResult.codex});
-        if (plan.enabledProviderIds.contains("codex") && mergedCodex.last30DaysTokens > 0)
-            perProvider["codex"] = mergedCodex;
-
-        // OpenCode DB: scan only for explicit OpenCode/OpenCode Go usage.
-        for (auto it = openCodeDBResults.constBegin(); it != openCodeDBResults.constEnd(); ++it) {
-            QString providerId = it.key();
-            if (!plan.includeAllOpenCodeDBProviders && !plan.enabledProviderIds.contains(providerId)) {
-                continue;
-            }
-            CostUsageSnapshot snap = it.value();
-            if (snap.last30DaysTokens <= 0) continue;
-            if (perProvider.contains(providerId)) {
-                // Merge with existing provider data
-                auto& existing = perProvider[providerId];
-                existing.sessionTokens += snap.sessionTokens;
-                existing.sessionCostUSD += snap.sessionCostUSD;
-                existing.last30DaysTokens += snap.last30DaysTokens;
-                existing.last30DaysCostUSD += snap.last30DaysCostUSD;
-                // Merge daily entries
-                QHash<QString, CostUsageDailyEntry> dayMap;
-                for (auto& d : existing.daily) dayMap[d.date] = d;
-                for (auto& d : snap.daily) {
-                    auto& e = dayMap[d.date];
-                    e.date = d.date;
-                    e.inputTokens += d.inputTokens;
-                    e.cacheReadTokens += d.cacheReadTokens;
-                    e.cacheCreationTokens += d.cacheCreationTokens;
-                    e.outputTokens += d.outputTokens;
-                    e.costUSD += d.costUSD;
-                    for (auto& m : d.models) e.models.append(m);
-                }
-                existing.daily = dayMap.values();
-                std::sort(existing.daily.begin(), existing.daily.end(),
-                          [](const CostUsageDailyEntry& a, const CostUsageDailyEntry& b) { return a.date < b.date; });
-            } else {
-                perProvider[providerId] = snap;
-            }
-        }
-
-        // OpenCode Go (separate from opencode.db)
-        if (plan.scanOpenCodeGo && opencodego.last30DaysTokens > 0)
-            perProvider["opencodego"] = opencodego;
-
-        // Global aggregate (backward compat)
-        QVector<CostUsageSnapshot> providerSnapshots;
-        for (auto it = perProvider.constBegin(); it != perProvider.constEnd(); ++it) {
-            providerSnapshots.append(it.value());
-        }
-        CostUsageSnapshot combined = mergeCostUsageSnapshots(providerSnapshots);
-
-        // Build model summaries per provider
-        QVector<ProviderCostUsageSnapshot> allProviders;
-        for (auto it = perProvider.constBegin(); it != perProvider.constEnd(); ++it) {
-            ProviderCostUsageSnapshot pcs;
-            pcs.providerId = it.key();
-            pcs.snapshot = it.value();
-            QHash<QString, CostUsageModelBreakdown> modelMap;
-            for (auto& entry : it.value().daily) {
-                for (auto& model : entry.models) {
-                    auto& agg = modelMap[model.modelName];
-                    agg.modelName = model.modelName;
-                    agg.inputTokens += model.inputTokens;
-                    agg.cacheReadTokens += model.cacheReadTokens;
-                    agg.cacheCreationTokens += model.cacheCreationTokens;
-                    agg.outputTokens += model.outputTokens;
-                    agg.costUSD += model.costUSD;
-                }
-            }
-            pcs.modelSummary = modelMap.values();
-            std::sort(pcs.modelSummary.begin(), pcs.modelSummary.end(),
-                      [](const CostUsageModelBreakdown& a, const CostUsageModelBreakdown& b) { return a.costUSD > b.costUSD; });
-            allProviders.append(pcs);
-        }
-        std::sort(allProviders.begin(), allProviders.end(),
-                  [](const ProviderCostUsageSnapshot& a, const ProviderCostUsageSnapshot& b) {
-                      return a.snapshot.last30DaysCostUSD > b.snapshot.last30DaysCostUSD;
-                  });
-
-        CostUsageRefreshPayload payload;
-        payload.combined = combined;
-        payload.perProvider = perProvider;
-        payload.allProviders = allProviders;
-        return QVariant::fromValue(payload);
+        return QVariant::fromValue(CostUsageService::refresh(plan));
     });
 }
 
@@ -1565,7 +1135,7 @@ QVariantMap UsageStore::costUsageData() const {
         return m_costUsageDataCache;
     }
     QMetaObject::invokeMethod(const_cast<UsageStore*>(this),
-                              &UsageStore::requestCostUsageViewData,
+                              &UsageStore::requestCostUsageSummary,
                               Qt::QueuedConnection);
     return m_costUsageDataCache;
 }
@@ -1576,7 +1146,7 @@ QVariantList UsageStore::providerCostUsageList() const {
         return m_providerCostUsageListCache;
     }
     QMetaObject::invokeMethod(const_cast<UsageStore*>(this),
-                              &UsageStore::requestCostUsageViewData,
+                              &UsageStore::requestCostUsageProviderRows,
                               Qt::QueuedConnection);
     return m_providerCostUsageListCache;
 }
@@ -1588,7 +1158,7 @@ QVariantList UsageStore::costUsageDetailsRows() const
         return m_costUsageDetailsRowsCache;
     }
     QMetaObject::invokeMethod(const_cast<UsageStore*>(this),
-                              &UsageStore::requestCostUsageViewData,
+                              &UsageStore::requestCostUsageDetailsRows,
                               Qt::QueuedConnection);
     return m_costUsageDetailsRowsCache;
 }
@@ -1618,10 +1188,7 @@ void UsageStore::requestCostUsageProviderDetail(const QString& providerId) const
     m_backend->dispatchValueJob(QStringLiteral("costUsageProviderDetail"), generation,
                                 [providerId, allProviders]() -> QVariant {
         PERF_PROBE("costUsageProviderDetail_worker", 5000);
-        CostUsageProviderDetailPayload payload;
-        payload.providerId = providerId;
-        payload.detail = usageDetailsProviderDetail(providerId, allProviders);
-        return QVariant::fromValue(payload);
+        return QVariant::fromValue(CostUsageService::providerDetail(providerId, allProviders));
     });
 }
 
@@ -1700,6 +1267,8 @@ void UsageStore::handleBackendResult(const UsageBackendResult& result)
         m_costUsageDetailsRowsCacheValid = false;
         m_costUsageProviderDetailCache.clear();
         m_costUsageProviderDetailQueued.clear();
+        m_costUsageDetailsRowsBuildQueued = false;
+        ++m_costUsageDetailsRowsBuildGeneration;
         ++m_costUsageProviderDetailBuildGeneration;
         emit providerListModelChanged();
         return;
@@ -1826,23 +1395,53 @@ void UsageStore::handleBackendResult(const UsageBackendResult& result)
         return;
     }
 
-    if (result.kind == QLatin1String("costUsageViewData")) {
-        if (result.generation != m_costUsageViewDataBuildGeneration) {
+    if (result.kind == QLatin1String("costUsageSummary")) {
+        if (result.generation != m_costUsageSummaryBuildGeneration) {
             return;
         }
-        m_costUsageViewDataBuildQueued = false;
+        m_costUsageSummaryBuildQueued = false;
         if (!result.success) {
-            qWarning() << "Cost usage view data backend job failed:" << result.message;
+            qWarning() << "Cost usage summary backend job failed:" << result.message;
             return;
         }
 
-        const auto payload = result.payload.value<CostUsageViewDataPayload>();
+        const auto payload = result.payload.value<CostUsageSummaryPayload>();
         m_costUsageDataCache = payload.costData;
+        m_costUsageDataCacheValid = true;
+        emit costUsageChanged();
+        return;
+    }
+
+    if (result.kind == QLatin1String("costUsageProviderRows")) {
+        if (result.generation != m_costUsageProviderRowsBuildGeneration) {
+            return;
+        }
+        m_costUsageProviderRowsBuildQueued = false;
+        if (!result.success) {
+            qWarning() << "Cost usage provider rows backend job failed:" << result.message;
+            return;
+        }
+
+        const auto payload = result.payload.value<CostUsageProviderRowsPayload>();
         m_providerCostUsageListCache = payload.providerList;
+        m_providerCostUsageListCacheValid = true;
+        emit costUsageChanged();
+        return;
+    }
+
+    if (result.kind == QLatin1String("costUsageDetailsRows")) {
+        if (result.generation != m_costUsageDetailsRowsBuildGeneration) {
+            return;
+        }
+        m_costUsageDetailsRowsBuildQueued = false;
+        if (!result.success) {
+            qWarning() << "Cost usage details rows backend job failed:" << result.message;
+            return;
+        }
+
+        const auto payload = result.payload.value<CostUsageDetailsRowsPayload>();
         m_costUsageDetailsRowsCache = payload.detailsRows;
         m_costUsageTokenProviderCountCache = payload.tokenProviderCount;
-        m_costUsageDataCacheValid = true;
-        m_providerCostUsageListCacheValid = true;
         m_costUsageDetailsRowsCacheValid = true;
         emit costUsageChanged();
         return;
@@ -1887,8 +1486,12 @@ void UsageStore::handleBackendResult(const UsageBackendResult& result)
         m_costUsageProviderDetailCache.clear();
         m_costUsageProviderDetailQueued.clear();
         m_costUsageTokenProviderCountCache = 0;
-        m_costUsageViewDataBuildQueued = false;
-        ++m_costUsageViewDataBuildGeneration;
+        m_costUsageSummaryBuildQueued = false;
+        m_costUsageProviderRowsBuildQueued = false;
+        m_costUsageDetailsRowsBuildQueued = false;
+        ++m_costUsageSummaryBuildGeneration;
+        ++m_costUsageProviderRowsBuildGeneration;
+        ++m_costUsageDetailsRowsBuildGeneration;
         ++m_costUsageProviderDetailBuildGeneration;
         emit costUsageRefreshingChanged();
         emit costUsageChanged();
@@ -2016,62 +1619,6 @@ void UsageStore::dispatchProviderLoginPoll(const ProviderLoginStartPayload& star
         payload.message = QStringLiteral("GitHub device login expired");
         return QVariant::fromValue(payload);
     });
-}
-
-QVariantMap UsageStore::providerCostUsageData(const QString& providerId) const {
-    PERF_PROBE("providerCostUsageData", 1000);
-    auto it = m_perProviderCostUsage.constFind(providerId);
-    if (it == m_perProviderCostUsage.constEnd()) return QVariantMap();
-
-    const CostUsageSnapshot& snap = it.value();
-    QVariantMap m;
-    m["providerId"] = providerId;
-    m["sessionTokens"] = snap.sessionTokens;
-    m["sessionCostUSD"] = snap.sessionCostUSD;
-    m["last30DaysTokens"] = snap.last30DaysTokens;
-    m["last30DaysCostUSD"] = snap.last30DaysCostUSD;
-    m["hasData"] = snap.last30DaysTokens > 0;
-    m["updatedAt"] = snap.updatedAt.toMSecsSinceEpoch();
-
-    QVariantList daily;
-    for (auto& d : snap.daily) {
-        if (d.totalTokens() == 0) continue;
-        QVariantMap dm;
-        dm["date"] = d.date;
-        dm["totalTokens"] = d.totalTokens();
-        dm["costUSD"] = d.costUSD;
-        QVariantList models;
-        for (auto& md : d.models) {
-            QVariantMap mm;
-            mm["name"] = md.modelName;
-            mm["tokens"] = md.totalTokens();
-            mm["costUSD"] = md.costUSD;
-            models.append(mm);
-        }
-        dm["models"] = models;
-        daily.append(dm);
-    }
-    m["daily"] = daily;
-
-    for (auto& pcs : m_allProviderCostUsage) {
-        if (pcs.providerId == providerId) {
-            QVariantList models;
-            for (auto& model : pcs.modelSummary) {
-                QVariantMap mm;
-                mm["name"] = model.modelName;
-                mm["tokens"] = model.totalTokens();
-                mm["costUSD"] = model.costUSD;
-                models.append(mm);
-            }
-            m["models"] = models;
-            break;
-        }
-    }
-
-    if (!snap.errorMessage.isEmpty())
-        m["errorMessage"] = snap.errorMessage;
-
-    return m;
 }
 
 void UsageStore::refresh() {
@@ -2555,29 +2102,6 @@ void UsageStore::requestProviderDescriptor(const QString& providerId)
         payload.descriptor = buildProviderDescriptorFromInput(input);
         return QVariant::fromValue(payload);
     });
-}
-
-QVariantList UsageStore::providerSettingsFields(const QString& id) const {
-    PERF_PROBE("providerSettingsFields", 1000);
-    const auto entry = m_providerCatalog.provider(id);
-    if (!entry.has_value()) {
-        return {};
-    }
-
-    QVector<ProviderSettingFieldBuildInput> inputs;
-    for (const auto& d : entry->settingsDescriptors) {
-        ProviderSettingFieldBuildInput field;
-        field.descriptor = d;
-        field.value = d.sensitive
-            ? QVariant()
-            : (m_settingsStore ? m_settingsStore->providerSetting(id, d.key, d.defaultValue)
-                               : d.defaultValue);
-        if (d.sensitive) {
-            field.secretStatus = providerSecretStatus(id, d.key);
-        }
-        inputs.append(field);
-    }
-    return buildProviderSettingsFieldsFromInputs(inputs);
 }
 
 void UsageStore::setProviderSetting(const QString& providerId, const QString& key, const QVariant& value) {
@@ -3565,7 +3089,7 @@ void UsageStore::shutdown()
         m_historyStore->stopSaveTimer();
     }
     NetworkManager::setShuttingDown(true);
-    CostUsageScanner::setShuttingDown(true);
+    CostUsageService::setShuttingDown(true);
 }
 
 QVariantMap UsageStore::providerDashboardData(const QString& providerId) const

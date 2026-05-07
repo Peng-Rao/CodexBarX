@@ -187,6 +187,14 @@ target_compile_definitions(tst_PerProviderCostUsage PRIVATE ${COMMON_DEFINES})
 target_link_libraries(tst_PerProviderCostUsage PRIVATE Qt6::Core Qt6::Test)
 add_wincodexbar_test(tst_PerProviderCostUsage tst_PerProviderCostUsage)
 
+add_executable(tst_CostUsageService
+    tst_CostUsageService.cpp
+)
+target_include_directories(tst_CostUsageService PRIVATE ${COMMON_INCLUDE})
+target_compile_definitions(tst_CostUsageService PRIVATE ${COMMON_DEFINES})
+target_link_libraries(tst_CostUsageService PRIVATE codexbar_core Qt6::Core Qt6::Test)
+add_wincodexbar_test(tst_CostUsageService tst_CostUsageService)
+
 # Temporary debug test for OpenCode Go SQLite
 add_executable(opencode_debug_test
     opencode_debug_test.cpp
