@@ -39,3 +39,12 @@
 # OS metadata
 .DS_Store
 Thumbs.db
+
+# Python
+*.py
+*.pyc
+*.pyo
+__pycache__/
+*.py[dod]
+.pytest_cache/
+.mypy_cache/
