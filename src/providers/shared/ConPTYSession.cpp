@@ -8,6 +8,7 @@
 #include <QThread>
 #include <chrono>
 
+#ifdef Q_OS_WIN
 namespace {
 
 using CreatePseudoConsoleFn = HRESULT (WINAPI *)(COORD, HANDLE, HANDLE, DWORD, HPCON*);
@@ -54,6 +55,7 @@ QByteArray environmentBlock(const QProcessEnvironment& env) {
 }
 
 } // namespace
+#endif
 
 ConPTYSession::ConPTYSession(QObject* parent) : QObject(parent) {}
 
@@ -93,6 +95,7 @@ bool ConPTYSession::start(const QString& command,
 {
     terminate();
 
+#ifdef Q_OS_WIN
     if (isConPtyAvailable()) {
         m_useFallback = false;
         if (startWithConPty(command, args, env, cols, rows)) {
@@ -100,6 +103,10 @@ bool ConPTYSession::start(const QString& command,
         }
         terminate();
     }
+#else
+    Q_UNUSED(cols)
+    Q_UNUSED(rows)
+#endif
 
     m_useFallback = true;
     return startWithQProcess(command, args, env);
@@ -151,12 +158,17 @@ bool ConPTYSession::write(const QByteArray& data)
         return m_process->write(data) == data.size();
     }
 
+#ifdef Q_OS_WIN
     if (!m_running || !m_hInput || data.isEmpty()) return false;
     DWORD written = 0;
     if (!WriteFile(m_hInput, data.constData(), static_cast<DWORD>(data.size()), &written, nullptr)) {
         return false;
     }
     return written == static_cast<DWORD>(data.size());
+#else
+    Q_UNUSED(data)
+    return false;
+#endif
 }
 
 QByteArray ConPTYSession::readOutput(int timeoutMs)
@@ -201,9 +213,11 @@ void ConPTYSession::terminate()
     bool wasRunning = m_running;
     m_running = false;
 
+#ifdef Q_OS_WIN
     if (m_hExitEvent) {
         SetEvent(m_hExitEvent);
     }
+#endif
 
     if (m_process) {
         m_process->kill();
@@ -212,6 +226,7 @@ void ConPTYSession::terminate()
         m_process = nullptr;
     }
 
+#ifdef Q_OS_WIN
     if (m_hInput) {
         closeHandle(m_hInput);
     }
@@ -258,6 +273,7 @@ void ConPTYSession::terminate()
         CloseHandle(m_hExitEvent);
         m_hExitEvent = nullptr;
     }
+#endif
     if (wasRunning) emit processFinished(0);
 }
 
@@ -271,9 +287,14 @@ bool ConPTYSession::isRunning() const
 
 bool ConPTYSession::isConPtyAvailable()
 {
+#ifdef Q_OS_WIN
     return createPseudoConsoleProc() != nullptr && closePseudoConsoleProc() != nullptr;
+#else
+    return false;
+#endif
 }
 
+#ifdef Q_OS_WIN
 void ConPTYSession::readerLoop()
 {
     char buffer[4096];
@@ -440,3 +461,18 @@ bool ConPTYSession::startWithConPty(const QString& command,
     m_readerThread = std::thread([this]() { readerLoop(); });
     return true;
 }
+#else
+void ConPTYSession::readerLoop()
+{
+}
+
+void ConPTYSession::appendOutput(const QByteArray& data)
+{
+    {
+        QMutexLocker locker(&m_bufferMutex);
+        m_buffer.append(data);
+    }
+    m_dataAvailable.wakeAll();
+    emit outputReceived(data);
+}
+#endif

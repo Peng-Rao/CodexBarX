@@ -5,7 +5,11 @@
 #include <QMenu>
 #include <QQuickWindow>
 #include <QIcon>
+#ifdef Q_OS_WIN
 #include <windows.h>
+#else
+#include <QSystemTrayIcon>
+#endif
 
 class UsageStore;
 class SettingsStore;
@@ -49,10 +53,16 @@ private:
     QString statusPageProviderId() const;
     void openCurrentStatusPage();
     void updateStatusPageAction();
+#ifdef Q_OS_WIN
     static LRESULT CALLBACK messageWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+#endif
 
+#ifdef Q_OS_WIN
     NOTIFYICONDATAW m_nid = {};
     HWND m_hwndMsgWindow = nullptr;
+#else
+    QSystemTrayIcon* m_trayIcon = nullptr;
+#endif
     QMenu* m_contextMenu = nullptr;
     QMenu* m_providerMenu = nullptr;
     QAction* m_providerSeparator = nullptr;
@@ -67,6 +77,8 @@ private:
     SettingsStore* m_settings = nullptr;
     QString m_currentProviderId;
 
+#ifdef Q_OS_WIN
     static constexpr UINT WM_TRAYICON = WM_APP + 1;
     static constexpr UINT TASKBAR_ICON_ID = 1;
+#endif
 };

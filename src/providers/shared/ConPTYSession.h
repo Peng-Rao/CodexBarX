@@ -7,9 +7,13 @@
 #include <QProcessEnvironment>
 #include <QRegularExpression>
 #include <QWaitCondition>
+#ifdef Q_OS_WIN
 #include <windows.h>
+#endif
 
+#ifdef Q_OS_WIN
 #include <thread>
+#endif
 
 class ConPTYSession : public QObject {
     Q_OBJECT
@@ -38,9 +42,12 @@ signals:
 private:
     void readerLoop();
     void appendOutput(const QByteArray& data);
+#ifdef Q_OS_WIN
     bool startWithConPty(const QString& command, const QStringList& args, const QProcessEnvironment& env, int cols, int rows);
+#endif
     bool startWithQProcess(const QString& command, const QStringList& args, const QProcessEnvironment& env);
 
+#ifdef Q_OS_WIN
     // ConPTY state
     void* m_ptyHandle = nullptr;
     HANDLE m_hInput = nullptr;
@@ -49,6 +56,7 @@ private:
     HANDLE m_hThread = nullptr;
     HANDLE m_hExitEvent = nullptr;
     void* m_procInfo = nullptr;
+#endif
 
     // QProcess fallback state
     QProcess* m_process = nullptr;
@@ -58,5 +66,7 @@ private:
     QByteArray m_buffer;
     mutable QMutex m_bufferMutex;
     QWaitCondition m_dataAvailable;
+#ifdef Q_OS_WIN
     std::thread m_readerThread;
+#endif
 };

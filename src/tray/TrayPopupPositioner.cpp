@@ -3,6 +3,7 @@
 #include <QScreen>
 #include <QGuiApplication>
 
+#ifdef Q_OS_WIN
 QRect TrayPopupPositioner::getTrayIconRect(HWND hwnd, UINT iconID) {
     NOTIFYICONIDENTIFIER nii = {};
     nii.cbSize = sizeof(nii);
@@ -84,3 +85,16 @@ DWORD TrayPopupPositioner::getTaskbarPosition() {
     }
     return ABE_BOTTOM;
 }
+#else
+QRect TrayPopupPositioner::estimateTrayIconRect() {
+    QScreen* screen = QGuiApplication::primaryScreen();
+    if (!screen) return QRect(0, 0, 24, 24);
+    QRect avail = screen->availableGeometry();
+    return QRect(avail.right() - 24, avail.top(), 24, 24);
+}
+
+QPoint TrayPopupPositioner::getTaskbarEdge() {
+    QScreen* screen = QGuiApplication::primaryScreen();
+    return screen ? screen->availableGeometry().topRight() : QPoint();
+}
+#endif

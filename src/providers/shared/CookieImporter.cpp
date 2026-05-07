@@ -20,9 +20,11 @@
 
 #include <optional>
 
+#ifdef Q_OS_WIN
 #include <windows.h>
 #include <wincrypt.h>
 #include <bcrypt.h>
+#endif
 
 namespace {
 
@@ -92,6 +94,7 @@ QString copyDatabase(const QString& sourcePath) {
 }
 
 QByteArray decryptDpapi(const QByteArray& encrypted) {
+#ifdef Q_OS_WIN
     if (encrypted.isEmpty()) return {};
 
     DATA_BLOB in;
@@ -107,6 +110,10 @@ QByteArray decryptDpapi(const QByteArray& encrypted) {
     QByteArray decrypted(reinterpret_cast<const char*>(out.pbData), static_cast<int>(out.cbData));
     LocalFree(out.pbData);
     return decrypted;
+#else
+    Q_UNUSED(encrypted)
+    return {};
+#endif
 }
 
 std::optional<QByteArray> chromiumMasterKey(CookieImporter::Browser browser) {
@@ -137,6 +144,7 @@ std::optional<QByteArray> chromiumMasterKey(CookieImporter::Browser browser) {
 }
 
 QByteArray decryptAesGcm(const QByteArray& key, const QByteArray& encrypted) {
+#ifdef Q_OS_WIN
     if (key.isEmpty() || encrypted.size() < 3 + 12 + 16) return {};
     if (!encrypted.startsWith("v10") && !encrypted.startsWith("v11")) return {};
 
@@ -210,6 +218,11 @@ cleanup:
     if (keyHandle) BCryptDestroyKey(keyHandle);
     if (alg) BCryptCloseAlgorithmProvider(alg, 0);
     return plain;
+#else
+    Q_UNUSED(key)
+    Q_UNUSED(encrypted)
+    return {};
+#endif
 }
 
 QByteArray decryptChromiumCookie(CookieImporter::Browser browser,
