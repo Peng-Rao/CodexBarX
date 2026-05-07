@@ -10,6 +10,18 @@ English | [简体中文](README.md)
 
 ---
 
+## Screenshots
+
+### Tray Usage Panel
+
+![Tray Usage Panel](resources/screenshots/tray-usage.png)
+
+### Provider Settings
+
+![Provider Settings](resources/screenshots/settings-providers.png)
+
+---
+
 ## Features
 
 ### Core Features

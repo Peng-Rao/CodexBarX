@@ -10,6 +10,18 @@
 
 ---
 
+## 截图展示
+
+### 托盘用量面板
+
+![托盘用量面板](resources/screenshots/tray-usage.png)
+
+### 提供商设置
+
+![提供商设置](resources/screenshots/settings-providers.png)
+
+---
+
 ## 功能特性
 
 ### 核心功能
