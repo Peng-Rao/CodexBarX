@@ -38,7 +38,45 @@ jobs:
         run: |
           $exePath = "build\Release\WinCodexBar.exe"
           $qmlDir = "qml"
-          windeployqt --qmldir $qmlDir $exePath
+          windeployqt --qmldir $qmlDir $exePath --no-opengl-sw --no-system-d3d-compiler --no-translations
+
+      - name: Remove unnecessary Qt modules
+        run: |
+          $releaseDir = "build\Release"
+          
+          $unneededDlls = @(
+            "Qt6Pdf.dll",
+            "Qt6PdfQuick.dll",
+            "Qt63DRender.dll",
+            "Qt63DExtras.dll",
+            "Qt63DAnimation.dll",
+            "Qt63DCore.dll",
+            "Qt6QuickParticles.dll",
+            "Qt6VirtualKeyboard.dll",
+            "Qt6ShaderTools.dll"
+          )
+          
+          foreach ($dll in $unneededDlls) {
+            $dllPath = Join-Path $releaseDir $dll
+            if (Test-Path $dllPath) {
+              Remove-Item $dllPath -Force
+              Write-Host "Removed: $dll"
+            }
+          }
+          
+          $qml2Dir = Join-Path $releaseDir "QtQml"
+          if (Test-Path $qml2Dir) {
+            $unneededQml = @("Pdf", "3D", "VirtualKeyboard", "QuickParticles")
+            foreach ($dir in $unneededQml) {
+              $targetDir = Join-Path $qml2Dir $dir
+              if (Test-Path $targetDir) {
+                Remove-Item $targetDir -Recurse -Force
+                Write-Host "Removed QML dir: $dir"
+              }
+            }
+          }
+          
+          Get-ChildItem -Path $releaseDir -Filter "*.pdb" -Recurse | Remove-Item -Force
 
       - name: Prepare release package
         run: |
