@@ -192,7 +192,7 @@ jobs:
           version: '6.5.3'
           host: 'mac'
           target: 'desktop'
-          arch: 'macos'
+          arch: 'clang_arm64'
           modules: 'qtwebsockets'
           cache: true
 
