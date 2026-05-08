@@ -299,7 +299,7 @@ if(WIN32)
         advapi32 crypt32 bcrypt shell32 user32 dwmapi
     )
 elseif(APPLE)
-    target_sources(codexbar_core PRIVATE src/providers/shared/MacOSCredentialStore.cpp)
+    target_sources(codexbar_core PRIVATE src/providers/shared/MacOSCredentialStore.mm)
     target_link_libraries(codexbar_core PRIVATE "-framework Security")
 endif()
 
