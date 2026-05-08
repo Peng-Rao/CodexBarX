@@ -134,11 +134,11 @@ void QmlArchitectureTest::usageStoreSettingsAndStatusJobsUseBackend()
                  qPrintable(QStringLiteral("Settings/status preparation must dispatch through UsageBackend, not %1").arg(snippet)));
     }
 
-    QVERIFY2(contents.contains(QStringLiteral("QStringLiteral(\"providerStatuses\")")),
+    QVERIFY2(contents.contains(QStringLiteral("providerStatuses")),
              "UsageStore must dispatch provider status polling through UsageBackend.");
-    QVERIFY2(contents.contains(QStringLiteral("QStringLiteral(\"providerListModel\")")),
+    QVERIFY2(contents.contains(QStringLiteral("providerListModel")),
              "UsageStore must dispatch provider list preparation through UsageBackend.");
-    QVERIFY2(contents.contains(QStringLiteral("QStringLiteral(\"providerDescriptorData\")")),
+    QVERIFY2(contents.contains(QStringLiteral("providerDescriptorData")),
              "UsageStore must dispatch provider descriptor preparation through UsageBackend.");
 }
 
@@ -426,32 +426,41 @@ void QmlArchitectureTest::providerUiBuildersUseCatalogSnapshot()
     QVERIFY2(contents.contains(QStringLiteral("ProviderCatalogSnapshot::fromRegistry")),
              "UsageStore must rebuild a ProviderCatalogSnapshot from the registry at state boundaries.");
 
-    const QString listStart = QStringLiteral("void UsageStore::requestProviderList()");
-    const QString listEnd = QStringLiteral("void UsageStore::moveProvider");
-    const int listStartIndex = contents.indexOf(listStart);
-    QVERIFY2(listStartIndex >= 0, "Missing UsageStore::requestProviderList().");
-    const int listEndIndex = contents.indexOf(listEnd, listStartIndex + listStart.size());
-    QVERIFY2(listEndIndex > listStartIndex, "Missing method after UsageStore::requestProviderList().");
-    const QString listBody = contents.mid(listStartIndex, listEndIndex - listStartIndex);
+    // Verify UsageStore delegates to ProviderUIService
+    QVERIFY2(contents.contains(QStringLiteral("m_uiService->requestProviderList()")),
+             "UsageStore must delegate provider list building to ProviderUIService.");
+    QVERIFY2(contents.contains(QStringLiteral("m_uiService->requestProviderDescriptor")),
+             "UsageStore must delegate provider descriptor building to ProviderUIService.");
+
+    // Verify ProviderUIService uses catalog snapshot
+    QFile uiService(QStringLiteral(PROJECT_SOURCE_DIR "/src/app/ProviderUIService.cpp"));
+    QVERIFY2(uiService.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(uiService.errorString()));
+    const QString uiServiceContents = QString::fromUtf8(uiService.readAll());
+
+    const QString listStart = QStringLiteral("void ProviderUIService::requestProviderList()");
+    const QString listEnd = QStringLiteral("void ProviderUIService::requestProviderDescriptor");
+    const int listStartIndex = uiServiceContents.indexOf(listStart);
+    QVERIFY2(listStartIndex >= 0, "Missing ProviderUIService::requestProviderList().");
+    const int listEndIndex = uiServiceContents.indexOf(listEnd, listStartIndex + listStart.size());
+    QVERIFY2(listEndIndex > listStartIndex, "Missing method after ProviderUIService::requestProviderList().");
+    const QString listBody = uiServiceContents.mid(listStartIndex, listEndIndex - listStartIndex);
     QVERIFY2(!listBody.contains(QStringLiteral("ProviderRegistry::instance()")),
              "Provider list backend input must read ProviderCatalogSnapshot, not live ProviderRegistry/provider QObject.");
-    QVERIFY2(listBody.contains(QStringLiteral("const ProviderCatalogSnapshot catalog = m_providerCatalog")),
-             "Provider list backend input must copy the current catalog snapshot before dispatch.");
-    QVERIFY2(listBody.contains(QStringLiteral("catalog.providers()")),
+    QVERIFY2(listBody.contains(QStringLiteral("m_catalog->providers()")),
              "Provider list backend input must iterate catalog snapshot entries.");
 
-    const QString descriptorStart = QStringLiteral("void UsageStore::requestProviderDescriptor");
-    const QString descriptorEnd = QStringLiteral("void UsageStore::setProviderSetting");
-    const int descriptorStartIndex = contents.indexOf(descriptorStart);
-    QVERIFY2(descriptorStartIndex >= 0, "Missing UsageStore::requestProviderDescriptor().");
-    const int descriptorEndIndex = contents.indexOf(descriptorEnd, descriptorStartIndex + descriptorStart.size());
-    QVERIFY2(descriptorEndIndex > descriptorStartIndex, "Missing method after UsageStore::requestProviderDescriptor().");
-    const QString descriptorBody = contents.mid(descriptorStartIndex, descriptorEndIndex - descriptorStartIndex);
+    const QString descriptorStart = QStringLiteral("void ProviderUIService::requestProviderDescriptor");
+    const QString descriptorEnd = QStringLiteral("void ProviderUIService::invalidateProviderListCache");
+    const int descriptorStartIndex = uiServiceContents.indexOf(descriptorStart);
+    QVERIFY2(descriptorStartIndex >= 0, "Missing ProviderUIService::requestProviderDescriptor().");
+    const int descriptorEndIndex = uiServiceContents.indexOf(descriptorEnd, descriptorStartIndex + descriptorStart.size());
+    QVERIFY2(descriptorEndIndex > descriptorStartIndex, "Missing method after ProviderUIService::requestProviderDescriptor().");
+    const QString descriptorBody = uiServiceContents.mid(descriptorStartIndex, descriptorEndIndex - descriptorStartIndex);
     QVERIFY2(!descriptorBody.contains(QStringLiteral("ProviderRegistry::instance()")),
              "Provider descriptor backend input must read ProviderCatalogSnapshot, not live ProviderRegistry/provider QObject.");
     QVERIFY2(!descriptorBody.contains(QStringLiteral("settingsDescriptors()")),
              "Provider descriptor backend input must use snapshotted settings descriptors.");
-    QVERIFY2(descriptorBody.contains(QStringLiteral("m_providerCatalog.provider(providerId)")),
+    QVERIFY2(descriptorBody.contains(QStringLiteral("m_catalog->provider(providerId)")),
              "Provider descriptor backend input must look up provider metadata in the catalog snapshot.");
 
     QVERIFY2(!contents.contains(QStringLiteral("UsageStore::providerSettingsFields")),

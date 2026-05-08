@@ -130,6 +130,7 @@ set(CORE_SOURCES
     src/app/SessionQuotaNotifications.cpp
     src/app/LanguageManager.cpp
     src/app/Localization.cpp
+    src/app/ProviderUIService.cpp
 
     src/tray/StatusItemController.cpp
     src/tray/TrayPopupPositioner.cpp
@@ -143,6 +144,7 @@ set(CORE_SOURCES
     src/util/UsagePaceText.cpp
 
     src/account/TokenAccountStore.cpp
+    src/account/TokenAccountOperationManager.cpp
 
     src/runtime/IProviderRuntime.cpp
     src/runtime/ProviderRuntimeManager.cpp
@@ -259,6 +261,7 @@ set(CORE_HEADERS
     src/app/PlanUtilizationHistoryStore.h
     src/app/SessionQuotaNotifications.h
     src/app/Localization.h
+    src/app/ProviderUIService.h
 
     src/tray/StatusItemController.h
     src/tray/TrayPopupPositioner.h
@@ -274,6 +277,7 @@ set(CORE_HEADERS
     src/account/TokenAccount.h
     src/account/TokenAccountCredentials.h
     src/account/TokenAccountStore.h
+    src/account/TokenAccountOperationManager.h
     src/account/SecureString.h
 
     src/runtime/IProviderRuntime.h

@@ -15,6 +15,8 @@
 #include "../providers/ProviderStatusManager.h"
 #include "../providers/ProviderConnectionTester.h"
 #include "../providers/ProviderLoginManager.h"
+#include "../account/TokenAccountOperationManager.h"
+#include "ProviderUIService.h"
 #include "../providers/shared/ProviderStatusFetcher.h"
 #include "../app/SettingsStore.h"
 #include "../network/NetworkManager.h"
@@ -285,7 +287,6 @@ UsageStore::UsageStore(QObject* parent)
     , m_historyStore(new PlanUtilizationHistoryStore(this))
 {
     rebuildProviderCatalogSnapshot();
-    rebuildTokenAccountOperationState();
     connect(m_backend, &UsageBackend::jobFinished,
             this, &UsageStore::handleBackendResult);
 
@@ -358,22 +359,58 @@ UsageStore::UsageStore(QObject* parent)
     QObject::connect(m_loginManager, &ProviderLoginManager::loginStateChanged,
                      this, &UsageStore::providerLoginStateChanged);
 
+    // Initialize token account operation manager (Phase 4 extraction)
+    m_tokenAccountManager = new TokenAccountOperationManager(this);
+    QObject::connect(m_tokenAccountManager, &TokenAccountOperationManager::operationStateChanged,
+                     this, &UsageStore::tokenAccountOperationStateChanged);
+    QObject::connect(m_tokenAccountManager, &TokenAccountOperationManager::operationFinished,
+                     this, &UsageStore::tokenAccountOperationFinished);
+    QObject::connect(m_tokenAccountManager, &TokenAccountOperationManager::refreshProviderRequested,
+                     this, &UsageStore::refreshProvider);
+
+    // Initialize UI service (Phase 5 extraction)
+    m_uiService = new ProviderUIService(this);
+    m_uiService->setCatalog(&m_providerCatalog);
+    m_uiService->setStatusManager(m_statusManager);
+    m_uiService->setCredentialManager(m_credentialManager);
+    m_uiService->setBackend(m_backend);
+    m_uiService->setSnapshotAccessor([this](const QString& providerId) -> std::optional<double> {
+        auto it = m_snapshots.find(providerId);
+        if (it != m_snapshots.end() && it.value().primary.has_value()) {
+            return it.value().primary->usedPercent;
+        }
+        return std::nullopt;
+    });
+    m_uiService->setSecretStatusAccessor([this](const QString& providerId, const QString& key) -> QVariantMap {
+        return providerSecretStatus(providerId, key);
+    });
+    m_uiService->setDisplayNameAccessor([this](const QString& providerId) -> QString {
+        return providerDisplayName(providerId);
+    });
+    m_uiService->setStatusURLAccessor([this](const QString& providerId) -> QString {
+        return providerStatusURL(providerId);
+    });
+    QObject::connect(m_uiService, &ProviderUIService::providerListModelChanged,
+                     this, &UsageStore::providerListModelChanged);
+    QObject::connect(m_uiService, &ProviderUIService::providerDescriptorChanged,
+                     this, &UsageStore::providerDescriptorChanged);
+
     TokenAccountStore* tokenStore = TokenAccountStore::instance();
     QObject::connect(tokenStore, &TokenAccountStore::accountsChanged,
                      this, [this](const QString& providerId) {
-        m_providerListCacheValid = false;
-        m_providerDescriptorDataCache.remove(providerId);
+        m_uiService->invalidateProviderListCache();
+        m_uiService->invalidateDescriptorCache(providerId);
         emit tokenAccountsChanged(providerId);
     });
     QObject::connect(tokenStore, &TokenAccountStore::defaultAccountChanged,
                      this, [this](const QString& providerId, const QString&) {
-        m_providerListCacheValid = false;
-        m_providerDescriptorDataCache.remove(providerId);
+        m_uiService->invalidateProviderListCache();
+        m_uiService->invalidateDescriptorCache(providerId);
         emit tokenAccountsChanged(providerId);
     });
     QObject::connect(this, &UsageStore::providerSecretChanged,
                      this, [this](const QString& providerId, const QString&) {
-        m_providerDescriptorDataCache.remove(providerId);
+        m_uiService->invalidateDescriptorCache(providerId);
     });
 }
 
@@ -383,6 +420,9 @@ void UsageStore::setSettingsStore(SettingsStore* s) {
         disconnect(m_settingsStore, nullptr, this, nullptr);
     }
     m_settingsStore = s;
+    if (m_uiService) {
+        m_uiService->setSettingsStore(s);
+    }
     if (m_settingsStore) {
         connect(m_settingsStore, &SettingsStore::statusChecksEnabledChanged,
                 this, &UsageStore::configureStatusPolling);
@@ -429,7 +469,7 @@ void UsageStore::setProviderEnabled(const QString& id, bool enabled) {
     if (m_settingsStore) {
         m_settingsStore->setProviderEnabled(id, enabled);
     }
-    m_providerDescriptorDataCache.remove(id);
+    m_uiService->invalidateDescriptorCache(id);
     updateProviderIDs();
     emit providerDescriptorChanged(id);
 }
@@ -733,7 +773,7 @@ void UsageStore::rebuildProviderCatalogSnapshot()
 void UsageStore::updateProviderIDs() {
     rebuildProviderCatalogSnapshot();
     m_providerIDs = m_providerCatalog.enabledProviderIDs();
-    m_providerListCacheValid = false;
+    m_uiService->invalidateProviderListCache();
     emit providerIDsChanged();
 }
 
@@ -1078,7 +1118,7 @@ void UsageStore::requestCostUsageDetailsRows() const
         return;
     }
 
-    if (!m_providerListCacheValid) {
+    if (!m_uiService->isProviderListCacheValid()) {
         QMetaObject::invokeMethod(const_cast<UsageStore*>(this),
                                   &UsageStore::requestProviderList,
                                   Qt::QueuedConnection);
@@ -1088,7 +1128,7 @@ void UsageStore::requestCostUsageDetailsRows() const
     m_costUsageDetailsRowsBuildQueued = true;
     const int generation = ++m_costUsageDetailsRowsBuildGeneration;
     const QVector<ProviderCostUsageSnapshot> allProviders = m_allProviderCostUsage;
-    const QVariantList appProviders = m_providerListCache;
+    const QVariantList appProviders = m_uiService->cachedProviderList();
 
     m_backend->dispatchValueJob(QStringLiteral("costUsageDetailsRows"), generation,
                                 [allProviders, appProviders]() -> QVariant {
@@ -1283,44 +1323,33 @@ void UsageStore::handleBackendResult(const UsageBackendResult& result)
     }
 
     if (result.kind == QLatin1String("providerListModel")) {
-        if (result.generation != m_providerListRefreshGeneration) {
-            return;
-        }
-        m_providerListRefreshQueued = false;
         if (!result.success) {
             qWarning() << "Provider list backend job failed:" << result.message;
             return;
         }
 
         const auto payload = result.payload.value<ProviderListPayload>();
-        m_providerListCache = payload.providers;
-        m_providerListCacheValid = true;
-        m_costUsageDetailsRowsCacheValid = false;
-        m_costUsageProviderDetailCache.clear();
-        m_costUsageProviderDetailQueued.clear();
-        m_costUsageDetailsRowsBuildQueued = false;
-        ++m_costUsageDetailsRowsBuildGeneration;
-        ++m_costUsageProviderDetailBuildGeneration;
-        emit providerListModelChanged();
+        if (m_uiService->handleProviderListResult(result.generation, payload.providers)) {
+            m_costUsageDetailsRowsCacheValid = false;
+            m_costUsageProviderDetailCache.clear();
+            m_costUsageProviderDetailQueued.clear();
+            m_costUsageDetailsRowsBuildQueued = false;
+            ++m_costUsageDetailsRowsBuildGeneration;
+            ++m_costUsageProviderDetailBuildGeneration;
+        }
         return;
     }
 
     if (result.kind == QLatin1String("providerDescriptorData")) {
         const auto payload = result.payload.value<ProviderDescriptorDataPayload>();
         const QString providerId = payload.providerId;
-        if (result.generation != m_providerDescriptorRefreshGenerations.value(providerId)) {
-            return;
-        }
-        m_providerDescriptorRefreshQueued.remove(providerId);
         if (!result.success) {
             qWarning() << "Provider descriptor backend job failed:" << providerId << result.message;
             emit providerDescriptorChanged(providerId);
             return;
         }
 
-        if (!payload.descriptor.isEmpty()) {
-            m_providerDescriptorDataCache.insert(providerId, payload.descriptor);
-        }
+        m_uiService->handleDescriptorResult(providerId, result.generation, payload.descriptor);
         emit providerDescriptorChanged(providerId);
         return;
     }
@@ -1530,22 +1559,11 @@ void UsageStore::handleBackendResult(const UsageBackendResult& result)
     }
 
     if (result.kind.startsWith(QLatin1String("tokenAccount."))) {
-        const QVariantMap payload = result.payload.toMap();
-        const QString operationId = payload.value(QStringLiteral("operationId")).toString();
-        const QString providerId = payload.value(QStringLiteral("providerId")).toString();
-        const bool success = result.success
-            && payload.value(QStringLiteral("success"), true).toBool();
-        const QString message = result.success
-            ? payload.value(QStringLiteral("message")).toString()
-            : result.message;
-        const bool refreshProviderOnSuccess =
-            payload.value(QStringLiteral("refreshProviderOnSuccess")).toBool();
-        finishTokenAccountOperation(
-            operationId,
-            providerId,
-            success,
-            message,
-            refreshProviderOnSuccess);
+        m_tokenAccountManager->handleBackendResult(
+            result.kind,
+            result.payload.toMap(),
+            result.success,
+            result.message);
         return;
     }
 }
@@ -1891,138 +1909,22 @@ QVariantList UsageStore::utilizationChartData(const QString& providerId, const Q
 }
 
 QVariantList UsageStore::providerList() const {
-    PERF_PROBE("providerList.cached", 200);
-    if (!m_providerListCacheValid && !m_providerListRefreshQueued) {
-        QMetaObject::invokeMethod(const_cast<UsageStore*>(this),
-                                  &UsageStore::requestProviderList,
-                                  Qt::QueuedConnection);
-    }
-    return m_providerListCache;
-}
-
-QVariantList UsageStore::buildProviderListNow() const {
-    PERF_PROBE("providerList.build", 5000);
-    QVector<ProviderListBuildItem> items;
-    for (const auto& provider : m_providerCatalog.providers()) {
-        const QString id = provider.id;
-        ProviderListBuildItem item;
-        item.id = id;
-        item.enabled = provider.enabled;
-        if (provider.hasDescriptor) {
-            const auto& desc = provider.descriptor;
-            item.name = desc.metadata.displayName;
-            item.sessionLabel = desc.metadata.sessionLabel;
-            item.weeklyLabel = desc.metadata.weeklyLabel;
-            item.supportsCredits = desc.metadata.supportsCredits;
-            item.dashboardURL = desc.metadata.dashboardURL;
-            item.statusPageURL = desc.metadata.statusPageURL;
-            item.statusLinkURL = desc.metadata.statusLinkURL;
-            item.statusWorkspaceProductID = desc.metadata.statusWorkspaceProductID;
-            item.brandColor = provider.brandColor;
-            item.sourceModes = desc.fetchPlan.allowedSourceModes;
-            item.supportsMultipleAccounts = desc.tokenAccounts.supportsMultipleAccounts;
-            item.requiredCredentialTypes = desc.tokenAccounts.requiredCredentialTypes;
-            item.defaultTokenAccount = TokenAccountStore::instance()->defaultAccountId(id);
-            item.tokenAccountCount = TokenAccountStore::instance()->accountCountForProvider(id);
-        } else {
-            item.name = id;
-            item.sessionLabel = QStringLiteral("Session");
-            item.weeklyLabel = QStringLiteral("Weekly");
-            item.supportsCredits = false;
-        }
-
-        auto snapIt = m_snapshots.find(id);
-        if (snapIt != m_snapshots.end() && snapIt.value().primary.has_value()) {
-            item.hasUsage = true;
-            item.usagePercent = snapIt.value().primary->usedPercent;
-        }
-
-        const QVariantMap statusMap = m_statusManager->status(id);
-        const QString statusState = statusMap.value(QStringLiteral("state"), QStringLiteral("unknown")).toString();
-        if (statusState != QStringLiteral("unknown")) {
-            item.status = statusState;
-        }
-
-        items.append(item);
-    }
-
-    const QStringList order = m_settingsStore ? m_settingsStore->providerOrder() : QStringList();
-    const QVariantList list = buildProviderListFromItems(items, order);
-    m_providerListCacheValid = true;
-    m_providerListCache = list;
-    return list;
+    return m_uiService->providerList();
 }
 
 void UsageStore::requestProviderList()
 {
-    if (m_providerListRefreshQueued) {
-        return;
-    }
-    m_providerListRefreshQueued = true;
-    const int generation = ++m_providerListRefreshGeneration;
-
-    QVector<ProviderListBuildItem> items;
-    const ProviderCatalogSnapshot catalog = m_providerCatalog;
-    for (const auto& provider : catalog.providers()) {
-        const QString id = provider.id;
-        ProviderListBuildItem item;
-        item.id = id;
-        item.enabled = provider.enabled;
-        if (provider.hasDescriptor) {
-            const auto& desc = provider.descriptor;
-            item.name = desc.metadata.displayName;
-            item.sessionLabel = desc.metadata.sessionLabel;
-            item.weeklyLabel = desc.metadata.weeklyLabel;
-            item.supportsCredits = desc.metadata.supportsCredits;
-            item.dashboardURL = desc.metadata.dashboardURL;
-            item.statusPageURL = desc.metadata.statusPageURL;
-            item.statusLinkURL = desc.metadata.statusLinkURL;
-            item.statusWorkspaceProductID = desc.metadata.statusWorkspaceProductID;
-            item.brandColor = provider.brandColor;
-            item.sourceModes = desc.fetchPlan.allowedSourceModes;
-            item.supportsMultipleAccounts = desc.tokenAccounts.supportsMultipleAccounts;
-            item.requiredCredentialTypes = desc.tokenAccounts.requiredCredentialTypes;
-            item.defaultTokenAccount = TokenAccountStore::instance()->defaultAccountId(id);
-            item.tokenAccountCount = TokenAccountStore::instance()->accountCountForProvider(id);
-        } else {
-            item.name = id;
-            item.sessionLabel = QStringLiteral("Session");
-            item.weeklyLabel = QStringLiteral("Weekly");
-            item.supportsCredits = false;
-        }
-
-        auto snapIt = m_snapshots.find(id);
-        if (snapIt != m_snapshots.end() && snapIt.value().primary.has_value()) {
-            item.hasUsage = true;
-            item.usagePercent = snapIt.value().primary->usedPercent;
-        }
-
-        const QVariantMap statusMap = m_statusManager->status(id);
-        const QString statusState = statusMap.value(QStringLiteral("state"), QStringLiteral("unknown")).toString();
-        if (statusState != QStringLiteral("unknown")) {
-            item.status = statusState;
-        }
-
-        items.append(item);
-    }
-
-    const QStringList order = m_settingsStore ? m_settingsStore->providerOrder() : QStringList();
-    m_backend->dispatchValueJob(QStringLiteral("providerListModel"), generation,
-                                [items, order]() -> QVariant {
-        ProviderListPayload payload;
-        payload.providers = buildProviderListFromItems(items, order);
-        return QVariant::fromValue(payload);
-    });
+    m_uiService->requestProviderList();
 }
 
 void UsageStore::moveProvider(int fromIndex, int toIndex) {
     if (!m_settingsStore) return;
     if (fromIndex == toIndex) return;
-    
+
     auto list = providerList();
     if (fromIndex < 0 || fromIndex >= list.size()) return;
     if (toIndex < 0 || toIndex >= list.size()) return;
-    
+
     QStringList order = m_settingsStore->providerOrder();
     if (order.isEmpty()) {
         // Initialize order from current list
@@ -2030,111 +1932,23 @@ void UsageStore::moveProvider(int fromIndex, int toIndex) {
             order.append(item.toMap().value("id").toString());
         }
     }
-    
+
     if (fromIndex < order.size() && toIndex < order.size()) {
         order.move(fromIndex, toIndex);
         m_settingsStore->setProviderOrder(order);
         rebuildProviderCatalogSnapshot();
-        m_providerListCacheValid = false;
+        m_uiService->invalidateProviderListCache();
         emit providerIDsChanged();
     }
 }
 
 QVariantMap UsageStore::providerDescriptorData(const QString& id) const {
-    PERF_PROBE("providerDescriptorData.cached", 200);
-    if (m_providerDescriptorDataCache.contains(id)) {
-        return m_providerDescriptorDataCache.value(id);
-    }
-    if (!m_providerDescriptorRefreshQueued.contains(id)) {
-        QMetaObject::invokeMethod(const_cast<UsageStore*>(this),
-                                  "requestProviderDescriptor",
-                                  Qt::QueuedConnection,
-                                  Q_ARG(QString, id));
-    }
-    return {
-        {QStringLiteral("id"), id},
-        {QStringLiteral("loading"), true},
-        {QStringLiteral("displayName"), providerDisplayName(id)},
-        {QStringLiteral("settingsFields"), QVariantList{}}
-    };
-}
-
-QVariantMap UsageStore::buildProviderDescriptorDataNow(const QString& id) const {
-    PERF_PROBE("providerDescriptorData.build", 1000);
-    ProviderDescriptorBuildInput input;
-    input.providerId = id;
-    const auto catalogEntry = m_providerCatalog.provider(id);
-    if (!catalogEntry.has_value()) {
-        return {};
-    }
-    input.hasDescriptor = catalogEntry->hasDescriptor;
-    input.descriptor = catalogEntry->descriptor;
-    input.enabled = catalogEntry->enabled;
-    input.brandColor = catalogEntry->brandColor;
-    input.statusURL = providerStatusURL(id);
-    input.defaultTokenAccount = TokenAccountStore::instance()->defaultAccountId(id);
-    input.tokenAccountCount = TokenAccountStore::instance()->accountCountForProvider(id);
-    for (const auto& d : catalogEntry->settingsDescriptors) {
-        ProviderSettingFieldBuildInput field;
-        field.descriptor = d;
-        field.value = d.sensitive
-            ? QVariant()
-            : (m_settingsStore ? m_settingsStore->providerSetting(id, d.key, d.defaultValue)
-                               : d.defaultValue);
-        if (d.sensitive) {
-            field.secretStatus = providerSecretStatus(id, d.key);
-        }
-        input.settingsFields.append(field);
-    }
-
-    const QVariantMap data = buildProviderDescriptorFromInput(input);
-    m_providerDescriptorDataCache.insert(id, data);
-    return data;
+    return m_uiService->providerDescriptorData(id);
 }
 
 void UsageStore::requestProviderDescriptor(const QString& providerId)
 {
-    if (providerId.isEmpty() || m_providerDescriptorRefreshQueued.contains(providerId)) {
-        return;
-    }
-    m_providerDescriptorRefreshQueued.insert(providerId);
-    const int generation = m_providerDescriptorRefreshGenerations.value(providerId, 0) + 1;
-    m_providerDescriptorRefreshGenerations.insert(providerId, generation);
-
-    ProviderDescriptorBuildInput input;
-    input.providerId = providerId;
-    const auto catalogEntry = m_providerCatalog.provider(providerId);
-    if (catalogEntry.has_value()) {
-        input.hasDescriptor = catalogEntry->hasDescriptor;
-        input.descriptor = catalogEntry->descriptor;
-        input.enabled = catalogEntry->enabled;
-        input.brandColor = catalogEntry->brandColor;
-    }
-    input.statusURL = providerStatusURL(providerId);
-    input.defaultTokenAccount = TokenAccountStore::instance()->defaultAccountId(providerId);
-    input.tokenAccountCount = TokenAccountStore::instance()->accountCountForProvider(providerId);
-    if (catalogEntry.has_value()) {
-        for (const auto& d : catalogEntry->settingsDescriptors) {
-            ProviderSettingFieldBuildInput field;
-            field.descriptor = d;
-            field.value = d.sensitive
-                ? QVariant()
-                : (m_settingsStore ? m_settingsStore->providerSetting(providerId, d.key, d.defaultValue)
-                                   : d.defaultValue);
-            if (d.sensitive) {
-                field.secretStatus = providerSecretStatus(providerId, d.key);
-            }
-            input.settingsFields.append(field);
-        }
-    }
-
-    m_backend->dispatchValueJob(QStringLiteral("providerDescriptorData"), generation,
-                                [input]() -> QVariant {
-        ProviderDescriptorDataPayload payload;
-        payload.providerId = input.providerId;
-        payload.descriptor = buildProviderDescriptorFromInput(input);
-        return QVariant::fromValue(payload);
-    });
+    m_uiService->requestProviderDescriptor(providerId);
 }
 
 void UsageStore::setProviderSetting(const QString& providerId, const QString& key, const QVariant& value) {
@@ -2146,10 +1960,10 @@ void UsageStore::setProviderSetting(const QString& providerId, const QString& ke
         return;
     }
     m_settingsStore->setProviderSetting(providerId, key, value);
-    m_providerDescriptorDataCache.remove(providerId);
+    m_uiService->invalidateDescriptorCache(providerId);
     if (key == QLatin1String("sourceMode")) {
         rebuildProviderCatalogSnapshot();
-        m_providerListCacheValid = false;
+        m_uiService->invalidateProviderListCache();
         emit providerIDsChanged();
     }
     emit providerDescriptorChanged(providerId);
@@ -2478,12 +2292,12 @@ void UsageStore::cancelProviderLogin(const QString& providerId) {
 
 void UsageStore::setProviderStatus(const QString& providerId, const QVariantMap& status) {
     m_statusManager->setStatus(providerId, status);
-    m_providerListCacheValid = false;
+    m_uiService->invalidateProviderListCache();
 }
 
 void UsageStore::setProviderStatuses(const QHash<QString, QVariantMap>& statuses) {
     m_statusManager->setStatuses(statuses);
-    m_providerListCacheValid = false;
+    m_uiService->invalidateProviderListCache();
 }
 
 QVariantMap UsageStore::providerStatus(const QString& providerId) const {
@@ -3122,99 +2936,7 @@ QVariantList UsageStore::tokenAccountsForProvider(const QString& providerId) con
 
 QVariantMap UsageStore::tokenAccountOperationState() const
 {
-    return m_tokenAccountOperationState;
-}
-
-QString UsageStore::beginTokenAccountOperation(const QString& kind,
-                                               const QString& providerId,
-                                               const QString& targetId)
-{
-    const QString operationId = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    QVariantMap op;
-    op["operationId"] = operationId;
-    op["kind"] = kind;
-    op["providerId"] = providerId;
-    op["targetId"] = targetId;
-    op["state"] = QStringLiteral("pending");
-    op["message"] = QString();
-    op["startedAt"] = QDateTime::currentMSecsSinceEpoch();
-    op["finishedAt"] = 0;
-    m_tokenAccountOperations.insert(operationId, op);
-    rebuildTokenAccountOperationState();
-    emit tokenAccountOperationStateChanged();
-    return operationId;
-}
-
-void UsageStore::finishTokenAccountOperation(const QString& operationId,
-                                             const QString& providerId,
-                                             bool success,
-                                             const QString& message,
-                                             bool refreshProviderOnSuccess)
-{
-    auto op = m_tokenAccountOperations.value(operationId);
-    if (op.isEmpty()) {
-        return;
-    }
-    op["state"] = success ? QStringLiteral("success") : QStringLiteral("error");
-    op["message"] = message;
-    op["finishedAt"] = QDateTime::currentMSecsSinceEpoch();
-    m_tokenAccountOperations.insert(operationId, op);
-    rebuildTokenAccountOperationState();
-    emit tokenAccountOperationStateChanged();
-    emit tokenAccountOperationFinished(operationId, providerId, success, message);
-    if (success && refreshProviderOnSuccess && !providerId.isEmpty()) {
-        refreshProvider(providerId);
-    }
-}
-
-void UsageStore::rebuildTokenAccountOperationState()
-{
-    QVariantMap pendingByProvider;
-    QVariantMap pendingByAccount;
-    QVariantMap operations;
-    int pendingCount = 0;
-
-    for (auto it = m_tokenAccountOperations.constBegin(); it != m_tokenAccountOperations.constEnd(); ++it) {
-        const QVariantMap op = it.value();
-        operations.insert(it.key(), op);
-        if (op.value("state").toString() == QLatin1String("pending")) {
-            ++pendingCount;
-            const QString providerId = op.value("providerId").toString();
-            const QString targetId = op.value("targetId").toString();
-            if (!providerId.isEmpty()) {
-                pendingByProvider.insert(providerId, true);
-            }
-            if (!targetId.isEmpty()) {
-                pendingByAccount.insert(targetId, true);
-            }
-        }
-    }
-
-    m_tokenAccountOperationState = {
-        {QStringLiteral("pendingCount"), pendingCount},
-        {QStringLiteral("pendingByProvider"), pendingByProvider},
-        {QStringLiteral("pendingByAccount"), pendingByAccount},
-        {QStringLiteral("operations"), operations}
-    };
-}
-
-void UsageStore::saveTokenAccountStoreAsync(const QString& operationId,
-                                            const QString& providerId,
-                                            bool refreshProviderOnSuccess)
-{
-    m_backend->dispatchValueJob(QStringLiteral("tokenAccount.save"), 0,
-                                [operationId, providerId, refreshProviderOnSuccess]() -> QVariant {
-        const bool saved = TokenAccountStore::instance()->saveToDisk();
-        QVariantMap payload;
-        payload.insert(QStringLiteral("operationId"), operationId);
-        payload.insert(QStringLiteral("providerId"), providerId);
-        payload.insert(QStringLiteral("success"), saved);
-        payload.insert(QStringLiteral("message"),
-                       saved ? QString()
-                             : QStringLiteral("Failed to save token account configuration."));
-        payload.insert(QStringLiteral("refreshProviderOnSuccess"), refreshProviderOnSuccess);
-        return payload;
-    });
+    return m_tokenAccountManager->operationState();
 }
 
 QString UsageStore::addTokenAccount(const QString& providerId, const QString& displayName, int sourceMode)
@@ -3313,35 +3035,7 @@ QString UsageStore::requestAddTokenAccount(const QString& providerId,
                                            const QString& displayName,
                                            int sourceMode)
 {
-    TokenAccount account;
-    account.accountId = TokenAccount::generateAccountId();
-    account.providerId = providerId;
-    account.displayName = displayName.trimmed().isEmpty() ? providerId : displayName.trimmed();
-    account.sourceMode = static_cast<ProviderSourceMode>(sourceMode);
-    account.visibility = AccountVisibility::Visible;
-    account.createdAt = QDateTime::currentDateTimeUtc();
-    account.lastUsedAt = account.createdAt;
-
-    const QString operationId = beginTokenAccountOperation(
-        QStringLiteral("addTokenAccount"), providerId, account.accountId);
-    m_backend->dispatchValueJob(QStringLiteral("tokenAccount.add"), 0,
-                                [operationId, providerId, account]() -> QVariant {
-        TokenAccountStore::instance()->addAccountMetadata(account);
-        if (TokenAccountStore::instance()->accountCountForProvider(providerId) == 1) {
-            TokenAccountStore::instance()->setDefaultAccountId(providerId, account.accountId);
-        }
-        const bool saved = TokenAccountStore::instance()->saveToDisk();
-        QVariantMap payload;
-        payload.insert(QStringLiteral("operationId"), operationId);
-        payload.insert(QStringLiteral("providerId"), providerId);
-        payload.insert(QStringLiteral("success"), saved);
-        payload.insert(QStringLiteral("message"),
-                       saved ? QString()
-                             : QStringLiteral("Failed to save token account configuration."));
-        payload.insert(QStringLiteral("refreshProviderOnSuccess"), true);
-        return payload;
-    });
-    return operationId;
+    return m_tokenAccountManager->requestAddAccount(providerId, displayName, sourceMode, m_backend);
 }
 
 QString UsageStore::requestAddTokenAccountWithApiKey(const QString& providerId,
@@ -3349,189 +3043,27 @@ QString UsageStore::requestAddTokenAccountWithApiKey(const QString& providerId,
                                                      int sourceMode,
                                                      const QString& apiKey)
 {
-    TokenAccount account;
-    account.accountId = TokenAccount::generateAccountId();
-    account.providerId = providerId;
-    account.displayName = displayName.trimmed().isEmpty() ? providerId : displayName.trimmed();
-    account.sourceMode = static_cast<ProviderSourceMode>(sourceMode);
-    account.visibility = AccountVisibility::Visible;
-    account.createdAt = QDateTime::currentDateTimeUtc();
-    account.lastUsedAt = account.createdAt;
-
-    const QString trimmedKey = apiKey.trimmed();
-    if (!trimmedKey.isEmpty()) {
-        APICredentials api;
-        api.apiKey = SecureString(trimmedKey);
-        account.credentials.api = api;
-    }
-
-    const QString operationId = beginTokenAccountOperation(
-        QStringLiteral("addTokenAccountWithApiKey"), providerId, account.accountId);
-
-    TokenAccount metadata = account;
-    metadata.credentials = {};
-    TokenAccountCredentials credentials = account.credentials;
-    m_backend->dispatchValueJob(QStringLiteral("tokenAccount.addApiKey"), 0,
-                                [operationId, providerId, metadata, credentials]() -> QVariant {
-        bool ok = true;
-        QString message;
-        if (!credentials.isEmpty()) {
-            ok = TokenAccountStore::instance()->saveAccountCredentials(metadata.accountId, credentials);
-            if (!ok) {
-                message = QStringLiteral("Failed to save token account credentials.");
-            }
-        }
-        if (ok) {
-            TokenAccountStore::instance()->addAccountMetadata(metadata);
-            if (TokenAccountStore::instance()->accountCountForProvider(providerId) == 1) {
-                TokenAccountStore::instance()->setDefaultAccountId(providerId, metadata.accountId);
-            }
-            ok = TokenAccountStore::instance()->saveToDisk();
-            if (!ok) {
-                message = QStringLiteral("Failed to save token account configuration.");
-            }
-        }
-        QVariantMap payload;
-        payload.insert(QStringLiteral("operationId"), operationId);
-        payload.insert(QStringLiteral("providerId"), providerId);
-        payload.insert(QStringLiteral("success"), ok);
-        payload.insert(QStringLiteral("message"), message);
-        payload.insert(QStringLiteral("refreshProviderOnSuccess"), true);
-        return payload;
-    });
-
-    return operationId;
+    return m_tokenAccountManager->requestAddAccountWithApiKey(providerId, displayName, sourceMode, apiKey, m_backend);
 }
 
 QString UsageStore::requestRemoveTokenAccount(const QString& accountId)
 {
-    auto accOpt = TokenAccountStore::instance()->accountMetadata(accountId);
-    if (!accOpt.has_value()) {
-        return QString();
-    }
-    const QString providerId = accOpt->providerId;
-    const QString operationId = beginTokenAccountOperation(
-        QStringLiteral("removeTokenAccount"), providerId, accountId);
-
-    m_backend->dispatchValueJob(QStringLiteral("tokenAccount.remove"), 0,
-                                [operationId, providerId, accountId]() -> QVariant {
-        TokenAccountStore::instance()->removeAccountCredentials(accountId);
-        bool ok = TokenAccountStore::instance()->removeAccountMetadata(accountId);
-        QString message;
-        if (!ok) {
-            message = QStringLiteral("Token account no longer exists.");
-        } else {
-            ok = TokenAccountStore::instance()->saveToDisk();
-            if (!ok) {
-                message = QStringLiteral("Failed to save token account configuration.");
-            }
-        }
-        QVariantMap payload;
-        payload.insert(QStringLiteral("operationId"), operationId);
-        payload.insert(QStringLiteral("providerId"), providerId);
-        payload.insert(QStringLiteral("success"), ok);
-        payload.insert(QStringLiteral("message"), message);
-        payload.insert(QStringLiteral("refreshProviderOnSuccess"), true);
-        return payload;
-    });
-
-    return operationId;
+    return m_tokenAccountManager->requestRemoveAccount(accountId, m_backend);
 }
 
 QString UsageStore::requestSetTokenAccountVisibility(const QString& accountId, int visibility)
 {
-    auto accOpt = TokenAccountStore::instance()->accountMetadata(accountId);
-    if (!accOpt.has_value()) {
-        return QString();
-    }
-    TokenAccount acc = accOpt.value();
-    acc.visibility = static_cast<AccountVisibility>(visibility);
-    const QString providerId = acc.providerId;
-    const QString operationId = beginTokenAccountOperation(
-        QStringLiteral("setTokenAccountVisibility"), providerId, accountId);
-    m_backend->dispatchValueJob(QStringLiteral("tokenAccount.visibility"), 0,
-                                [operationId, providerId, accountId, acc]() -> QVariant {
-        bool ok = TokenAccountStore::instance()->updateAccountMetadata(accountId, acc);
-        QString message;
-        if (!ok) {
-            message = QStringLiteral("Token account no longer exists.");
-        } else {
-            ok = TokenAccountStore::instance()->saveToDisk();
-            if (!ok) {
-                message = QStringLiteral("Failed to save token account configuration.");
-            }
-        }
-        QVariantMap payload;
-        payload.insert(QStringLiteral("operationId"), operationId);
-        payload.insert(QStringLiteral("providerId"), providerId);
-        payload.insert(QStringLiteral("success"), ok);
-        payload.insert(QStringLiteral("message"), message);
-        payload.insert(QStringLiteral("refreshProviderOnSuccess"), true);
-        return payload;
-    });
-    return operationId;
+    return m_tokenAccountManager->requestSetVisibility(accountId, visibility, m_backend);
 }
 
 QString UsageStore::requestSetTokenAccountSourceMode(const QString& accountId, int sourceMode)
 {
-    auto accOpt = TokenAccountStore::instance()->accountMetadata(accountId);
-    if (!accOpt.has_value()) {
-        return QString();
-    }
-    TokenAccount acc = accOpt.value();
-    acc.sourceMode = static_cast<ProviderSourceMode>(sourceMode);
-    const QString providerId = acc.providerId;
-    const QString operationId = beginTokenAccountOperation(
-        QStringLiteral("setTokenAccountSourceMode"), providerId, accountId);
-    m_backend->dispatchValueJob(QStringLiteral("tokenAccount.sourceMode"), 0,
-                                [operationId, providerId, accountId, acc]() -> QVariant {
-        bool ok = TokenAccountStore::instance()->updateAccountMetadata(accountId, acc);
-        QString message;
-        if (!ok) {
-            message = QStringLiteral("Token account no longer exists.");
-        } else {
-            ok = TokenAccountStore::instance()->saveToDisk();
-            if (!ok) {
-                message = QStringLiteral("Failed to save token account configuration.");
-            }
-        }
-        QVariantMap payload;
-        payload.insert(QStringLiteral("operationId"), operationId);
-        payload.insert(QStringLiteral("providerId"), providerId);
-        payload.insert(QStringLiteral("success"), ok);
-        payload.insert(QStringLiteral("message"), message);
-        payload.insert(QStringLiteral("refreshProviderOnSuccess"), true);
-        return payload;
-    });
-    return operationId;
+    return m_tokenAccountManager->requestSetSourceMode(accountId, sourceMode, m_backend);
 }
 
 QString UsageStore::requestSetDefaultTokenAccount(const QString& providerId, const QString& accountId)
 {
-    if (!accountId.isEmpty()) {
-        auto accOpt = TokenAccountStore::instance()->accountMetadata(accountId);
-        if (!accOpt.has_value() || accOpt->providerId != providerId) {
-            return QString();
-        }
-    }
-
-    const QString operationId = beginTokenAccountOperation(
-        QStringLiteral("setDefaultTokenAccount"), providerId, accountId);
-    m_backend->dispatchValueJob(QStringLiteral("tokenAccount.default"), 0,
-                                [operationId, providerId, accountId]() -> QVariant {
-        TokenAccountStore::instance()->setDefaultAccountId(providerId, accountId);
-        const bool saved = TokenAccountStore::instance()->saveToDisk();
-        QVariantMap payload;
-        payload.insert(QStringLiteral("operationId"), operationId);
-        payload.insert(QStringLiteral("providerId"), providerId);
-        payload.insert(QStringLiteral("success"), saved);
-        payload.insert(QStringLiteral("message"),
-                       saved ? QString()
-                             : QStringLiteral("Failed to save token account configuration."));
-        payload.insert(QStringLiteral("refreshProviderOnSuccess"), true);
-        return payload;
-    });
-    return operationId;
+    return m_tokenAccountManager->requestSetDefault(providerId, accountId, m_backend);
 }
 
 // ============================================================================
@@ -3551,7 +3083,7 @@ void UsageStore::onBatchUpdateReady(const QStringList& providerIds)
     for (const auto& id : providerIds) {
         m_snapshotDataCache.remove(id);
     }
-    m_providerListCacheValid = false;
+    m_uiService->invalidateProviderListCache();
     emit snapshotRevisionChanged();
 }
 

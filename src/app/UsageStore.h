@@ -32,6 +32,8 @@ class ProviderCredentialManager;
 class ProviderStatusManager;
 class ProviderConnectionTester;
 class ProviderLoginManager;
+class TokenAccountOperationManager;
+class ProviderUIService;
 struct UsageBackendResult;
 struct ProviderLoginStartPayload;
 
@@ -285,6 +287,12 @@ private:
     // Login manager (Phase 3 extraction)
     ProviderLoginManager* m_loginManager = nullptr;
 
+    // Token account operation manager (Phase 4 extraction)
+    TokenAccountOperationManager* m_tokenAccountManager = nullptr;
+
+    // UI service (Phase 5 extraction)
+    ProviderUIService* m_uiService = nullptr;
+
     // Credential cache to avoid blocking main thread with WinCred API calls
     struct CredentialEntry {
         QByteArray data;
@@ -319,14 +327,6 @@ private:
     mutable int m_costUsageProviderDetailBuildGeneration = 0;
     int m_costUsageRefreshGeneration = 0;
 
-    // providerList() result cache — invalidated on providerIDsChanged / snapshotRevisionChanged / statusRevisionChanged
-    mutable QVariantList m_providerListCache;
-    mutable bool m_providerListCacheValid = false;
-    mutable bool m_providerListRefreshQueued = false;
-    int m_providerListRefreshGeneration = 0;
-    mutable QHash<QString, QVariantMap> m_providerDescriptorDataCache;
-    mutable QSet<QString> m_providerDescriptorRefreshQueued;
-    QHash<QString, int> m_providerDescriptorRefreshGenerations;
     int m_providerStatusRefreshGeneration = 0;
     QHash<QString, QString> m_backendRequestProviderIds;
     QHash<QString, CodexAccountRefreshGuard> m_backendCodexCreditGuards;
@@ -366,21 +366,9 @@ private:
 
     void onBatchUpdateReady(const QStringList& providerIds);
     void onBatchFinished();
-    QString beginTokenAccountOperation(const QString& kind, const QString& providerId, const QString& targetId);
-    void finishTokenAccountOperation(const QString& operationId,
-                                     const QString& providerId,
-                                     bool success,
-                                     const QString& message,
-                                     bool refreshProviderOnSuccess);
-    void rebuildTokenAccountOperationState();
-    void saveTokenAccountStoreAsync(const QString& operationId,
-                                    const QString& providerId,
-                                    bool refreshProviderOnSuccess);
 
     bool m_codexCreditsRefreshing = false;
     int m_pendingCreditsRefresh = 0;
-    QHash<QString, QVariantMap> m_tokenAccountOperations;
-    QVariantMap m_tokenAccountOperationState;
 
     // Test injection point for credits fetching (mirrors original _test_codexCreditsLoaderOverride)
     std::function<std::optional<CreditsSnapshot>()> _test_codexCreditsLoaderOverride;
