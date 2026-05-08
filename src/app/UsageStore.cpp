@@ -12,6 +12,7 @@
 #include "../providers/ProviderFetchContext.h"
 #include "../providers/shared/ProviderCredentialStore.h"
 #include "../providers/ProviderCredentialManager.h"
+#include "../providers/ProviderStatusManager.h"
 #include "../providers/shared/ProviderStatusFetcher.h"
 #include "../app/SettingsStore.h"
 #include "../network/NetworkManager.h"
@@ -337,6 +338,13 @@ UsageStore::UsageStore(QObject* parent)
     m_credentialManager = new ProviderCredentialManager(this);
     QObject::connect(m_credentialManager, &ProviderCredentialManager::secretChanged,
                      this, &UsageStore::providerSecretChanged);
+
+    // Initialize status manager (Phase 2 extraction)
+    m_statusManager = new ProviderStatusManager(this);
+    QObject::connect(m_statusManager, &ProviderStatusManager::statusChanged,
+                     this, &UsageStore::providerStatusChanged);
+    QObject::connect(m_statusManager, &ProviderStatusManager::revisionChanged,
+                     this, &UsageStore::statusRevisionChanged);
 
     TokenAccountStore* tokenStore = TokenAccountStore::instance();
     QObject::connect(tokenStore, &TokenAccountStore::accountsChanged,

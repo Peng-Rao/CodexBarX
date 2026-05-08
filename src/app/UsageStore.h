@@ -29,6 +29,7 @@ class PlanUtilizationHistoryStore;
 class BatchUpdateController;
 class UsageBackend;
 class ProviderCredentialManager;
+class ProviderStatusManager;
 struct UsageBackendResult;
 struct ProviderLoginStartPayload;
 
@@ -277,6 +278,9 @@ private:
 
     // Credential manager (Phase 1 extraction)
     ProviderCredentialManager* m_credentialManager = nullptr;
+
+    // Status manager (Phase 2 extraction)
+    ProviderStatusManager* m_statusManager = nullptr;
 
     // Credential cache to avoid blocking main thread with WinCred API calls
     struct CredentialEntry {
