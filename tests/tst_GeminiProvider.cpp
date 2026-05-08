@@ -1,4 +1,4 @@
-#include <QtTest/QtTest>
+﻿#include <QtTest/QtTest>
 #include "../src/providers/gemini/GeminiProvider.h"
 #include "../src/models/UsageSnapshot.h"
 

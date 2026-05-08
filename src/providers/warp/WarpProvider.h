@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "../IProvider.h"
 #include "../IFetchStrategy.h"
@@ -25,7 +25,7 @@ public:
     QVector<ProviderSettingsDescriptor> settingsDescriptors() const override {
         return {
             {"apiKey", "API key", "secret", QVariant(),
-             {}, "com.codexbar.apikey.warp", "WARP_API_KEY",
+             {}, "com.codexbarx.apikey.warp", "WARP_API_KEY",
              "wk_...", "Stored in Windows Credential Manager", false, true}
         };
     }

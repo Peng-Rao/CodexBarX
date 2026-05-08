@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "../src/providers/ProviderFetchResult.h"
 #include <QHash>

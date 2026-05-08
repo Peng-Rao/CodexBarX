@@ -1,4 +1,4 @@
-#include "AlibabaProvider.h"
+﻿#include "AlibabaProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/CookieImporter.h"
 #include "../../providers/shared/ProviderCredentialStore.h"
@@ -33,10 +33,10 @@ QVector<ProviderSettingsDescriptor> AlibabaProvider::settingsDescriptors() const
         {"apiRegion", "Region", "picker", QVariant(QStringLiteral("international")),
          {{"international", "International"}, {"china", "China (Mainland)"}}},
         {"apiKey", "API Key", "secret", QVariant(),
-         {}, "com.codexbar.apikey.alibaba", {}, "sk-...",
+         {}, "com.codexbarx.apikey.alibaba", {}, "sk-...",
          "Stored in Windows Credential Manager", true, true},
         {"manualCookieHeader", "Manual cookie header", "secret", QVariant(),
-         {}, "com.codexbar.cookie.alibaba", {}, "cookie=value; ...",
+         {}, "com.codexbarx.cookie.alibaba", {}, "cookie=value; ...",
          "Stored in Windows Credential Manager", true, true}
     };
 }
@@ -155,7 +155,7 @@ QString AlibabaAPIStrategy::resolveAPIKey(const ProviderFetchContext& ctx) {
     }
 
     // 2. Check Windows Credential Manager
-    auto cred = ProviderCredentialStore::read("com.codexbar.apikey.alibaba");
+    auto cred = ProviderCredentialStore::read("com.codexbarx.apikey.alibaba");
     if (cred.has_value() && !cred->isEmpty()) return QString::fromUtf8(*cred);
 
     // 3. Check settings (not recommended for security, but supported)

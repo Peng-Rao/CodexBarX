@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "../IProvider.h"
 #include "../IFetchStrategy.h"
@@ -18,7 +18,7 @@ public:
     QVector<IFetchStrategy*> createStrategies(const ProviderFetchContext& ctx) override;
     QVector<ProviderSettingsDescriptor> settingsDescriptors() const override {
         return { {"apiKey", "API key", "secret", QVariant(),
-                   {}, "com.codexbar.apikey.kimik2", "KIMI_K2_API_KEY",
+                   {}, "com.codexbarx.apikey.kimik2", "KIMI_K2_API_KEY",
                    "sk-...", "Stored in Windows Credential Manager", false, true} };
     }
     QString brandColor() const override { return "#4C00FF"; }

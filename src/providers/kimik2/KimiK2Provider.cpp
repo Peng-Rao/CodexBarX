@@ -1,4 +1,4 @@
-#include "KimiK2Provider.h"
+﻿#include "KimiK2Provider.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/ProviderCredentialStore.h"
 #include <QJsonObject>
@@ -19,7 +19,7 @@ static QString resolveKimiK2ApiKey(const ProviderFetchContext& ctx) {
     if (ctx.accountCredentials.api.has_value() && ctx.accountCredentials.api->isValid()) {
         return ctx.accountCredentials.api->apiKey.toString().trimmed();
     }
-    auto cred = ProviderCredentialStore::read("com.codexbar.apikey.kimik2");
+    auto cred = ProviderCredentialStore::read("com.codexbarx.apikey.kimik2");
     if (cred.has_value()) return QString::fromUtf8(cred.value());
     return {};
 }

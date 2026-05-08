@@ -1,4 +1,4 @@
-#include "CodexCreditsFetcher.h"
+﻿#include "CodexCreditsFetcher.h"
 #include "CodexOAuthUsageFetcher.h"
 #include "CodexStatusProbe.h"
 #include "CodexRpcClient.h"
@@ -128,7 +128,7 @@ CodexCreditsFetcher::FetchResult CodexCreditsFetcher::fetchViaRPCSync(int timeou
         return result;
     }
 
-    auto initResult = rpc.initialize("wincodexbar", "0.1.0", rpcTimeout);
+    auto initResult = rpc.initialize("CodexBarX", "0.1.0", rpcTimeout);
     if (!initResult.success) {
         rpc.shutdown();
         result.errorMessage = "RPC initialize failed: " + initResult.errorMessage;

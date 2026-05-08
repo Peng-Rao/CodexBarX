@@ -1,4 +1,4 @@
-#include "CostUsageCache.h"
+﻿#include "CostUsageCache.h"
 
 #include <QDir>
 #include <QFile>

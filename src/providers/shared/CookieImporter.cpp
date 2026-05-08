@@ -1,4 +1,4 @@
-#include "CookieImporter.h"
+﻿#include "CookieImporter.h"
 #include "BrowserDetection.h"
 
 #include <QDateTime>
@@ -85,7 +85,7 @@ bool hostMatchesAnyDomain(const QString& host, const QStringList& domains) {
 
 QString copyDatabase(const QString& sourcePath) {
     if (!QFileInfo::exists(sourcePath)) return {};
-    QString target = QDir::tempPath() + "/wincodexbar-cookies-"
+    QString target = QDir::tempPath() + "/codexbarx-cookies-"
         + QUuid::createUuid().toString(QUuid::Id128) + ".sqlite";
     if (!QFile::copy(sourcePath, target)) {
         return {};
@@ -280,7 +280,7 @@ QVector<QNetworkCookie> importChromiumCookies(
     int decryptSuccess = 0;
     int decryptFail = 0;
 
-    QString connectionName = "wincodexbar-cookies-" + QUuid::createUuid().toString(QUuid::Id128);
+    QString connectionName = "codexbarx-cookies-" + QUuid::createUuid().toString(QUuid::Id128);
     {
         QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
         db.setDatabaseName(copy);
@@ -335,7 +335,7 @@ QVector<QNetworkCookie> importFirefoxCookies(const QString& dbPath, const QStrin
     QString copy = copyDatabase(dbPath);
     if (copy.isEmpty()) return cookies;
 
-    QString connectionName = "wincodexbar-firefox-cookies-" + QUuid::createUuid().toString(QUuid::Id128);
+    QString connectionName = "codexbarx-firefox-cookies-" + QUuid::createUuid().toString(QUuid::Id128);
     {
         QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
         db.setDatabaseName(copy);

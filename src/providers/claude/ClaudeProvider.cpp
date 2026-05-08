@@ -1,4 +1,4 @@
-#include "ClaudeProvider.h"
+﻿#include "ClaudeProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/CookieImporter.h"
 #include "../../models/ClaudeUsageSnapshot.h"

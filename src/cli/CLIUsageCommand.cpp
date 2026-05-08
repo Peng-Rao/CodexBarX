@@ -1,4 +1,4 @@
-#include "CLIUsageCommand.h"
+﻿#include "CLIUsageCommand.h"
 #include "../providers/ProviderCatalogSnapshot.h"
 #include "../providers/ProviderRegistry.h"
 #include "../providers/ProviderPipeline.h"

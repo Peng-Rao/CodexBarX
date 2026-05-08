@@ -1,4 +1,4 @@
-#include "CodexRpcClient.h"
+﻿#include "CodexRpcClient.h"
 
 #include <QJsonDocument>
 #include <QElapsedTimer>
@@ -165,7 +165,7 @@ CodexRpcClient::RpcResult CodexRpcClient::initialize(const QString& clientName, 
     QJsonObject initParams{
         {"clientInfo", QJsonObject{
             {"name", clientName},
-            {"title", "WinCodexBar"},
+            {"title", "CodexBarX"},
             {"version", clientVersion}
         }}
     };

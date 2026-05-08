@@ -1,4 +1,4 @@
-#include "KiroProvider.h"
+﻿#include "KiroProvider.h"
 #include "../../util/BinaryLocator.h"
 #include "../../util/TextParser.h"
 #include <QProcess>

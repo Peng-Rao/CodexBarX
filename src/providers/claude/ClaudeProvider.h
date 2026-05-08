@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "../IProvider.h"
 #include "../IFetchStrategy.h"
@@ -37,7 +37,7 @@ public:
             {"sourceMode", "Data source", "picker", QVariant(QStringLiteral("auto")),
              { {"auto", "Auto"}, {"oauth", "OAuth"}, {"web", "Web"} }},
             {"manualCookieHeader", "Manual cookie header", "secret", QVariant(),
-             {}, "com.codexbar.cookie.claude", {}, "sessionKey=...", "Stored in Windows Credential Manager", true, true}
+             {}, "com.codexbarx.cookie.claude", {}, "sessionKey=...", "Stored in Windows Credential Manager", true, true}
         };
     }
     QVector<QString> supportedSourceModes() const override { return {"auto", "oauth", "web"}; }

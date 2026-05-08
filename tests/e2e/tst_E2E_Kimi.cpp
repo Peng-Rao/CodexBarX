@@ -1,4 +1,4 @@
-#include <QtTest/QtTest>
+﻿#include <QtTest/QtTest>
 #include "E2ETestUtils.h"
 
 class tst_E2E_Kimi : public QObject {

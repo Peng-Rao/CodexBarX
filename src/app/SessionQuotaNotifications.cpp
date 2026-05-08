@@ -1,4 +1,4 @@
-#include "SessionQuotaNotifications.h"
+﻿#include "SessionQuotaNotifications.h"
 
 #include <QCoreApplication>
 

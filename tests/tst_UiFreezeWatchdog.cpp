@@ -1,4 +1,4 @@
-#include "app/UiFreezeWatchdog.h"
+﻿#include "app/UiFreezeWatchdog.h"
 
 #include <QtTest/QtTest>
 

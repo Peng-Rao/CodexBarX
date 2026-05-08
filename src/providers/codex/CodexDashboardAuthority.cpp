@@ -1,4 +1,4 @@
-#include "CodexDashboardAuthority.h"
+﻿#include "CodexDashboardAuthority.h"
 
 bool CodexDashboardKnownOwnerCandidate::operator==(const CodexDashboardKnownOwnerCandidate& other) const
 {

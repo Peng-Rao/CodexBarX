@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "../IProvider.h"
 #include "../IFetchStrategy.h"
@@ -39,7 +39,7 @@ public:
             {"cookieSource", "Cookie source", "picker", QVariant(QStringLiteral("auto")),
              { {"auto", "Auto"}, {"browser", "Browser cookies"}, {"manual", "Manual cookie"} }},
             {"manualCookieHeader", "Manual cookie header", "secret", QVariant(),
-             {}, "com.codexbar.cookie.cursor", {}, "WorkosCursorSessionToken=...", "Stored in Windows Credential Manager", true, true}
+             {}, "com.codexbarx.cookie.cursor", {}, "WorkosCursorSessionToken=...", "Stored in Windows Credential Manager", true, true}
         };
     }
     QVector<QString> supportedSourceModes() const override { return {"auto", "web"}; }

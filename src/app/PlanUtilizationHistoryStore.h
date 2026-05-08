@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "../models/PlanUtilizationHistory.h"
 #include "../models/UsageSnapshot.h"

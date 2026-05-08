@@ -1,4 +1,4 @@
-#include "BatchUpdateController.h"
+﻿#include "BatchUpdateController.h"
 
 #include <QDebug>
 

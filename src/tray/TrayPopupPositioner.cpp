@@ -1,4 +1,4 @@
-#include "TrayPopupPositioner.h"
+﻿#include "TrayPopupPositioner.h"
 
 #include <QScreen>
 #include <QGuiApplication>

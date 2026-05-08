@@ -1,4 +1,4 @@
-#include "NetworkManager.h"
+﻿#include "NetworkManager.h"
 
 #include <QEventLoop>
 #include <QTimer>

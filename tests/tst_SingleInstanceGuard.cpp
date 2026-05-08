@@ -1,4 +1,4 @@
-#include "../src/util/SingleInstanceGuard.h"
+﻿#include "../src/util/SingleInstanceGuard.h"
 
 #include <QtTest/QtTest>
 #include <QUuid>

@@ -1,4 +1,4 @@
-#include "CopilotProvider.h"
+﻿#include "CopilotProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/ProviderCredentialStore.h"
 
@@ -20,7 +20,7 @@ CopilotOAuthStrategy::CopilotOAuthStrategy(QObject* parent) : IFetchStrategy(par
 QAtomicInt CopilotOAuthStrategy::s_deviceFlowInProgress(0);
 
 bool CopilotOAuthStrategy::isAvailable(const ProviderFetchContext& ctx) const {
-    return ProviderCredentialStore::exists("com.codexbar.oauth.copilot") || ctx.allowInteractiveAuth;
+    return ProviderCredentialStore::exists("com.codexbarx.oauth.copilot") || ctx.allowInteractiveAuth;
 }
 
 bool CopilotOAuthStrategy::shouldFallback(const ProviderFetchResult&, const ProviderFetchContext&) const {
@@ -28,7 +28,7 @@ bool CopilotOAuthStrategy::shouldFallback(const ProviderFetchResult&, const Prov
 }
 
 std::optional<QString> CopilotOAuthStrategy::performDeviceFlow(bool allowInteractiveAuth) {
-    auto cached = ProviderCredentialStore::read("com.codexbar.oauth.copilot");
+    auto cached = ProviderCredentialStore::read("com.codexbarx.oauth.copilot");
     if (cached.has_value()) {
         return QString::fromUtf8(cached.value());
     }
@@ -82,7 +82,7 @@ std::optional<QString> CopilotOAuthStrategy::performDeviceFlow(bool allowInterac
 
         accessToken = tokenResp.value("access_token").toString();
         if (!accessToken.isEmpty()) {
-            ProviderCredentialStore::write("com.codexbar.oauth.copilot", "", accessToken.toUtf8());
+            ProviderCredentialStore::write("com.codexbarx.oauth.copilot", "", accessToken.toUtf8());
             return accessToken;
         }
         break;

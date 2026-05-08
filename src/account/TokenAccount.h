@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "TokenAccountCredentials.h"
 #include "../providers/ProviderSourceMode.h"

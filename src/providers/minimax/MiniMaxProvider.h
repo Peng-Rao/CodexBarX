@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "../IProvider.h"
 #include "../IFetchStrategy.h"
@@ -28,7 +28,7 @@ public:
             {"apiRegion", "API region", "picker", QVariant(QStringLiteral("global")),
              { {"global", "Global"}, {"cn", "China"} }},
             {"apiKey", "API key", "secret", QVariant(),
-             {}, "com.codexbar.apikey.minimax", "MINIMAX_API_KEY",
+             {}, "com.codexbarx.apikey.minimax", "MINIMAX_API_KEY",
              "sk-cp-...", "MiniMax Coding Plan API key", false, true},
             {"cookieSource", "Cookie source", "picker", QVariant(QStringLiteral("auto")),
              { {"auto", "Automatic"}, {"manual", "Manual"} }},

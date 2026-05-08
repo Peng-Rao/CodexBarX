@@ -1,4 +1,4 @@
-#include "ProviderRegistry.h"
+﻿#include "ProviderRegistry.h"
 
 ProviderRegistry& ProviderRegistry::instance() {
     static ProviderRegistry reg;

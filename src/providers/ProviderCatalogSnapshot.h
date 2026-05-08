@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "IFetchStrategy.h"
 #include "../models/ProviderDescriptor.h"

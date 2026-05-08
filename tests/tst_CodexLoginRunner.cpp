@@ -1,4 +1,4 @@
-#include <QtTest/QtTest>
+﻿#include <QtTest/QtTest>
 
 #include "../src/providers/codex/CodexLoginRunner.h"
 #include "../src/providers/codex/ManagedCodexAccountService.h"

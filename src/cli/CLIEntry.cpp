@@ -1,4 +1,4 @@
-#include "CLIEntry.h"
+﻿#include "CLIEntry.h"
 #include "CLIRenderer.h"
 #include "CLIUsageCommand.h"
 #include "CLICostCommand.h"
@@ -38,7 +38,7 @@ void CLIEntry::initBackend()
 int CLIEntry::run(int argc, char* argv[])
 {
     QCommandLineParser parser;
-    parser.setApplicationDescription("WinCodexBar CLI");
+    parser.setApplicationDescription("CodexBarX CLI");
     parser.addHelpOption();
     parser.addVersionOption();
 

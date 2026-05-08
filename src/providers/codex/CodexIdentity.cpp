@@ -1,4 +1,4 @@
-#include "CodexIdentity.h"
+﻿#include "CodexIdentity.h"
 
 CodexIdentity::CodexIdentity()
     : m_type(CodexIdentityType::Unresolved)

@@ -1,4 +1,4 @@
-#include "UsageBackend.h"
+﻿#include "UsageBackend.h"
 
 #include <QPointer>
 #include <QUuid>

@@ -1,4 +1,4 @@
-#include "CodexSystemAccountObserver.h"
+﻿#include "CodexSystemAccountObserver.h"
 #include "CodexHomeScope.h"
 #include "CodexOpenAIWorkspaceResolver.h"
 #include "CodexOpenAIWorkspaceIdentityCache.h"

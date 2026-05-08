@@ -1,4 +1,4 @@
-#include "LanguageManager.h"
+﻿#include "LanguageManager.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -28,7 +28,7 @@ void LanguageManager::setLanguage(const QString& code) {
     qApp->removeTranslator(&m_qtTranslator);
 
     QStringList translationDirs;
-    const QString envDir = qEnvironmentVariable("WINCODEXBAR_TRANSLATION_DIR");
+    const QString envDir = qEnvironmentVariable("CODEXBARX_TRANSLATION_DIR");
     if (!envDir.isEmpty()) {
         translationDirs.append(envDir);
     }
@@ -41,7 +41,7 @@ void LanguageManager::setLanguage(const QString& code) {
 
     QString loadedFrom;
     for (const QString& baseDir : translationDirs) {
-        if (m_translator.load("WinCodexBar_" + code, baseDir)) {
+        if (m_translator.load("CodexBarX_" + code, baseDir)) {
             loadedFrom = QDir::cleanPath(baseDir);
             break;
         }
@@ -49,7 +49,7 @@ void LanguageManager::setLanguage(const QString& code) {
     if (!loadedFrom.isEmpty()) {
         qApp->installTranslator(&m_translator);
     } else if (code != "en") {
-        qWarning() << "Could not load WinCodexBar translation for" << code
+        qWarning() << "Could not load CodexBarX translation for" << code
                    << "from" << translationDirs;
     }
 

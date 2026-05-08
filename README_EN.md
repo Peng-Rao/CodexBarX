@@ -1,8 +1,8 @@
-# WinCodexBar
+﻿# CodexBarX
 
 English | [简体中文](README.md)
 
-**WinCodexBar** is a Windows system tray utility for real-time monitoring of usage, quotas, and reset times across multiple AI coding assistants. Built with C++ and Qt 6.5, it's lightweight, efficient, and perfect for developers who need persistent desktop monitoring.
+**CodexBarX** is a Windows system tray utility for real-time monitoring of usage, quotas, and reset times across multiple AI coding assistants. Built with C++ and Qt 6.5, it's lightweight, efficient, and perfect for developers who need persistent desktop monitoring.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)
@@ -39,7 +39,7 @@ English | [简体中文](README.md)
 
 ## Supported AI Providers
 
-WinCodexBar supports the following AI coding assistant providers:
+CodexBarX supports the following AI coding assistant providers:
 
 ### Major Providers
 
@@ -105,16 +105,16 @@ WinCodexBar supports the following AI coding assistant providers:
 
 ### Method 1: Download Installer (Recommended)
 
-1. Visit the [Releases](https://github.com/basil520/WinCodexBar/releases) page
-2. Download the latest `WinCodexBar-x.x.x-Installer.exe`
+1. Visit the [Releases](https://github.com/basil520/CodexBarX/releases) page
+2. Download the latest `CodexBarX-x.x.x-Installer.exe`
 3. Run the installer and follow the prompts
 4. Desktop shortcut and Start Menu entry will be created automatically
 
 ### Method 2: Portable Version
 
-1. Download `WinCodexBar-x.x.x-portable.zip`
+1. Download `CodexBarX-x.x.x-portable.zip`
 2. Extract to any directory
-3. Double-click `WinCodexBar.exe` to run
+3. Double-click `CodexBarX.exe` to run
 4. Optionally create a desktop shortcut for convenience
 
 ---
@@ -123,7 +123,7 @@ WinCodexBar supports the following AI coding assistant providers:
 
 ### First Run
 
-1. Launch WinCodexBar, it will minimize to the system tray
+1. Launch CodexBarX, it will minimize to the system tray
 2. Right-click the tray icon and select **Settings**
 3. In the **Providers** tab, enable the providers you need
 4. Configure authentication as prompted (API Key or auto-login)
@@ -166,8 +166,8 @@ Some providers support automatic reading of browser cookies or CLI configuration
 ### Clone Repository
 
 ```powershell
-git clone https://github.com/basil520/WinCodexBar.git
-cd WinCodexBar
+git clone https://github.com/basil520/CodexBarX.git
+cd CodexBarX
 ```
 
 ### Install Dependencies
@@ -191,7 +191,7 @@ cmake -B build -DCMAKE_PREFIX_PATH=C:\Qt\6.5.3\msvc2019_64
 cmake --build build --config Release --parallel
 
 # Run
-.\build\Release\WinCodexBar.exe
+.\build\Release\CodexBarX.exe
 ```
 
 ### Build Installer
@@ -226,7 +226,7 @@ ctest --test-dir build -C Release -R tst_RateWindow
 ## Project Structure
 
 ```
-WinCodexBar/
+CodexBarX/
 ├── src/                    # Source code
 │   ├── app/               # Application core logic
 │   ├── providers/         # Provider implementations
@@ -271,7 +271,7 @@ WinCodexBar/
 
 ### Q: Does it support proxies?
 
-**A:** WinCodexBar uses system proxy settings and automatically reads Windows proxy configuration.
+**A:** CodexBarX uses system proxy settings and automatically reads Windows proxy configuration.
 
 ---
 
@@ -312,8 +312,8 @@ This project is open-sourced under the [MIT License](LICENSE).
 
 ## Contact
 
-- **Bug Reports**: [GitHub Issues](https://github.com/basil520/WinCodexBar/issues)
-- **Feature Requests**: [GitHub Discussions](https://github.com/basil520/WinCodexBar/discussions)
+- **Bug Reports**: [GitHub Issues](https://github.com/basil520/CodexBarX/issues)
+- **Feature Requests**: [GitHub Discussions](https://github.com/basil520/CodexBarX/discussions)
 
 ---
 

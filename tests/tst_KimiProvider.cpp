@@ -1,4 +1,4 @@
-#include <QtTest/QtTest>
+﻿#include <QtTest/QtTest>
 #include <QJsonObject>
 #include <QJsonArray>
 #include "providers/kimi/KimiProvider.h"

@@ -1,4 +1,4 @@
-#include <QApplication>
+﻿#include <QApplication>
 #include <QClipboard>
 #include <QColor>
 #include <QDesktopServices>
@@ -32,7 +32,7 @@
 
 static bool activateExistingInstance() {
 #ifdef Q_OS_WIN
-    HWND hwnd = FindWindowW(nullptr, L"CodexBar");
+    HWND hwnd = FindWindowW(nullptr, L"CodexBarX");
     if (hwnd) {
         ShowWindow(hwnd, SW_RESTORE);
         SetForegroundWindow(hwnd);
@@ -286,15 +286,15 @@ int main(int argc, char* argv[]) {
     // Check for CLI subcommands before creating QApplication
     if (argc >= 2 && CLIEntry::isCliCommand(QString::fromUtf8(argv[1]))) {
         QCoreApplication app(argc, argv);
-        app.setApplicationName("WinCodexBar");
-        app.setOrganizationName("CodexBar");
+        app.setApplicationName("CodexBarX");
+        app.setOrganizationName("CodexBarX");
         CLIEntry cli;
         return cli.run(argc, argv);
     }
 
     qputenv("QT_QUICK_CONTROLS_STYLE", QByteArray("Basic"));
 
-    SingleInstanceGuard singleInstance(QStringLiteral("WinCodexBar_SingleInstance"));
+    SingleInstanceGuard singleInstance(QStringLiteral("CodexBarX_SingleInstance"));
     if (singleInstance.alreadyRunning()) {
         activateExistingInstance();
         return 0;
@@ -307,8 +307,8 @@ int main(int argc, char* argv[]) {
     auto* uiFreezeWatchdog = new UiFreezeWatchdog(&app);
     uiFreezeWatchdog->start();
 
-    app.setApplicationName("WinCodexBar");
-    app.setOrganizationName("CodexBar");
+    app.setApplicationName("CodexBarX");
+    app.setOrganizationName("CodexBarX");
     app.setQuitOnLastWindowClosed(false);
     const QStringList appArgs = QCoreApplication::arguments();
     for (const auto& arg : appArgs) {
@@ -351,20 +351,20 @@ int main(int argc, char* argv[]) {
         usageStore->refreshProvider("codex");
     });
 
-    qmlRegisterSingletonInstance("CodexBar", 1, 0, "SettingsStore", settings);
-    qmlRegisterSingletonInstance("CodexBar", 1, 0, "UsageStore", usageStore);
+    qmlRegisterSingletonInstance("CodexBarX", 1, 0, "SettingsStore", settings);
+    qmlRegisterSingletonInstance("CodexBarX", 1, 0, "UsageStore", usageStore);
     auto* settingsProvidersModel = new SettingsProvidersModel(usageStore, &app);
-    qmlRegisterSingletonInstance("CodexBar", 1, 0, "SettingsProvidersModel", settingsProvidersModel);
+    qmlRegisterSingletonInstance("CodexBarX", 1, 0, "SettingsProvidersModel", settingsProvidersModel);
     auto* trayViewModel = new TrayViewModel(usageStore, &app);
-    qmlRegisterSingletonInstance("CodexBar", 1, 0, "TrayViewModel", trayViewModel);
+    qmlRegisterSingletonInstance("CodexBarX", 1, 0, "TrayViewModel", trayViewModel);
     auto* usageDetailsViewModel = new UsageDetailsViewModel(usageStore, &app);
-    qmlRegisterSingletonInstance("CodexBar", 1, 0, "UsageDetailsViewModel", usageDetailsViewModel);
+    qmlRegisterSingletonInstance("CodexBarX", 1, 0, "UsageDetailsViewModel", usageDetailsViewModel);
 
     AppController* appController = new AppController(&app);
-    qmlRegisterSingletonInstance("CodexBar", 1, 0, "AppController", appController);
+    qmlRegisterSingletonInstance("CodexBarX", 1, 0, "AppController", appController);
 
     LanguageManager& langMgr = LanguageManager::instance();
-    qmlRegisterSingletonInstance("CodexBar", 1, 0, "LanguageManager", &langMgr);
+    qmlRegisterSingletonInstance("CodexBarX", 1, 0, "LanguageManager", &langMgr);
     langMgr.setLanguage(settings->language());
     QObject::connect(settings, &SettingsStore::languageChanged, [&]() {
         langMgr.setLanguage(settings->language());
@@ -386,8 +386,8 @@ int main(int argc, char* argv[]) {
     StatusItemController trayCtrl(usageStore, settings);
     if (!trayCtrl.initialize()) {
         qWarning() << "Failed to initialize system tray icon";
-        QMessageBox::critical(nullptr,
-            QStringLiteral("WinCodexBar"),
+            QMessageBox::critical(nullptr,
+                QStringLiteral("CodexBarX"),
             QCoreApplication::translate("App", "Failed to create system tray icon. Please restart the app."));
         return 1;
     }
@@ -417,7 +417,7 @@ int main(int argc, char* argv[]) {
     qmlEngine.rootContext()->setContextProperty("AppTheme", makeAppTheme());
 
     QQuickView trayView(&qmlEngine, nullptr);
-    trayView.setTitle("CodexBar");
+    trayView.setTitle("CodexBarX");
     trayView.resize(300, 520);
     trayView.setFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::NoDropShadowWindowHint);
     trayView.setColor(QColor("#1a1a2e"));
@@ -474,7 +474,7 @@ int main(int argc, char* argv[]) {
                 ? QCoreApplication::translate("App", "Unknown QML loading error.")
                 : messages.join(QLatin1Char('\n'));
             qWarning() << "Failed to load tray panel:" << detail;
-            QMessageBox::critical(nullptr, QStringLiteral("WinCodexBar"), detail);
+            QMessageBox::critical(nullptr, QStringLiteral("CodexBarX"), detail);
         } else if (status == QQuickView::Ready) {
             showStartupPanel();
         }
@@ -599,14 +599,14 @@ int main(int argc, char* argv[]) {
 
     QObject::connect(&trayCtrl, &StatusItemController::aboutRequested, &app, [&app]() {
         const QString body = QString("%1\n\n%2\n\n%3\n%4")
-            .arg(QCoreApplication::translate("App", "WinCodexBar v0.1.0"),
+            .arg(QCoreApplication::translate("App", "CodexBarX v0.1.0"),
                  QCoreApplication::translate(
                      "App",
                      "Windows system tray app for tracking AI provider usage limits."),
                  QCoreApplication::translate("App", "Built with Qt 6.5 + QML"),
-                 QStringLiteral("github.com/anomalyco/CodexBar"));
+                 QStringLiteral("github.com/basil520/CodexBarX"));
         QMessageBox::about(nullptr,
-            QCoreApplication::translate("App", "About WinCodexBar"),
+                QCoreApplication::translate("App", "About CodexBarX"),
             body);
     });
 
@@ -638,7 +638,7 @@ int main(int argc, char* argv[]) {
 
 #ifdef QT_DEBUG
     // Exit timing diagnostics (debug builds only)
-    QString diagPath = QDir::tempPath() + "/WinCodexBar_ExitDiag.log";
+    QString diagPath = QDir::tempPath() + "/CodexBarX_ExitDiag.log";
     auto diagLog = [&](const QString& msg) {
         QFile f(diagPath);
         if (f.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {

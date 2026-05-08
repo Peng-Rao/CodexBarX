@@ -1,4 +1,4 @@
-#include "KiloProvider.h"
+﻿#include "KiloProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/ProviderCredentialStore.h"
 #include <QJsonObject>
@@ -21,7 +21,7 @@ static QString resolveKiloApiKey(const ProviderFetchContext& ctx) {
     if (ctx.accountCredentials.api.has_value() && ctx.accountCredentials.api->isValid()) {
         return ctx.accountCredentials.api->apiKey.toString().trimmed();
     }
-    auto cred = ProviderCredentialStore::read("com.codexbar.apikey.kilo");
+    auto cred = ProviderCredentialStore::read("com.codexbarx.apikey.kilo");
     if (cred.has_value()) return QString::fromUtf8(cred.value());
     return {};
 }

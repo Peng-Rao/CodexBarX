@@ -1,4 +1,4 @@
-#include "UiFreezeWatchdog.h"
+﻿#include "UiFreezeWatchdog.h"
 
 #include <QDebug>
 #include <QtGlobal>

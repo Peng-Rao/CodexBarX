@@ -1,4 +1,4 @@
-#include "CodexOAuthUsageFetcher.h"
+﻿#include "CodexOAuthUsageFetcher.h"
 #include "../../network/NetworkManager.h"
 
 #include <QFile>
@@ -27,7 +27,7 @@ CodexOAuthUsageFetcher::FetchResult CodexOAuthUsageFetcher::fetchUsage(
     QHash<QString, QString> headers;
     headers["Authorization"] = "Bearer " + accessToken;
     headers["Accept"] = "application/json";
-    headers["User-Agent"] = "CodexBar";
+    headers["User-Agent"] = "CodexBarX";
 
     if (!accountId.isEmpty()) {
         headers["ChatGPT-Account-Id"] = accountId;

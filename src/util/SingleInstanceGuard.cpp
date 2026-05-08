@@ -1,4 +1,4 @@
-#include "SingleInstanceGuard.h"
+﻿#include "SingleInstanceGuard.h"
 
 #ifdef Q_OS_WIN
 #include <windows.h>

@@ -1,4 +1,4 @@
-#include "CodexTokenRefresher.h"
+﻿#include "CodexTokenRefresher.h"
 #include "../../network/NetworkManager.h"
 
 #include <QJsonObject>

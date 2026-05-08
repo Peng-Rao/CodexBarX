@@ -1,10 +1,10 @@
-#include "MacOSCredentialStore.h"
+﻿#include "MacOSCredentialStore.h"
 
 #include <Security/Security.h>
 
 namespace {
 
-static constexpr const char* kServiceName = "CodexBar";
+    static constexpr const char* kServiceName = "CodexBarX";
 
 QByteArray utf8(const QString& value)
 {

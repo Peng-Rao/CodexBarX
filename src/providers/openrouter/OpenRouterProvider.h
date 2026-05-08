@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "../IProvider.h"
 #include "../IFetchStrategy.h"
@@ -25,7 +25,7 @@ public:
     QString brandColor() const override { return "#6467F2"; }
     QVector<ProviderSettingsDescriptor> settingsDescriptors() const override {
         return { {"apiKey", "API key", "secret", QVariant(),
-                   {}, "com.codexbar.apikey.openrouter", "OPENROUTER_API_KEY",
+                   {}, "com.codexbarx.apikey.openrouter", "OPENROUTER_API_KEY",
                    "sk-or-...", "Stored in Windows Credential Manager", false, true} };
     }
     QString statusLinkURL() const override { return "https://status.openrouter.ai"; }

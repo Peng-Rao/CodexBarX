@@ -1,4 +1,4 @@
-#include "GeminiProvider.h"
+﻿#include "GeminiProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/ProviderCredentialStore.h"
 
@@ -163,7 +163,7 @@ GeminiAPIStrategy::GeminiAPIStrategy(QObject* parent) : IFetchStrategy(parent) {
 
 bool GeminiAPIStrategy::isAvailable(const ProviderFetchContext& ctx) const {
     return ctx.env.contains("GEMINI_API_KEY") ||
-           ProviderCredentialStore::read("com.codexbar.apikey.gemini").has_value();
+           ProviderCredentialStore::read("com.codexbarx.apikey.gemini").has_value();
 }
 
 bool GeminiAPIStrategy::shouldFallback(const ProviderFetchResult& result,

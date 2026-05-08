@@ -1,4 +1,4 @@
-#include "ManagedCodexAccount.h"
+﻿#include "ManagedCodexAccount.h"
 #include "../../models/CodexUsageResponse.h"
 
 #include <QFile>

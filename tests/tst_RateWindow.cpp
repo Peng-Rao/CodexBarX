@@ -1,4 +1,4 @@
-#include <QtTest>
+﻿#include <QtTest>
 #include "models/RateWindow.h"
 
 class RateWindowTest : public QObject {

@@ -1,4 +1,4 @@
-#include "ProviderCatalogSnapshot.h"
+﻿#include "ProviderCatalogSnapshot.h"
 
 #include "IProvider.h"
 #include "ProviderRegistry.h"

@@ -1,4 +1,4 @@
-#include <QtTest/QtTest>
+﻿#include <QtTest/QtTest>
 
 #include "../src/providers/ProviderSettingsSnapshot.h"
 #include "../src/providers/codex/CodexProvider.h"

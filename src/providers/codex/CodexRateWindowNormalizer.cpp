@@ -1,4 +1,4 @@
-#include "CodexRateWindowNormalizer.h"
+﻿#include "CodexRateWindowNormalizer.h"
 
 CodexRateWindowNormalizer::Result CodexRateWindowNormalizer::normalize(
     const std::optional<RateWindow>& primary,

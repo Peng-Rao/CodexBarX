@@ -1,4 +1,4 @@
-#include "CursorProvider.h"
+﻿#include "CursorProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/CookieImporter.h"
 #include "../../models/CursorUsageSummary.h"

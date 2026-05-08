@@ -1,4 +1,4 @@
-#include "WarpProvider.h"
+﻿#include "WarpProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/ProviderCredentialStore.h"
 
@@ -21,7 +21,7 @@ QString WarpAPIStrategy::resolveApiKey(const ProviderFetchContext& ctx) {
     if (ctx.accountCredentials.api.has_value() && ctx.accountCredentials.api->isValid()) {
         return ctx.accountCredentials.api->apiKey.toString().trimmed();
     }
-    auto cred = ProviderCredentialStore::read("com.codexbar.apikey.warp");
+    auto cred = ProviderCredentialStore::read("com.codexbarx.apikey.warp");
     if (cred.has_value()) return QString::fromUtf8(cred.value());
     return {};
 }

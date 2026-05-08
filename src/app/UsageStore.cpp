@@ -1,4 +1,4 @@
-#include "UsageStore.h"
+﻿#include "UsageStore.h"
 #include "BatchUpdateController.h"
 #include "CostUsageService.h"
 #include "Localization.h"
@@ -1603,7 +1603,7 @@ void UsageStore::dispatchProviderLoginPoll(const ProviderLoginStartPayload& star
             const QString accessToken = tokenResp.value(QStringLiteral("access_token")).toString();
             if (!accessToken.isEmpty()) {
                 const bool ok = ProviderCredentialStore::write(
-                    QStringLiteral("com.codexbar.oauth.copilot"),
+                    QStringLiteral("com.codexbarx.oauth.copilot"),
                     {},
                     accessToken.toUtf8());
                 payload.state = ok ? QStringLiteral("succeeded") : QStringLiteral("failed");

@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "../../models/RateWindow.h"
 #include "../../models/ProviderIdentitySnapshot.h"

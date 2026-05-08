@@ -1,4 +1,4 @@
-#include "AbacusProvider.h"
+﻿#include "AbacusProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../shared/CookieImporter.h"
 #include "../shared/BrowserDetection.h"

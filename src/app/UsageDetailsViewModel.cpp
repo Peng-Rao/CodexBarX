@@ -1,4 +1,4 @@
-#include "UsageDetailsViewModel.h"
+﻿#include "UsageDetailsViewModel.h"
 
 #include "UsageStore.h"
 

@@ -1,4 +1,4 @@
-#include "OpenCodeUtils.h"
+﻿#include "OpenCodeUtils.h"
 #include "../../providers/shared/CookieImporter.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/ProviderFetchContext.h"

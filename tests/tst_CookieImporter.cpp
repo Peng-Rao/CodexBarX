@@ -1,4 +1,4 @@
-#include <QtTest/QtTest>
+﻿#include <QtTest/QtTest>
 
 #include "../src/providers/shared/BrowserDetection.h"
 #include "../src/providers/shared/CookieImporter.h"

@@ -1,8 +1,8 @@
-# WinCodexBar
+﻿# CodexBarX
 
 [English](README_EN.md) | 简体中文
 
-**WinCodexBar** 是一款 Windows 系统托盘工具，用于实时监控多个 AI 编程助手的用量、额度和重置时间。基于 C++ 和 Qt 6.5 开发，轻量高效，适合开发者长期常驻桌面使用。
+**CodexBarX** 是一款 Windows 系统托盘工具，用于实时监控多个 AI 编程助手的用量、额度和重置时间。基于 C++ 和 Qt 6.5 开发，轻量高效，适合开发者长期常驻桌面使用。
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)
@@ -39,7 +39,7 @@
 
 ## 支持的 AI 服务商
 
-WinCodexBar 支持以下 AI 编程助手服务商：
+CodexBarX 支持以下 AI 编程助手服务商：
 
 ### 主流服务商
 
@@ -105,16 +105,16 @@ WinCodexBar 支持以下 AI 编程助手服务商：
 
 ### 方式一：下载安装包（推荐）
 
-1. 前往 [Releases](https://github.com/basil520/WinCodexBar/releases) 页面
-2. 下载最新版本的 `WinCodexBar-x.x.x-Installer.exe`
+1. 前往 [Releases](https://github.com/basil520/CodexBarX/releases) 页面
+2. 下载最新版本的 `CodexBarX-x.x.x-Installer.exe`
 3. 运行安装程序，按提示完成安装
 4. 安装完成后自动创建桌面快捷方式和开始菜单项
 
 ### 方式二：便携版
 
-1. 下载 `WinCodexBar-x.x.x-portable.zip`
+1. 下载 `CodexBarX-x.x.x-portable.zip`
 2. 解压到任意目录
-3. 双击 `WinCodexBar.exe` 运行
+3. 双击 `CodexBarX.exe` 运行
 4. 可创建桌面快捷方式方便使用
 
 ---
@@ -123,7 +123,7 @@ WinCodexBar 支持以下 AI 编程助手服务商：
 
 ### 首次运行
 
-1. 启动 WinCodexBar，程序将最小化到系统托盘
+1. 启动 CodexBarX，程序将最小化到系统托盘
 2. 右键点击托盘图标，选择 **Settings**（设置）
 3. 在 **Providers**（服务商）标签页中启用需要的服务商
 4. 根据提示配置认证信息（API Key 或自动登录）
@@ -166,8 +166,8 @@ WinCodexBar 支持以下 AI 编程助手服务商：
 ### 克隆仓库
 
 ```powershell
-git clone https://github.com/basil520/WinCodexBar.git
-cd WinCodexBar
+git clone https://github.com/basil520/CodexBarX.git
+cd CodexBarX
 ```
 
 ### 安装依赖
@@ -191,7 +191,7 @@ cmake -B build -DCMAKE_PREFIX_PATH=C:\Qt\6.5.3\msvc2019_64
 cmake --build build --config Release --parallel
 
 # 运行
-.\build\Release\WinCodexBar.exe
+.\build\Release\CodexBarX.exe
 ```
 
 ### 构建安装程序
@@ -226,7 +226,7 @@ ctest --test-dir build -C Release -R tst_RateWindow
 ## 项目结构
 
 ```
-WinCodexBar/
+CodexBarX/
 ├── src/                    # 源代码
 │   ├── app/               # 应用核心逻辑
 │   ├── providers/         # 服务商实现
@@ -271,7 +271,7 @@ WinCodexBar/
 
 ### Q: 支持代理吗？
 
-**A:** WinCodexBar 使用系统代理设置，会自动读取 Windows 代理配置。
+**A:** CodexBarX 使用系统代理设置，会自动读取 Windows 代理配置。
 
 ---
 
@@ -312,8 +312,8 @@ WinCodexBar/
 
 ## 联系方式
 
-- **问题反馈**: [GitHub Issues](https://github.com/basil520/WinCodexBar/issues)
-- **功能建议**: [GitHub Discussions](https://github.com/basil520/WinCodexBar/discussions)
+- **问题反馈**: [GitHub Issues](https://github.com/basil520/CodexBarX/issues)
+- **功能建议**: [GitHub Discussions](https://github.com/basil520/CodexBarX/discussions)
 
 ---
 

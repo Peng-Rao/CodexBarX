@@ -1,4 +1,4 @@
-#include <QtTest>
+﻿#include <QtTest>
 #include "models/UsagePace.h"
 
 class UsagePaceTest : public QObject {

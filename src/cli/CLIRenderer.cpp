@@ -1,4 +1,4 @@
-#include "CLIRenderer.h"
+﻿#include "CLIRenderer.h"
 
 CLIRenderer::CLIRenderer(bool jsonMode, bool pretty, bool noColor)
     : m_jsonMode(jsonMode)

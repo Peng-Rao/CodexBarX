@@ -1,4 +1,4 @@
-#include <QtTest/QtTest>
+﻿#include <QtTest/QtTest>
 
 #include "../src/providers/windsurf/WindsurfProvider.h"
 #include "../src/providers/windsurf/WindsurfDevinSessionImporter.h"
@@ -89,7 +89,7 @@ void tst_WindsurfProvider::providerMetadataAndSettings()
     QCOMPARE(settings[1].options[1].value, QStringLiteral("manual"));
     QCOMPARE(settings[1].options[2].value, QStringLiteral("off"));
     QVERIFY(settings[2].sensitive);
-    QCOMPARE(settings[2].credentialTarget, QStringLiteral("com.codexbar.session.windsurf"));
+    QCOMPARE(settings[2].credentialTarget, QStringLiteral("com.codexbarx.session.windsurf"));
 }
 
 void tst_WindsurfProvider::parseFullCachedPlanInfo()

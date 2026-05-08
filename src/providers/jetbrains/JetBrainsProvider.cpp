@@ -1,4 +1,4 @@
-#include "JetBrainsProvider.h"
+﻿#include "JetBrainsProvider.h"
 
 #include <QDir>
 #include <QFile>

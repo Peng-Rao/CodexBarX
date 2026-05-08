@@ -1,4 +1,4 @@
-#include "WindsurfProvider.h"
+﻿#include "WindsurfProvider.h"
 #include "WindsurfDevinSessionImporter.h"
 #include "../../network/NetworkManager.h"
 
@@ -618,7 +618,7 @@ QVector<ProviderSettingsDescriptor> WindsurfProvider::settingsDescriptors() cons
         {"cookieSource", "Cookie source", "picker", QVariant(QStringLiteral("auto")),
          {{"auto", "Automatic"}, {"manual", "Manual"}, {"off", "Off"}}},
         {"manualCookieHeader", "Windsurf session JSON bundle", "secret", QVariant(),
-         {}, "com.codexbar.session.windsurf", "CODEXBAR_WINDSURF_SESSION",
+         {}, "com.codexbarx.session.windsurf", "CODEXBAR_WINDSURF_SESSION",
          "{\"devin_session_token\":\"...\"}", "Stored in Windows Credential Manager", true, true}
     };
 }

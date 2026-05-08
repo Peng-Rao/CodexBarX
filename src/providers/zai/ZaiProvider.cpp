@@ -1,4 +1,4 @@
-#include "ZaiProvider.h"
+﻿#include "ZaiProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/ProviderCredentialStore.h"
 #include "../../models/UsagePace.h"
@@ -24,7 +24,7 @@ static QString resolveApiKey(const ProviderFetchContext& ctx) {
     if (ctx.accountCredentials.api.has_value() && ctx.accountCredentials.api->isValid()) {
         return ctx.accountCredentials.api->apiKey.toString().trimmed();
     }
-    auto cred = ProviderCredentialStore::read("com.codexbar.apikey.zai");
+    auto cred = ProviderCredentialStore::read("com.codexbarx.apikey.zai");
     if (cred.has_value()) {
         return QString::fromUtf8(cred.value());
     }

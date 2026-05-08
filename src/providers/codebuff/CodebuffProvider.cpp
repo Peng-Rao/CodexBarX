@@ -1,4 +1,4 @@
-#include "CodebuffProvider.h"
+﻿#include "CodebuffProvider.h"
 
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/ProviderCredentialStore.h"
@@ -357,7 +357,7 @@ std::optional<CodebuffAPIStrategy::TokenResolution> CodebuffAPIStrategy::resolve
     const QString settingsToken = cleaned(ctx.settings.get(QStringLiteral("apiKey")).toString());
     if (!settingsToken.isEmpty()) return TokenResolution{settingsToken, TokenSource::Settings};
 
-    auto stored = ProviderCredentialStore::read(QStringLiteral("com.codexbar.apikey.codebuff"));
+    auto stored = ProviderCredentialStore::read(QStringLiteral("com.codexbarx.apikey.codebuff"));
     if (stored.has_value()) {
         const QString token = cleaned(QString::fromUtf8(stored.value()));
         if (!token.isEmpty()) return TokenResolution{token, TokenSource::CredentialStore};

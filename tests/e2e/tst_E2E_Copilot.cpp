@@ -1,4 +1,4 @@
-#include <QtTest/QtTest>
+﻿#include <QtTest/QtTest>
 #include "E2ETestUtils.h"
 
 #include "../src/providers/shared/ProviderCredentialStore.h"
@@ -19,7 +19,7 @@ private slots:
         if (!token.isEmpty()) {
             memBackend = std::make_shared<InMemoryCredentialBackend>();
             ProviderCredentialStore::setBackendForTesting(memBackend);
-            memBackend->write("com.codexbar.oauth.copilot", "", token);
+            memBackend->write("com.codexbarx.oauth.copilot", "", token);
         }
 
         auto result = E2ETestUtils::runProviderFetch("copilot");

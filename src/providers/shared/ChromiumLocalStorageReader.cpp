@@ -1,4 +1,4 @@
-#include "ChromiumLocalStorageReader.h"
+﻿#include "ChromiumLocalStorageReader.h"
 
 #include <QDir>
 #include <QFile>

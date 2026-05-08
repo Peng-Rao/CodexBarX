@@ -1,4 +1,4 @@
-#include "TrayViewModel.h"
+﻿#include "TrayViewModel.h"
 
 #include "UsageStore.h"
 

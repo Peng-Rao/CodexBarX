@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "IProviderRuntime.h"
 #include "../providers/IProvider.h"

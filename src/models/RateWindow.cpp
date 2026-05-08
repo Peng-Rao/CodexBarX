@@ -1,1 +1,1 @@
-#include "RateWindow.h"
+﻿#include "RateWindow.h"

@@ -1,4 +1,4 @@
-#include "E2ETestUtils.h"
+﻿#include "E2ETestUtils.h"
 
 #include "../src/providers/ProviderRegistry.h"
 #include "../src/providers/ProviderPipeline.h"
@@ -63,7 +63,7 @@ bool hasRealCredentials(const QString& providerId) {
 
     if (providerId == "copilot") {
         if (env.contains("CODEXBAR_E2E_COPILOT_TOKEN")) return true;
-        return ProviderCredentialStore::exists("com.codexbar.oauth.copilot");
+        return ProviderCredentialStore::exists("com.codexbarx.oauth.copilot");
     }
 
     if (providerId == "kimi") {

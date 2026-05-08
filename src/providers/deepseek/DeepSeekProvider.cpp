@@ -1,4 +1,4 @@
-#include "DeepSeekProvider.h"
+﻿#include "DeepSeekProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/ProviderCredentialStore.h"
 
@@ -21,7 +21,7 @@ QString DeepSeekAPIStrategy::resolveApiKey(const ProviderFetchContext& ctx) {
     if (ctx.accountCredentials.api.has_value() && ctx.accountCredentials.api->isValid()) {
         return ctx.accountCredentials.api->apiKey.toString().trimmed();
     }
-    auto cred = ProviderCredentialStore::read("com.codexbar.apikey.deepseek");
+    auto cred = ProviderCredentialStore::read("com.codexbarx.apikey.deepseek");
     if (cred.has_value()) return QString::fromUtf8(cred.value());
     return {};
 }

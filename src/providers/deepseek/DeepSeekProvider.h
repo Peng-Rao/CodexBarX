@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "../IProvider.h"
 #include "../IFetchStrategy.h"
@@ -26,7 +26,7 @@ public:
     QVector<ProviderSettingsDescriptor> settingsDescriptors() const override {
         return {
             {"apiKey", "API key", "secret", QVariant(),
-             {}, "com.codexbar.apikey.deepseek", "DEEPSEEK_API_KEY",
+             {}, "com.codexbarx.apikey.deepseek", "DEEPSEEK_API_KEY",
              "sk-...", "Stored in Windows Credential Manager", false, true}
         };
     }

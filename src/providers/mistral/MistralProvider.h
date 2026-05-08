@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "../IProvider.h"
 #include "../IFetchStrategy.h"
@@ -21,7 +21,7 @@ public:
     QString brandColor() const override { return "#FF500F"; }
     QVector<ProviderSettingsDescriptor> settingsDescriptors() const override {
         return { {"manualCookieHeader", "Manual cookie header", "secret", QVariant(),
-                   {}, "com.codexbar.cookie.mistral", {}, "cookie=value; ...",
+                   {}, "com.codexbarx.cookie.mistral", {}, "cookie=value; ...",
                    "Stored in Windows Credential Manager", true, true} };
     }
     QVector<QString> supportedSourceModes() const override { return {"web"}; }

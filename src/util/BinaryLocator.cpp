@@ -1,4 +1,4 @@
-#include "BinaryLocator.h"
+﻿#include "BinaryLocator.h"
 
 #include <QDir>
 #include <QFileInfo>

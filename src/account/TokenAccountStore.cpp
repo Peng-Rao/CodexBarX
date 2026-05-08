@@ -1,4 +1,4 @@
-#include "TokenAccountStore.h"
+﻿#include "TokenAccountStore.h"
 #include "../providers/shared/ProviderCredentialStore.h"
 #include "../app/SettingsStore.h"
 #include "../providers/ProviderRegistry.h"
@@ -34,7 +34,7 @@ QString TokenAccountStore::storagePath() const
 
 QString TokenAccountStore::credentialTargetFor(const QString& accountId, const QString& type) const
 {
-    return QString("CodexBar/account/%1/%2").arg(accountId, type);
+    return QString("CodexBarX/account/%1/%2").arg(accountId, type);
 }
 
 QString TokenAccountStore::addAccount(const TokenAccount& account)

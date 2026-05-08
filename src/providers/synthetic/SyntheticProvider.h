@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "../IProvider.h"
 #include "../IFetchStrategy.h"
@@ -26,7 +26,7 @@ public:
     QVector<ProviderSettingsDescriptor> settingsDescriptors() const override {
         return {
             {"apiKey", "API key", "secret", QVariant(),
-             {}, "com.codexbar.apikey.synthetic", "SYNTHETIC_API_KEY",
+             {}, "com.codexbarx.apikey.synthetic", "SYNTHETIC_API_KEY",
              "sk-...", "Synthetic API key", false, true}
         };
     }

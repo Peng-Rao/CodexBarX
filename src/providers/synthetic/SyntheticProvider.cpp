@@ -1,4 +1,4 @@
-#include "SyntheticProvider.h"
+﻿#include "SyntheticProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/ProviderCredentialStore.h"
 
@@ -21,7 +21,7 @@ QString SyntheticAPIStrategy::resolveApiKey(const ProviderFetchContext& ctx) {
     if (ctx.accountCredentials.api.has_value() && ctx.accountCredentials.api->isValid()) {
         return ctx.accountCredentials.api->apiKey.toString().trimmed();
     }
-    auto cred = ProviderCredentialStore::read("com.codexbar.apikey.synthetic");
+    auto cred = ProviderCredentialStore::read("com.codexbarx.apikey.synthetic");
     if (cred.has_value()) return QString::fromUtf8(cred.value());
     return {};
 }

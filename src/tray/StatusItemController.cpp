@@ -1,4 +1,4 @@
-#include "StatusItemController.h"
+﻿#include "StatusItemController.h"
 #include "TrayIconRenderer.h"
 #ifdef Q_OS_WIN
 #include "TrayPopupPositioner.h"
@@ -79,7 +79,7 @@ bool StatusItemController::createTrayIcon() {
     m_nid.uID = TASKBAR_ICON_ID;
     m_nid.uFlags = NIF_MESSAGE | NIF_TIP;
     m_nid.uCallbackMessage = WM_TRAYICON;
-    wcscpy_s(m_nid.szTip, L"CodexBar");
+    wcscpy_s(m_nid.szTip, L"CodexBarX");
 
     if (!Shell_NotifyIconW(NIM_ADD, &m_nid)) {
         return false;
@@ -394,7 +394,7 @@ void StatusItemController::applyMergedIcon() {
 
     QIcon icon = m_renderer->makeIcon(lowestPrimary, lowestWeekly, std::nullopt, false,
                                        TrayIconRenderer::IconStyle::Default);
-    QString tip = tr("CodexBar");
+    QString tip = tr("CodexBarX");
     if (!tightestProvider.isEmpty() && lowestPrimary.has_value()) {
         tip += QString(" · %1 %2%")
             .arg(m_store->providerDisplayName(tightestProvider))

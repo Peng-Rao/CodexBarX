@@ -1,4 +1,4 @@
-#include "SettingsStore.h"
+﻿#include "SettingsStore.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -51,9 +51,9 @@ void SettingsStore::setLaunchAtLogin(bool enable) {
         QSettings runReg("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
                          QSettings::NativeFormat);
         if (enable) {
-            runReg.setValue("CodexBar", QDir::toNativeSeparators(QCoreApplication::applicationFilePath()));
+            runReg.setValue("CodexBarX", QDir::toNativeSeparators(QCoreApplication::applicationFilePath()));
         } else {
-            runReg.remove("CodexBar");
+            runReg.remove("CodexBarX");
         }
         emit launchAtLoginChanged();
     }

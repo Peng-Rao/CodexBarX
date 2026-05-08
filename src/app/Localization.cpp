@@ -1,4 +1,4 @@
-#include "Localization.h"
+﻿#include "Localization.h"
 
 #include <QCoreApplication>
 

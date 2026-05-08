@@ -1,4 +1,4 @@
-#include "CodexLoginRunner.h"
+﻿#include "CodexLoginRunner.h"
 #include "../../util/BinaryLocator.h"
 #include "../../util/TextParser.h"
 

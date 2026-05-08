@@ -1,4 +1,4 @@
-#include "PerplexityProvider.h"
+﻿#include "PerplexityProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../shared/CookieImporter.h"
 #include "../shared/BrowserDetection.h"

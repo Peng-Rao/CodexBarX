@@ -1,4 +1,4 @@
-#include <QtTest/QtTest>
+﻿#include <QtTest/QtTest>
 #include "../src/providers/perplexity/PerplexityProvider.h"
 #include "../src/models/UsageSnapshot.h"
 

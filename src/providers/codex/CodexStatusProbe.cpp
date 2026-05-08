@@ -1,4 +1,4 @@
-#include "CodexStatusProbe.h"
+﻿#include "CodexStatusProbe.h"
 #include "../shared/ConPTYSession.h"
 #include "../../util/TextParser.h"
 #include "../../util/BinaryLocator.h"

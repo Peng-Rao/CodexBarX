@@ -1,4 +1,4 @@
-#include <QGuiApplication>
+﻿#include <QGuiApplication>
 #include <QtTest/QtTest>
 #include <QtQml/QQmlEngine>
 #include <QtQml/QQmlComponent>
@@ -1173,13 +1173,13 @@ private:
         mockSettingsProviders.setUsageStore(&mockUsage);
         mockTray.setUsageStore(&mockUsage);
         mockUsageDetails.setUsageStore(&mockUsage);
-        qmlRegisterSingletonInstance("CodexBar", 1, 0, "SettingsStore", &mockSettings);
-        qmlRegisterSingletonInstance("CodexBar", 1, 0, "UsageStore", &mockUsage);
-        qmlRegisterSingletonInstance("CodexBar", 1, 0, "SettingsProvidersModel", &mockSettingsProviders);
-        qmlRegisterSingletonInstance("CodexBar", 1, 0, "TrayViewModel", &mockTray);
-        qmlRegisterSingletonInstance("CodexBar", 1, 0, "UsageDetailsViewModel", &mockUsageDetails);
-        qmlRegisterSingletonInstance("CodexBar", 1, 0, "AppController", &mockAppCtrl);
-        qmlRegisterSingletonInstance("CodexBar", 1, 0, "LanguageManager", &mockLang);
+        qmlRegisterSingletonInstance("CodexBarX", 1, 0, "SettingsStore", &mockSettings);
+        qmlRegisterSingletonInstance("CodexBarX", 1, 0, "UsageStore", &mockUsage);
+        qmlRegisterSingletonInstance("CodexBarX", 1, 0, "SettingsProvidersModel", &mockSettingsProviders);
+        qmlRegisterSingletonInstance("CodexBarX", 1, 0, "TrayViewModel", &mockTray);
+        qmlRegisterSingletonInstance("CodexBarX", 1, 0, "UsageDetailsViewModel", &mockUsageDetails);
+        qmlRegisterSingletonInstance("CodexBarX", 1, 0, "AppController", &mockAppCtrl);
+        qmlRegisterSingletonInstance("CodexBarX", 1, 0, "LanguageManager", &mockLang);
     }
 
     QObject* findObjectByStringProperty(QObject* root, const char* propertyName, const QString& value) const {
@@ -1626,7 +1626,7 @@ private slots:
             import QtQuick 2.15
             import QtQuick.Controls 2.15
             import "qrc:/qml/components" as Components
-            import CodexBar 1.0
+            import CodexBarX 1.0
 
             Components.TokenAccountsPane {
                 width: 740

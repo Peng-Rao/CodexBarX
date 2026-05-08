@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "../IProvider.h"
 #include "../IFetchStrategy.h"
@@ -21,7 +21,7 @@ public:
     QString brandColor() const override { return "#F27027"; }
     QVector<ProviderSettingsDescriptor> settingsDescriptors() const override {
         return { {"apiKey", "API key", "secret", QVariant(),
-                   {}, "com.codexbar.apikey.kilo", "KILO_API_KEY",
+                   {}, "com.codexbarx.apikey.kilo", "KILO_API_KEY",
                    "sk-...", "Stored in Windows Credential Manager", false, true} };
     }
     QVector<QString> supportedSourceModes() const override { return {"api"}; }

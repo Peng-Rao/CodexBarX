@@ -1,4 +1,4 @@
-#include "CostUsageScanner.h"
+﻿#include "CostUsageScanner.h"
 #include "CostUsageCache.h"
 
 #include <QDir>
@@ -238,7 +238,7 @@ CostUsageScanner::Pricing CostUsageScanner::priceForModel(const QString& modelNa
 
 QString CostUsageScanner::cacheDir() {
     return QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation)
-           + "/CodexBar/cost-usage";
+           + "/CodexBarX/cost-usage";
 }
 
 QString CostUsageScanner::stripQuotes(const QString& s) {

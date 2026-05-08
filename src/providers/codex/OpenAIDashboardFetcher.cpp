@@ -1,4 +1,4 @@
-#include "OpenAIDashboardFetcher.h"
+﻿#include "OpenAIDashboardFetcher.h"
 #include "../../network/NetworkManager.h"
 
 #include <QJsonDocument>

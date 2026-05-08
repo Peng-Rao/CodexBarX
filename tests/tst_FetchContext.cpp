@@ -1,4 +1,4 @@
-#include <QtTest/QtTest>
+﻿#include <QtTest/QtTest>
 
 #include "../src/app/SettingsStore.h"
 #include "../src/app/UsageStore.h"
@@ -108,7 +108,7 @@ public:
 
     QVector<ProviderSettingsDescriptor> settingsDescriptors() const override {
         return {
-            {"apiKey", "API Key", "secret", {}, {}, "com.codexbar.test.connection-lag",
+            {"apiKey", "API Key", "secret", {}, {}, "com.codexbarx.test.connection-lag",
              {}, "secret", "Stored in Windows Credential Manager", false, true}
         };
     }
@@ -255,7 +255,7 @@ private slots:
     }
 
     void readsManualCookieFromCredentialStore() {
-        ProviderCredentialStore::write("com.codexbar.cookie.claude", {}, "sessionKey=sk-ant-credential");
+        ProviderCredentialStore::write("com.codexbarx.cookie.claude", {}, "sessionKey=sk-ant-credential");
 
         SettingsStore settings;
         UsageStore store;
@@ -303,7 +303,7 @@ private slots:
     void envSecretBeatsStoredCredential() {
         qputenv("Z_AI_API_KEY", "env-secret");
         UsageStore::rebuildSystemEnvCache();
-        ProviderCredentialStore::write("com.codexbar.apikey.zai", {}, "stored-secret");
+        ProviderCredentialStore::write("com.codexbarx.apikey.zai", {}, "stored-secret");
 
         SettingsStore settings;
         UsageStore store;
@@ -319,7 +319,7 @@ private slots:
         UsageStore store;
         store.setSettingsStore(&settings);
 
-        ProviderCredentialStore::write("com.codexbar.apikey.zai", {}, "stored-secret");
+        ProviderCredentialStore::write("com.codexbarx.apikey.zai", {}, "stored-secret");
         store.preloadCredentials();
         QVariantMap credentialStatus = store.providerSecretStatus("zai", "apiKey");
         QCOMPARE(credentialStatus.value("configured").toBool(), true);

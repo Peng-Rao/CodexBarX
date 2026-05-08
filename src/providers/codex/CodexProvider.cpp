@@ -1,4 +1,4 @@
-#include "CodexProvider.h"
+﻿#include "CodexProvider.h"
 #include "CodexHomeScope.h"
 #include "CodexDashboardAuthorityContext.h"
 #include "CodexDashboardCache.h"
@@ -162,7 +162,7 @@ ProviderFetchResult CodexOAuthStrategy::fetchSync(const ProviderFetchContext& ct
     QHash<QString, QString> headers;
     headers["Authorization"] = "Bearer " + creds.accessToken;
     headers["Accept"] = "application/json";
-    headers["User-Agent"] = "CodexBar";
+    headers["User-Agent"] = "CodexBarX";
 
     if (!creds.accountId.isEmpty()) {
         headers["ChatGPT-Account-Id"] = creds.accountId;
@@ -480,7 +480,7 @@ ProviderFetchResult CodexAppServerStrategy::fetchSync(const ProviderFetchContext
         return makeCodexRpcFailure("Codex CLI RPC failed to start; falling back to /status.");
     }
 
-    auto initResult = rpc.initialize("wincodexbar", "0.1.0", timeoutMs);
+    auto initResult = rpc.initialize("CodexBarX", "0.1.0", timeoutMs);
     if (!initResult.success) {
         qDebug() << "[CodexRPC] initialize failed:" << initResult.errorMessage;
         rpc.shutdown();

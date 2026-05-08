@@ -1,4 +1,4 @@
-#include "IProviderRuntime.h"
+﻿#include "IProviderRuntime.h"
 #include <cmath>
 
 int IProviderRuntime::currentBackoffMs() const

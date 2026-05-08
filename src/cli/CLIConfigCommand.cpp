@@ -1,4 +1,4 @@
-#include "CLIConfigCommand.h"
+﻿#include "CLIConfigCommand.h"
 #include "../app/SettingsStore.h"
 #include <QJsonObject>
 #include <QJsonArray>

@@ -1,4 +1,4 @@
-#include "MiniMaxProvider.h"
+﻿#include "MiniMaxProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/ProviderCredentialStore.h"
 #include "../../providers/shared/CookieImporter.h"
@@ -30,7 +30,7 @@ QString MiniMaxAPIStrategy::resolveApiKey(const ProviderFetchContext& ctx) {
     if (ctx.accountCredentials.api.has_value() && ctx.accountCredentials.api->isValid()) {
         return ctx.accountCredentials.api->apiKey.toString().trimmed();
     }
-    auto cred = ProviderCredentialStore::read("com.codexbar.apikey.minimax");
+    auto cred = ProviderCredentialStore::read("com.codexbarx.apikey.minimax");
     if (cred.has_value()) return QString::fromUtf8(cred.value());
     return {};
 }
@@ -65,7 +65,7 @@ ProviderFetchResult MiniMaxAPIStrategy::fetchOnce(const QString& apiKey, const Q
     QString path = "/v1/api/openplatform/coding_plan/remains";
     QHash<QString, QString> headers;
     headers["Authorization"] = "Bearer " + apiKey;
-    headers["MM-API-Source"] = "CodexBar";
+    headers["MM-API-Source"] = "CodexBarX";
     headers["Accept"] = "application/json";
 
     QJsonObject json = NetworkManager::instance().getJsonSync(

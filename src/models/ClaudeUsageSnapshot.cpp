@@ -1,4 +1,4 @@
-#include "ClaudeUsageSnapshot.h"
+﻿#include "ClaudeUsageSnapshot.h"
 #include "UsageSnapshot.h"
 
 #include <QJsonDocument>

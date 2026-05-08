@@ -1,7 +1,7 @@
-import QtQuick 2.15
+﻿import QtQuick 2.15
 import QtQuick.Layouts 1.15
 import QtQuick.Controls 2.15
-import CodexBar 1.0
+import CodexBarX 1.0
 import ".."
 import "../components"
 
@@ -73,7 +73,7 @@ SettingsPage {
 
             SettingsButton {
                 text: qsTr("Open GitHub")
-                onClicked: AppController.openExternalUrl("https://github.com/basil520/WinCodexBar")
+                onClicked: AppController.openExternalUrl("https://github.com/basil520/CodexBarX")
             }
         }
     }

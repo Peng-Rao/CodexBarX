@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "../models/UsageSnapshot.h"
 #include "../models/CreditsSnapshot.h"

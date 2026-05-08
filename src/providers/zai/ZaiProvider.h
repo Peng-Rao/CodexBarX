@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "../IProvider.h"
 #include "../IFetchStrategy.h"
@@ -35,7 +35,7 @@ public:
     QVector<ProviderSettingsDescriptor> settingsDescriptors() const override {
         return {
             {"apiKey", "API key", "secret", QVariant(),
-             {}, "com.codexbar.apikey.zai", "Z_AI_API_KEY", "sk-...", "Stored in Windows Credential Manager", false, true},
+             {}, "com.codexbarx.apikey.zai", "Z_AI_API_KEY", "sk-...", "Stored in Windows Credential Manager", false, true},
             {"apiRegion", "API region", "picker", QVariant(QStringLiteral("global")),
              { {"global", "Global"}, {"bigmodelCN", "BigModel CN"} }}
         };

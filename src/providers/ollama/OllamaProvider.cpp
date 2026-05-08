@@ -1,4 +1,4 @@
-#include "OllamaProvider.h"
+﻿#include "OllamaProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/CookieImporter.h"
 #include <QRegularExpression>

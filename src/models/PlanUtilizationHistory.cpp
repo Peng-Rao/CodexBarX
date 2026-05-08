@@ -1,4 +1,4 @@
-#include "PlanUtilizationHistory.h"
+﻿#include "PlanUtilizationHistory.h"
 #include <algorithm>
 
 QDateTime PlanUtilizationSeriesHistory::latestCapturedAt() const {
