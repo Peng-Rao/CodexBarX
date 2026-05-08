@@ -34,6 +34,7 @@ class ProviderConnectionTester;
 class ProviderLoginManager;
 class TokenAccountOperationManager;
 class ProviderUIService;
+class ProviderRefreshCoordinator;
 struct UsageBackendResult;
 struct ProviderLoginStartPayload;
 
@@ -147,8 +148,8 @@ public:
 
     void startAutoRefresh(int intervalMinutes);
     void stopAutoRefresh();
-    bool isRefreshing() const { return m_isRefreshing; }
-    int snapshotRevision() const { return m_snapshotRevision; }
+    bool isRefreshing() const;
+    int snapshotRevision() const;
     int statusRevision() const;
     QString error(const QString& providerId) const;
     ProviderFetchContext buildFetchContextForProvider(const QString& providerId) const;
@@ -228,9 +229,8 @@ private:
     void setProviderConnectionTest(const QString& providerId, const QVariantMap& state);
     void setProviderStatus(const QString& providerId, const QVariantMap& status);
     void setProviderStatuses(const QHash<QString, QVariantMap>& statuses);
-    void refreshProviderWithBackend(const QString& providerId);
-    void applyProviderRefreshResult(const QString& providerId, const ProviderFetchResult& result);
-    void completeProviderRefresh();
+    void onProviderRefreshSuccess(const QString& providerId, const ProviderFetchResult& result);
+    void onProviderRefreshFailed(const QString& providerId, const QString& errorMessage);
     void applyProviderConnectionTestResult(const QString& providerId,
                                            const ProviderFetchResult& result,
                                            qint64 startedAt);
@@ -246,16 +246,12 @@ private:
     QVector<UsageBackendJobs::CredentialPreloadItem> buildCredentialPreloadItems() const;
     void applyCredentialCacheUpdates(const QVector<CredentialCacheUpdatePayload>& updates);
 
-    QTimer m_refreshTimer;
     QTimer m_statusTimer;
-    QHash<QString, UsageSnapshot> m_snapshots;
-    QHash<QString, QString> m_errors;
     QHash<QString, std::optional<double>> m_lastKnownSessionRemaining;
     QHash<QString, QVector<ProviderFetchAttempt>> m_lastFetchAttempts;
     QHash<QString, QVariantMap> m_dashboardData;
     QString m_lastKnownSessionWindowSource;
     QStringList m_providerIDs;
-    bool m_isRefreshing = false;
 
     bool m_costUsageEnabled = false;
     bool m_costUsageRefreshing = false;
@@ -268,9 +264,7 @@ private:
     ProviderCatalogSnapshot m_providerCatalog;
     int m_providerCatalogGeneration = 0;
     PlanUtilizationHistoryStore* m_historyStore = nullptr;
-    int m_pendingRefreshes = 0;
-    int m_snapshotRevision = 0;
-    bool m_batchRefreshInProgress = false;
+    bool m_batchInProgress = false;
 
     // Codex multi-account
     class ManagedCodexAccountService* m_codexAccountService = nullptr;
@@ -292,6 +286,9 @@ private:
 
     // UI service (Phase 5 extraction)
     ProviderUIService* m_uiService = nullptr;
+
+    // Refresh coordinator (Phase 6 extraction)
+    ProviderRefreshCoordinator* m_refreshCoordinator = nullptr;
 
     // Credential cache to avoid blocking main thread with WinCred API calls
     struct CredentialEntry {

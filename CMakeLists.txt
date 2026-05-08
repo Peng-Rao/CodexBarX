@@ -131,6 +131,7 @@ set(CORE_SOURCES
     src/app/LanguageManager.cpp
     src/app/Localization.cpp
     src/app/ProviderUIService.cpp
+    src/app/ProviderRefreshCoordinator.cpp
 
     src/tray/StatusItemController.cpp
     src/tray/TrayPopupPositioner.cpp
@@ -262,6 +263,7 @@ set(CORE_HEADERS
     src/app/SessionQuotaNotifications.h
     src/app/Localization.h
     src/app/ProviderUIService.h
+    src/app/ProviderRefreshCoordinator.h
 
     src/tray/StatusItemController.h
     src/tray/TrayPopupPositioner.h

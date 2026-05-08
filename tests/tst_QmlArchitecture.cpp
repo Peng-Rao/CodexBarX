@@ -77,10 +77,14 @@ void QmlArchitectureTest::usageStoreInteractiveProviderJobsUseBackend()
                  qPrintable(QStringLiteral("Interactive provider jobs must dispatch through UsageBackend, not %1").arg(snippet)));
     }
 
-    QVERIFY2(contents.contains(QStringLiteral("QStringLiteral(\"providerRefresh\")")),
-             "UsageStore must dispatch provider refresh through UsageBackend.");
+    QFile refreshCoordinator(QStringLiteral(PROJECT_SOURCE_DIR "/src/app/ProviderRefreshCoordinator.cpp"));
+    QVERIFY2(refreshCoordinator.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(refreshCoordinator.errorString()));
+    const QString refreshContents = QString::fromUtf8(refreshCoordinator.readAll());
+
     QVERIFY2(contents.contains(QStringLiteral("QStringLiteral(\"providerConnectionTest\")")),
              "UsageStore must dispatch Test Connection through UsageBackend.");
+    QVERIFY2(refreshContents.contains(QStringLiteral("QStringLiteral(\"providerRefresh\")")),
+             "ProviderRefreshCoordinator must dispatch provider refresh through UsageBackend.");
 }
 
 void QmlArchitectureTest::usageStoreBackendJobsDoNotCaptureStore()
@@ -102,7 +106,11 @@ void QmlArchitectureTest::usageStoreBackendJobsDoNotCaptureStore()
                  qPrintable(QStringLiteral("UsageStore must only dispatch/apply backend work, not retain old worker ownership: %1").arg(snippet)));
     }
 
-    QVERIFY2(contents.contains(QStringLiteral("UsageBackendJobs::refreshProvider")),
+    QFile refreshCoordinator(QStringLiteral(PROJECT_SOURCE_DIR "/src/app/ProviderRefreshCoordinator.cpp"));
+    QVERIFY2(refreshCoordinator.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(refreshCoordinator.errorString()));
+    const QString refreshContents = QString::fromUtf8(refreshCoordinator.readAll());
+
+    QVERIFY2(refreshContents.contains(QStringLiteral("UsageBackendJobs::refreshProvider")),
              "Provider refresh worker logic must live behind UsageBackendJobs.");
     QVERIFY2(contents.contains(QStringLiteral("UsageBackendJobs::testProviderConnection")),
              "Connection test worker logic must live behind UsageBackendJobs.");

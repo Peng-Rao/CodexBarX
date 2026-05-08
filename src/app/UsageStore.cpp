@@ -17,6 +17,7 @@
 #include "../providers/ProviderLoginManager.h"
 #include "../account/TokenAccountOperationManager.h"
 #include "ProviderUIService.h"
+#include "ProviderRefreshCoordinator.h"
 #include "../providers/shared/ProviderStatusFetcher.h"
 #include "../app/SettingsStore.h"
 #include "../network/NetworkManager.h"
@@ -297,7 +298,6 @@ UsageStore::UsageStore(QObject* parent)
     connect(m_batchUpdater, &BatchUpdateController::batchFinished,
             this, &UsageStore::onBatchFinished);
 
-    QObject::connect(&m_refreshTimer, &QTimer::timeout, this, &UsageStore::refresh);
     QObject::connect(&m_statusTimer, &QTimer::timeout, this, &UsageStore::refreshProviderStatuses);
     QObject::connect(m_pipeline, &ProviderPipeline::pipelineComplete,
                      this, [this](const ProviderFetchResult& /*result*/) {
@@ -375,9 +375,9 @@ UsageStore::UsageStore(QObject* parent)
     m_uiService->setCredentialManager(m_credentialManager);
     m_uiService->setBackend(m_backend);
     m_uiService->setSnapshotAccessor([this](const QString& providerId) -> std::optional<double> {
-        auto it = m_snapshots.find(providerId);
-        if (it != m_snapshots.end() && it.value().primary.has_value()) {
-            return it.value().primary->usedPercent;
+        UsageSnapshot snap = m_refreshCoordinator->snapshot(providerId);
+        if (snap.primary.has_value()) {
+            return snap.primary->usedPercent;
         }
         return std::nullopt;
     });
@@ -394,6 +394,59 @@ UsageStore::UsageStore(QObject* parent)
                      this, &UsageStore::providerListModelChanged);
     QObject::connect(m_uiService, &ProviderUIService::providerDescriptorChanged,
                      this, &UsageStore::providerDescriptorChanged);
+
+    // Initialize refresh coordinator (Phase 6 extraction)
+    m_refreshCoordinator = new ProviderRefreshCoordinator(this);
+    m_refreshCoordinator->setBackend(m_backend);
+    m_refreshCoordinator->setFetchCommandInputBuilder(
+        [this](const QString& providerId) -> UsageBackendJobs::ProviderFetchCommandInput {
+            return buildProviderFetchCommandInput(providerId);
+        });
+    m_refreshCoordinator->setProviderResolver(
+        [](const QString& providerId) -> IProvider* {
+            return ProviderRegistry::instance().provider(providerId);
+        });
+
+    // Forward coordinator signals
+    QObject::connect(m_refreshCoordinator, &ProviderRefreshCoordinator::snapshotChanged,
+                     this, [this](const QString& providerId) {
+        if (m_batchInProgress && m_batchUpdater) {
+            m_batchUpdater->markDirty(providerId);
+        } else {
+            emit snapshotChanged(providerId);
+        }
+    });
+    QObject::connect(m_refreshCoordinator, &ProviderRefreshCoordinator::revisionChanged,
+                     this, [this]() {
+        m_snapshotDataCache.clear();
+        emit snapshotRevisionChanged();
+    });
+    QObject::connect(m_refreshCoordinator, &ProviderRefreshCoordinator::refreshingChanged,
+                     this, &UsageStore::refreshingChanged);
+    QObject::connect(m_refreshCoordinator, &ProviderRefreshCoordinator::errorOccurred,
+                     this, &UsageStore::errorOccurred);
+    QObject::connect(m_refreshCoordinator, &ProviderRefreshCoordinator::refreshJobDispatched,
+                     this, [this](const QString& requestId, const QString& providerId) {
+        m_backendRequestProviderIds.insert(requestId, providerId);
+    });
+    QObject::connect(m_refreshCoordinator, &ProviderRefreshCoordinator::providerRefreshSuccess,
+                     this, &UsageStore::onProviderRefreshSuccess);
+    QObject::connect(m_refreshCoordinator, &ProviderRefreshCoordinator::providerRefreshFailed,
+                     this, &UsageStore::onProviderRefreshFailed);
+    QObject::connect(m_refreshCoordinator, &ProviderRefreshCoordinator::refreshStarted,
+                     this, [this](const QStringList& ids) {
+        if (ids.size() > 1 && m_batchUpdater) {
+            m_batchInProgress = true;
+            m_batchUpdater->beginBatch();
+        }
+    });
+    QObject::connect(m_refreshCoordinator, &ProviderRefreshCoordinator::refreshComplete,
+                     this, [this]() {
+        if (m_batchInProgress && m_batchUpdater) {
+            m_batchInProgress = false;
+            m_batchUpdater->endBatch();
+        }
+    });
 
     TokenAccountStore* tokenStore = TokenAccountStore::instance();
     QObject::connect(tokenStore, &TokenAccountStore::accountsChanged,
@@ -427,7 +480,6 @@ void UsageStore::setSettingsStore(SettingsStore* s) {
         connect(m_settingsStore, &SettingsStore::statusChecksEnabledChanged,
                 this, &UsageStore::configureStatusPolling);
         auto notifyDisplaySettingsChanged = [this]() {
-            m_snapshotRevision++;
             m_snapshotDataCache.clear();
             emit snapshotRevisionChanged();
             // snapshotRevisionChanged() is sufficient; TrayPanel/PlanUtilizationChart
@@ -453,7 +505,7 @@ void UsageStore::configureStatusPolling() {
 }
 
 UsageSnapshot UsageStore::snapshot(const QString& providerId) const {
-    return m_snapshots.value(providerId, UsageSnapshot{});
+    return m_refreshCoordinator ? m_refreshCoordinator->snapshot(providerId) : UsageSnapshot{};
 }
 
 bool UsageStore::isProviderEnabled(const QString& id) const {
@@ -479,6 +531,16 @@ QString UsageStore::providerDisplayName(const QString& id) const {
         return entry->descriptor.metadata.displayName;
     }
     return id;
+}
+
+bool UsageStore::isRefreshing() const
+{
+    return m_refreshCoordinator ? m_refreshCoordinator->isRefreshing() : false;
+}
+
+int UsageStore::snapshotRevision() const
+{
+    return m_refreshCoordinator ? m_refreshCoordinator->revision() : 0;
 }
 
 int UsageStore::statusRevision() const
@@ -974,13 +1036,13 @@ QVariantMap UsageStore::snapshotData(const QString& id) const {
     if (snap.primary.has_value()) addPaceFields("primary", *snap.primary);
     if (snap.secondary.has_value()) addPaceFields("secondary", *snap.secondary);
 
-    m["error"] = Localization::providerError(m_errors.value(id, ""));
+    m["error"] = Localization::providerError(error(id));
 
     // Codex-specific: Consumer Projection
     if (id == "codex") {
         CodexConsumerProjection::Context ctx;
         ctx.snapshot = snap;
-        ctx.rawUsageError = m_errors.value(id);
+        ctx.rawUsageError = error(id);
         ctx.now = QDateTime::currentDateTime();
 
         if (m_codexCreditsCache.snapshot.has_value() &&
@@ -1269,17 +1331,17 @@ void UsageStore::handleBackendResult(const UsageBackendResult& result)
         const QString requestProviderId = m_backendRequestProviderIds.take(result.requestId);
         if (!result.success) {
             qWarning() << "Provider refresh backend job failed:" << requestProviderId << result.message;
-            if (!requestProviderId.isEmpty()) {
-                m_errors[requestProviderId] = result.message;
-                emit errorOccurred(requestProviderId, providerError(requestProviderId));
+            if (m_refreshCoordinator && !requestProviderId.isEmpty()) {
+                m_refreshCoordinator->applyRefreshFailed(requestProviderId, result.message);
             }
-            completeProviderRefresh();
             return;
         }
 
         const auto payload = result.payload.value<ProviderRefreshPayload>();
         applyCredentialCacheUpdates(payload.credentialUpdates);
-        applyProviderRefreshResult(payload.providerId, payload.fetchResult);
+        if (m_refreshCoordinator) {
+            m_refreshCoordinator->applyRefreshResult(payload.providerId, payload.fetchResult);
+        }
         return;
     }
 
@@ -1299,6 +1361,9 @@ void UsageStore::handleBackendResult(const UsageBackendResult& result)
                 {"finishedAt", finishedAt},
                 {"durationMs", 0}
             });
+            if (m_refreshCoordinator) {
+                m_refreshCoordinator->applySnapshotUpdate(requestProviderId, ProviderFetchResult{});
+            }
             return;
         }
 
@@ -1584,6 +1649,9 @@ void UsageStore::dispatchCodexCreditsRefresh(const QHash<QString, QString>& env,
                                              const CodexAccountRefreshGuard& expectedGuard)
 {
     ++m_pendingCreditsRefresh;
+    if (m_refreshCoordinator) {
+        m_refreshCoordinator->incrementPendingExternalWork();
+    }
     m_codexCreditsRefreshing = true;
     const UsageBackendRequest request = m_backend->dispatchValueJob(
         QStringLiteral("codexCreditsRefresh"), 0, [env]() -> QVariant {
@@ -1671,63 +1739,57 @@ void UsageStore::dispatchProviderLoginPoll(const ProviderLoginStartPayload& star
 }
 
 void UsageStore::refresh() {
+    if (!m_refreshCoordinator) return;
     QStringList ids;
     for (const QString& id : m_providerCatalog.enabledProviderIDs()) ids.append(id);
-    doRefresh(ids);
-}
 
-void UsageStore::refreshAll() {
-    QStringList ids;
-    for (const QString& id : m_providerCatalog.providerIDs()) ids.append(id);
-    doRefresh(ids);
-}
-
-void UsageStore::doRefresh(const QStringList& ids) {
-    PERF_PROBE("doRefresh", 1000);
+    // Codex-specific pre-refresh setup
     auto currentGuard = currentCodexAccountRefreshGuard();
     if (currentGuard != m_lastCodexRefreshGuard) {
         clearCodexOpenAIWebState();
         m_lastCodexRefreshGuard = currentGuard;
     }
 
-    if (m_isRefreshing) return;
-    m_isRefreshing = true;
-    m_batchRefreshInProgress = ids.size() > 1;
-    emit refreshingChanged();
-
-    // Begin batch UI update cycle to avoid signal storm
-    if (m_batchUpdater) {
-        m_batchUpdater->beginBatch();
-    }
-
-    if (ids.isEmpty()) {
-        m_isRefreshing = false;
-        m_batchRefreshInProgress = false;
-        emit refreshingChanged();
-        return;
-    }
-
     // Parallel credits refresh for Codex (mirrors original CodexBar behavior)
     if (ids.contains("codex") && isProviderEnabled("codex")) {
         auto expectedGuard = currentCodexAccountRefreshGuard();
         m_lastCodexRefreshGuard = expectedGuard;
-
-        // If identity is unresolved, the provider refresh callback will schedule credits
-        // after the usage snapshot establishes the account guard.
         if (!expectedGuard.identity.isEmpty()) {
             dispatchCodexCreditsRefresh(codexCreditsEnvironment(), expectedGuard);
         }
     }
 
-    for (const auto& id : ids) {
-        refreshProviderWithBackend(id);
+    m_refreshCoordinator->refresh(ids);
+}
+
+void UsageStore::refreshAll() {
+    if (!m_refreshCoordinator) return;
+    QStringList ids;
+    for (const QString& id : m_providerCatalog.providerIDs()) ids.append(id);
+
+    // Codex-specific pre-refresh setup
+    auto currentGuard = currentCodexAccountRefreshGuard();
+    if (currentGuard != m_lastCodexRefreshGuard) {
+        clearCodexOpenAIWebState();
+        m_lastCodexRefreshGuard = currentGuard;
     }
+
+    if (ids.contains("codex") && isProviderEnabled("codex")) {
+        auto expectedGuard = currentCodexAccountRefreshGuard();
+        m_lastCodexRefreshGuard = expectedGuard;
+        if (!expectedGuard.identity.isEmpty()) {
+            dispatchCodexCreditsRefresh(codexCreditsEnvironment(), expectedGuard);
+        }
+    }
+
+    m_refreshCoordinator->refresh(ids);
 }
 
 void UsageStore::clearCache() {
     const QVector<QString> ids = m_providerCatalog.providerIDs();
-    m_snapshots.clear();
-    m_errors.clear();
+    if (m_refreshCoordinator) {
+        m_refreshCoordinator->clearCache();
+    }
     m_connectionTester->clearAll();
     {
         QMutexLocker locker(&m_credentialCacheMutex);
@@ -1735,8 +1797,6 @@ void UsageStore::clearCache() {
         m_credentialMissing.clear();
     }
     m_snapshotDataCache.clear();
-    m_snapshotRevision++;
-    emit snapshotRevisionChanged();
     // Batch emit connection test changes to avoid signal storm
     for (const auto& id : ids) {
         emit providerConnectionTestChanged(id);
@@ -1744,48 +1804,14 @@ void UsageStore::clearCache() {
 }
 
 void UsageStore::refreshProvider(const QString& providerId) {
-    refreshProviderWithBackend(providerId);
+    if (m_refreshCoordinator) {
+        m_refreshCoordinator->refreshProvider(providerId);
+    }
 }
 
-void UsageStore::refreshProviderWithBackend(const QString& providerId) {
-    // Ensure count is sane when called individually (outside doRefresh).
-    if (m_pendingRefreshes <= 0) {
-        m_batchRefreshInProgress = false;
-        if (!m_isRefreshing) {
-            m_isRefreshing = true;
-            emit refreshingChanged();
-        }
-    }
-    m_pendingRefreshes++;
-
-    auto* provider = ProviderRegistry::instance().provider(providerId);
-    if (!provider) {
-        m_pendingRefreshes--;
-        if (m_pendingRefreshes <= 0) {
-            m_batchRefreshInProgress = false;
-            m_isRefreshing = false;
-            if (m_batchUpdater) {
-                m_batchUpdater->endBatch();
-            } else {
-                emit snapshotRevisionChanged();
-                emit refreshingChanged();
-            }
-        }
-        return;
-    }
-
-    const UsageBackendJobs::ProviderFetchCommandInput input = buildProviderFetchCommandInput(providerId);
-    const UsageBackendRequest request = m_backend->dispatchValueJob(
-        QStringLiteral("providerRefresh"), 0, [provider, input]() {
-        return QVariant::fromValue(UsageBackendJobs::refreshProvider(provider, input));
-    });
-    m_backendRequestProviderIds.insert(request.requestId, providerId);
-}
-
-void UsageStore::applyProviderRefreshResult(const QString& providerId,
-                                            const ProviderFetchResult& result)
+void UsageStore::onProviderRefreshSuccess(const QString& providerId,
+                                           const ProviderFetchResult& result)
 {
-    PERF_PROBE("refreshProvider_callback", 2000);
     m_lastFetchAttempts[providerId] = result.attempts;
     if (providerId == "codex") {
         emit codexFetchAttemptsChanged();
@@ -1796,105 +1822,85 @@ void UsageStore::applyProviderRefreshResult(const QString& providerId,
         m_dashboardData.remove(providerId);
     }
 
-    if (result.success) {
-        m_snapshots[providerId] = result.usage;
-        m_errors.remove(providerId);
-        if (m_historyStore) {
-            m_historyStore->recordSample(providerId, result.usage);
-        }
-
-        auto sessionWindow = result.usage.primary;
-        if (!sessionWindow.has_value() && result.usage.secondary.has_value()) {
-            sessionWindow = result.usage.secondary;
-        }
-        if (sessionWindow.has_value()) {
-            double currentRemaining = sessionWindow->remainingPercent();
-            auto prevRemaining = m_lastKnownSessionRemaining.value(providerId);
-            auto t = SessionQuotaNotificationLogic::transition(prevRemaining, currentRemaining);
-            bool notificationsEnabled = m_settingsStore
-                ? m_settingsStore->sessionQuotaNotificationsEnabled()
-                : true;
-            if (t != SessionQuotaTransition::None && notificationsEnabled) {
-                QString name = providerDisplayName(providerId);
-                SessionQuotaNotifier::post(t, name);
-            }
-            m_lastKnownSessionRemaining[providerId] = currentRemaining;
-            if (providerId == "codex" && !result.sourceLabel.isEmpty() &&
-                m_lastKnownSessionWindowSource != result.sourceLabel) {
-                QString label = result.sourceLabel;
-                bool hasAttachedDashboard = result.dashboard.has_value()
-                    && result.dashboard->toVariantMap().value("visibility", "hidden").toString() == "attached";
-                if (hasAttachedDashboard) {
-                    label += " + openai-web";
-                }
-                m_lastKnownSessionWindowSource = label;
-                emit lastKnownSessionWindowSourceChanged();
-            }
-        }
-
-        // Codex-specific: refresh credits after successful usage fetch.
-        if (providerId == "codex") {
-            auto guard = currentCodexAccountRefreshGuard();
-            // If doRefresh already scheduled an async credits fetch, avoid duplicate work.
-            if (m_pendingCreditsRefresh == 0) {
-                QString accountKey = currentCodexAccountKey();
-                bool cacheFresh = !accountKey.isEmpty() &&
-                    m_codexCreditsCache.accountKey == accountKey &&
-                    m_codexCreditsCache.updatedAt.isValid() &&
-                    m_codexCreditsCache.updatedAt.secsTo(QDateTime::currentDateTime()) < 300;
-                if (!cacheFresh) {
-                    dispatchCodexCreditsRefresh(codexCreditsEnvironment(), guard);
-                }
-            }
-        }
-    } else {
-        m_errors[providerId] = result.errorMessage;
-        emit errorOccurred(providerId, providerError(providerId));
+    if (m_historyStore) {
+        m_historyStore->recordSample(providerId, result.usage);
     }
 
-    // Granular cache eviction: only remove the entry for this provider
-    // instead of clearing the entire cache.
-    m_snapshotDataCache.remove(providerId);
-    if (m_batchUpdater) {
-        m_batchUpdater->markDirty(providerId);
-    } else {
-        emit snapshotChanged(providerId);
+    auto sessionWindow = result.usage.primary;
+    if (!sessionWindow.has_value() && result.usage.secondary.has_value()) {
+        sessionWindow = result.usage.secondary;
+    }
+    if (sessionWindow.has_value()) {
+        double currentRemaining = sessionWindow->remainingPercent();
+        auto prevRemaining = m_lastKnownSessionRemaining.value(providerId);
+        auto t = SessionQuotaNotificationLogic::transition(prevRemaining, currentRemaining);
+        bool notificationsEnabled = m_settingsStore
+            ? m_settingsStore->sessionQuotaNotificationsEnabled()
+            : true;
+        if (t != SessionQuotaTransition::None && notificationsEnabled) {
+            QString name = providerDisplayName(providerId);
+            SessionQuotaNotifier::post(t, name);
+        }
+        m_lastKnownSessionRemaining[providerId] = currentRemaining;
+        if (providerId == "codex" && !result.sourceLabel.isEmpty() &&
+            m_lastKnownSessionWindowSource != result.sourceLabel) {
+            QString label = result.sourceLabel;
+            bool hasAttachedDashboard = result.dashboard.has_value()
+                && result.dashboard->toVariantMap().value("visibility", "hidden").toString() == "attached";
+            if (hasAttachedDashboard) {
+                label += " + openai-web";
+            }
+            m_lastKnownSessionWindowSource = label;
+            emit lastKnownSessionWindowSourceChanged();
+        }
     }
 
-    completeProviderRefresh();
+    // Codex-specific: refresh credits after successful usage fetch.
+    if (providerId == "codex") {
+        auto guard = currentCodexAccountRefreshGuard();
+        // If doRefresh already scheduled an async credits fetch, avoid duplicate work.
+        if (m_pendingCreditsRefresh == 0) {
+            QString accountKey = currentCodexAccountKey();
+            bool cacheFresh = !accountKey.isEmpty() &&
+                m_codexCreditsCache.accountKey == accountKey &&
+                m_codexCreditsCache.updatedAt.isValid() &&
+                m_codexCreditsCache.updatedAt.secsTo(QDateTime::currentDateTime()) < 300;
+            if (!cacheFresh) {
+                dispatchCodexCreditsRefresh(codexCreditsEnvironment(), guard);
+            }
+        }
+    }
 }
 
-void UsageStore::completeProviderRefresh()
+void UsageStore::onProviderRefreshFailed(const QString& providerId,
+                                          const QString& /*errorMessage*/)
 {
-    m_pendingRefreshes--;
-    if (m_pendingRefreshes <= 0 && m_pendingCreditsRefresh <= 0) {
-        m_batchRefreshInProgress = false;
-        m_isRefreshing = false;
-        if (m_batchUpdater) {
-            m_batchUpdater->endBatch();
-        } else {
-            m_snapshotRevision++;
-            m_snapshotDataCache.clear();
-            emit snapshotRevisionChanged();
-            emit refreshingChanged();
-        }
+    m_lastFetchAttempts[providerId] = {};
+    if (providerId == "codex") {
+        emit codexFetchAttemptsChanged();
     }
 }
 
 void UsageStore::startAutoRefresh(int intervalMinutes) {
-    m_refreshTimer.start(intervalMinutes * 60 * 1000);
+    if (m_refreshCoordinator) {
+        m_refreshCoordinator->startAutoRefresh(intervalMinutes);
+    }
 }
 
 void UsageStore::stopAutoRefresh() {
-    m_refreshTimer.stop();
+    if (m_refreshCoordinator) {
+        m_refreshCoordinator->stopAutoRefresh();
+    }
 }
 
 QString UsageStore::error(const QString& providerId) const {
-    return Localization::providerError(m_errors.value(providerId, {}));
+    if (!m_refreshCoordinator) return {};
+    return Localization::providerError(m_refreshCoordinator->error(providerId));
 }
 
 QString UsageStore::providerError(const QString& providerId) const {
-    return Localization::providerError(m_errors.value(providerId, {}));
+    if (!m_refreshCoordinator) return {};
+    return Localization::providerError(m_refreshCoordinator->error(providerId));
 }
 
 QStringList UsageStore::allProviderIDs() const {
@@ -2207,13 +2213,10 @@ void UsageStore::applyProviderConnectionTestResult(const QString& providerId,
     }
     const qint64 finishedAt = QDateTime::currentDateTime().toMSecsSinceEpoch();
     qDebug() << "[TestConnection] Provider:" << providerId << "success:" << result.success << "error:" << result.errorMessage;
+    if (m_refreshCoordinator) {
+        m_refreshCoordinator->applySnapshotUpdate(providerId, result);
+    }
     if (result.success) {
-        m_snapshots[providerId] = result.usage;
-        m_errors.remove(providerId);
-        m_snapshotRevision++;
-        m_snapshotDataCache.clear();
-        emit snapshotRevisionChanged();
-        emit snapshotChanged(providerId);
         setProviderConnectionTest(providerId, {
             {"state", "succeeded"},
             {"message", "Connection OK"},
@@ -2316,8 +2319,8 @@ QString UsageStore::providerStatusURL(const QString& providerId) const {
 
 QVariantMap UsageStore::providerUsageSnapshot(const QString& providerId) const {
     QVariantMap result;
-    auto it = m_snapshots.find(providerId);
-    if (it == m_snapshots.end()) return result;
+    UsageSnapshot snap = snapshot(providerId);
+    if (!snap.updatedAt.isValid()) return result;
 
     const bool showUsedPercent = m_settingsStore ? m_settingsStore->usageBarsShowUsed() : false;
     const bool isDetailProvider = (providerId == "deepseek" || providerId == "warp" || providerId == "kilo" || providerId == "abacus");
@@ -2335,7 +2338,6 @@ QVariantMap UsageStore::providerUsageSnapshot(const QString& providerId) const {
         return metric;
     };
 
-    const auto& snap = it.value();
     if (snap.primary.has_value()) {
         result["primary"] = metricMap(*snap.primary);
         if (isDetailProvider && snap.primary->resetDescription.has_value()) {
@@ -2729,28 +2731,22 @@ void UsageStore::refreshCodexCredits(const CodexAccountRefreshGuard& expectedGua
 void UsageStore::applyCodexCreditsFetchResult(const CodexCreditsFetcher::FetchResult& result,
                                                const CodexAccountRefreshGuard& expectedGuard)
 {
-    // Stage 2: decrement pending counter
+    // Decrement pending counter
     if (m_pendingCreditsRefresh > 0) {
         --m_pendingCreditsRefresh;
     }
+    if (m_refreshCoordinator) {
+        m_refreshCoordinator->decrementPendingExternalWork();
+    }
 
-    // Stage 1: guard check — discard result if account changed during fetch
+    // Guard check — discard result if account changed during fetch
     if (!expectedGuard.isEmpty() && !shouldApplyCodexScopedNonUsageResult(expectedGuard)) {
         qDebug() << "[UsageStore] Discarding stale credits result (account changed during fetch)";
-        // Still emit refreshingChanged if everything is done
-        if (m_pendingRefreshes <= 0 && m_pendingCreditsRefresh <= 0 && m_isRefreshing) {
-            m_isRefreshing = false;
-            emit refreshingChanged();
-        }
         return;
     }
 
     QString accountKey = currentCodexAccountKey();
     if (accountKey.isEmpty()) {
-        if (m_pendingRefreshes <= 0 && m_pendingCreditsRefresh <= 0 && m_isRefreshing) {
-            m_isRefreshing = false;
-            emit refreshingChanged();
-        }
         return;
     }
 
@@ -2764,7 +2760,7 @@ void UsageStore::applyCodexCreditsFetchResult(const CodexCreditsFetcher::FetchRe
         m_codexCreditsCache.lastError.clear();
         emit codexCreditsChanged();
 
-        // Stage 4: plan history backfill if usage snapshot is stale
+        // Plan history backfill if usage snapshot is stale
         if (m_historyStore) {
             auto snap = snapshot("codex");
             if (snap.updatedAt.isValid()) {
@@ -2787,12 +2783,6 @@ void UsageStore::applyCodexCreditsFetchResult(const CodexCreditsFetcher::FetchRe
             emit codexCreditsChanged();
         }
     }
-
-    // Stage 2: signal refreshing completion if all work is done
-    if (m_pendingRefreshes <= 0 && m_pendingCreditsRefresh <= 0 && m_isRefreshing) {
-        m_isRefreshing = false;
-        emit refreshingChanged();
-    }
 }
 
 QVariantMap UsageStore::codexConsumerProjectionData() const
@@ -2803,7 +2793,7 @@ QVariantMap UsageStore::codexConsumerProjectionData() const
 
     CodexConsumerProjection::Context ctx;
     ctx.snapshot = snap;
-    ctx.rawUsageError = m_errors.value("codex");
+    ctx.rawUsageError = m_refreshCoordinator ? m_refreshCoordinator->error("codex") : QString();
     ctx.now = QDateTime::currentDateTime();
 
     if (m_codexCreditsCache.snapshot.has_value() &&
@@ -2892,8 +2882,9 @@ void UsageStore::clearCodexOpenAIWebState()
 
     // Clear Codex-specific cached state
     m_codexCreditsCache = {};
-    m_snapshots.remove("codex");
-    m_errors.remove("codex");
+    if (m_refreshCoordinator) {
+        m_refreshCoordinator->removeSnapshot("codex");
+    }
     m_connectionTester->clearTestState("codex");
     m_dashboardData.remove("codex");
     m_lastKnownSessionRemaining.remove("codex");
@@ -3079,12 +3070,10 @@ void UsageStore::onBatchUpdateReady(const QStringList& providerIds)
         emit snapshotChanged(id);
     }
 
-    m_snapshotRevision++;
     for (const auto& id : providerIds) {
         m_snapshotDataCache.remove(id);
     }
     m_uiService->invalidateProviderListCache();
-    emit snapshotRevisionChanged();
 }
 
 void UsageStore::onBatchFinished()
