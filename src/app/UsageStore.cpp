@@ -13,6 +13,8 @@
 #include "../providers/shared/ProviderCredentialStore.h"
 #include "../providers/ProviderCredentialManager.h"
 #include "../providers/ProviderStatusManager.h"
+#include "../providers/ProviderConnectionTester.h"
+#include "../providers/ProviderLoginManager.h"
 #include "../providers/shared/ProviderStatusFetcher.h"
 #include "../app/SettingsStore.h"
 #include "../network/NetworkManager.h"
@@ -346,6 +348,16 @@ UsageStore::UsageStore(QObject* parent)
     QObject::connect(m_statusManager, &ProviderStatusManager::revisionChanged,
                      this, &UsageStore::statusRevisionChanged);
 
+    // Initialize connection tester (Phase 3 extraction)
+    m_connectionTester = new ProviderConnectionTester(this);
+    QObject::connect(m_connectionTester, &ProviderConnectionTester::testStateChanged,
+                     this, &UsageStore::providerConnectionTestChanged);
+
+    // Initialize login manager (Phase 3 extraction)
+    m_loginManager = new ProviderLoginManager(this);
+    QObject::connect(m_loginManager, &ProviderLoginManager::loginStateChanged,
+                     this, &UsageStore::providerLoginStateChanged);
+
     TokenAccountStore* tokenStore = TokenAccountStore::instance();
     QObject::connect(tokenStore, &TokenAccountStore::accountsChanged,
                      this, [this](const QString& providerId) {
@@ -427,6 +439,11 @@ QString UsageStore::providerDisplayName(const QString& id) const {
         return entry->descriptor.metadata.displayName;
     }
     return id;
+}
+
+int UsageStore::statusRevision() const
+{
+    return m_statusManager ? m_statusManager->revision() : 0;
 }
 
 QStringList UsageStore::providerIDs() const {
@@ -1380,7 +1397,7 @@ void UsageStore::handleBackendResult(const UsageBackendResult& result)
                     ? QStringLiteral("Could not start GitHub device login")
                     : payload.message}
             });
-            m_loginCancelFlags.remove(payload.providerId);
+            m_loginManager->removeCancelFlag(payload.providerId);
             return;
         }
 
@@ -1392,7 +1409,7 @@ void UsageStore::handleBackendResult(const UsageBackendResult& result)
             {"expiresIn", payload.expiresIn}
         });
 
-        dispatchProviderLoginPoll(payload, m_loginCancelFlags.value(payload.providerId));
+        dispatchProviderLoginPoll(payload, m_loginManager->cancelFlag(payload.providerId));
         return;
     }
 
@@ -1402,7 +1419,7 @@ void UsageStore::handleBackendResult(const UsageBackendResult& result)
             {"state", payload.state},
             {"message", payload.message}
         });
-        m_loginCancelFlags.remove(payload.providerId);
+        m_loginManager->removeCancelFlag(payload.providerId);
         if (payload.triggerConnectionTest) {
             testProviderConnection(payload.providerId);
         }
@@ -1693,7 +1710,7 @@ void UsageStore::clearCache() {
     const QVector<QString> ids = m_providerCatalog.providerIDs();
     m_snapshots.clear();
     m_errors.clear();
-    m_connectionTests.clear();
+    m_connectionTester->clearAll();
     {
         QMutexLocker locker(&m_credentialCacheMutex);
         m_credentialCache.clear();
@@ -1920,9 +1937,10 @@ QVariantList UsageStore::buildProviderListNow() const {
             item.usagePercent = snapIt.value().primary->usedPercent;
         }
 
-        auto statusIt = m_providerStatuses.find(id);
-        if (statusIt != m_providerStatuses.end()) {
-            item.status = statusIt.value().value(QStringLiteral("state"), QStringLiteral("unknown")).toString();
+        const QVariantMap statusMap = m_statusManager->status(id);
+        const QString statusState = statusMap.value(QStringLiteral("state"), QStringLiteral("unknown")).toString();
+        if (statusState != QStringLiteral("unknown")) {
+            item.status = statusState;
         }
 
         items.append(item);
@@ -1979,9 +1997,10 @@ void UsageStore::requestProviderList()
             item.usagePercent = snapIt.value().primary->usedPercent;
         }
 
-        auto statusIt = m_providerStatuses.find(id);
-        if (statusIt != m_providerStatuses.end()) {
-            item.status = statusIt.value().value(QStringLiteral("state"), QStringLiteral("unknown")).toString();
+        const QVariantMap statusMap = m_statusManager->status(id);
+        const QString statusState = statusMap.value(QStringLiteral("state"), QStringLiteral("unknown")).toString();
+        if (statusState != QStringLiteral("unknown")) {
+            item.status = statusState;
         }
 
         items.append(item);
@@ -2312,19 +2331,11 @@ bool UsageStore::clearProviderSecret(const QString& providerId, const QString& k
 }
 
 void UsageStore::setProviderConnectionTest(const QString& providerId, const QVariantMap& state) {
-    m_connectionTests[providerId] = state;
-    emit providerConnectionTestChanged(providerId);
+    m_connectionTester->setTestState(providerId, state);
 }
 
 QVariantMap UsageStore::providerConnectionTest(const QString& providerId) const {
-    return m_connectionTests.value(providerId, QVariantMap{
-        {"state", "idle"},
-        {"message", ""},
-        {"details", ""},
-        {"startedAt", 0},
-        {"finishedAt", 0},
-        {"durationMs", 0}
-    });
+    return m_connectionTester->testState(providerId);
 }
 
 void UsageStore::testProviderConnection(const QString& providerId) {
@@ -2412,12 +2423,11 @@ void UsageStore::applyProviderConnectionTestResult(const QString& providerId,
 }
 
 void UsageStore::setProviderLoginState(const QString& providerId, const QVariantMap& state) {
-    m_loginStates[providerId] = state;
-    emit providerLoginStateChanged(providerId);
+    m_loginManager->setLoginState(providerId, state);
 }
 
 QVariantMap UsageStore::providerLoginState(const QString& providerId) const {
-    return m_loginStates.value(providerId, QVariantMap{{"state", "idle"}});
+    return m_loginManager->loginState(providerId);
 }
 
 void UsageStore::startProviderLogin(const QString& providerId) {
@@ -2427,7 +2437,7 @@ void UsageStore::startProviderLogin(const QString& providerId) {
     }
 
     auto cancelFlag = QSharedPointer<QAtomicInt>::create(0);
-    m_loginCancelFlags[providerId] = cancelFlag;
+    m_loginManager->setCancelFlag(providerId, cancelFlag);
     setProviderLoginState(providerId, {{"state", "starting"}, {"message", "Requesting device code..."}});
 
     m_backend->dispatchValueJob(QStringLiteral("providerLoginStart"), 0, [providerId]() -> QVariant {
@@ -2462,35 +2472,22 @@ void UsageStore::startProviderLogin(const QString& providerId) {
 }
 
 void UsageStore::cancelProviderLogin(const QString& providerId) {
-    auto flag = m_loginCancelFlags.value(providerId);
+    auto flag = m_loginManager->cancelFlag(providerId);
     if (flag) flag->storeRelease(1);
 }
 
 void UsageStore::setProviderStatus(const QString& providerId, const QVariantMap& status) {
-    m_providerStatuses[providerId] = status;
-    m_statusRevision++;
+    m_statusManager->setStatus(providerId, status);
     m_providerListCacheValid = false;
-    emit statusRevisionChanged();
-    emit providerStatusChanged(providerId);
 }
 
 void UsageStore::setProviderStatuses(const QHash<QString, QVariantMap>& statuses) {
-    if (statuses.isEmpty()) return;
-
-    for (auto it = statuses.constBegin(); it != statuses.constEnd(); ++it) {
-        m_providerStatuses[it.key()] = it.value();
-    }
-
-    m_statusRevision++;
+    m_statusManager->setStatuses(statuses);
     m_providerListCacheValid = false;
-    emit statusRevisionChanged();
-    for (auto it = statuses.constBegin(); it != statuses.constEnd(); ++it) {
-        emit providerStatusChanged(it.key());
-    }
 }
 
 QVariantMap UsageStore::providerStatus(const QString& providerId) const {
-    return m_providerStatuses.value(providerId, QVariantMap{{"state", "unknown"}});
+    return m_statusManager->status(providerId);
 }
 
 QString UsageStore::providerStatusURL(const QString& providerId) const {
@@ -3083,7 +3080,7 @@ void UsageStore::clearCodexOpenAIWebState()
     m_codexCreditsCache = {};
     m_snapshots.remove("codex");
     m_errors.remove("codex");
-    m_connectionTests.remove("codex");
+    m_connectionTester->clearTestState("codex");
     m_dashboardData.remove("codex");
     m_lastKnownSessionRemaining.remove("codex");
     m_lastKnownSessionWindowSource.clear();

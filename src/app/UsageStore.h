@@ -30,6 +30,8 @@ class BatchUpdateController;
 class UsageBackend;
 class ProviderCredentialManager;
 class ProviderStatusManager;
+class ProviderConnectionTester;
+class ProviderLoginManager;
 struct UsageBackendResult;
 struct ProviderLoginStartPayload;
 
@@ -145,7 +147,7 @@ public:
     void stopAutoRefresh();
     bool isRefreshing() const { return m_isRefreshing; }
     int snapshotRevision() const { return m_snapshotRevision; }
-    int statusRevision() const { return m_statusRevision; }
+    int statusRevision() const;
     QString error(const QString& providerId) const;
     ProviderFetchContext buildFetchContextForProvider(const QString& providerId) const;
 
@@ -246,10 +248,6 @@ private:
     QTimer m_statusTimer;
     QHash<QString, UsageSnapshot> m_snapshots;
     QHash<QString, QString> m_errors;
-    QHash<QString, QVariantMap> m_connectionTests;
-    QHash<QString, QVariantMap> m_loginStates;
-    QHash<QString, QVariantMap> m_providerStatuses;
-    QHash<QString, QSharedPointer<QAtomicInt>> m_loginCancelFlags;
     QHash<QString, std::optional<double>> m_lastKnownSessionRemaining;
     QHash<QString, QVector<ProviderFetchAttempt>> m_lastFetchAttempts;
     QHash<QString, QVariantMap> m_dashboardData;
@@ -270,7 +268,6 @@ private:
     PlanUtilizationHistoryStore* m_historyStore = nullptr;
     int m_pendingRefreshes = 0;
     int m_snapshotRevision = 0;
-    int m_statusRevision = 0;
     bool m_batchRefreshInProgress = false;
 
     // Codex multi-account
@@ -281,6 +278,12 @@ private:
 
     // Status manager (Phase 2 extraction)
     ProviderStatusManager* m_statusManager = nullptr;
+
+    // Connection tester (Phase 3 extraction)
+    ProviderConnectionTester* m_connectionTester = nullptr;
+
+    // Login manager (Phase 3 extraction)
+    ProviderLoginManager* m_loginManager = nullptr;
 
     // Credential cache to avoid blocking main thread with WinCred API calls
     struct CredentialEntry {
