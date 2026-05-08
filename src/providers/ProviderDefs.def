@@ -1,0 +1,46 @@
+// Provider catalog — single source of truth for all providers.
+//
+// CODEXBAR_PROVIDER(ClassName, stringId, enumName)
+//
+// This file is #included multiple times with different CODEXBAR_PROVIDER
+// definitions to generate: the UsageProvider enum, ProviderBootstrap
+// registration, and usageProviderFromString() mapping.
+//
+// Adding a new provider:
+//   1. Add one line below (keep alphabetical order)
+//   2. Create src/providers/<id>/<ClassName>Provider.h and .cpp
+//   3. Add .cpp to CMakeLists.txt CORE_SOURCES
+//   4. Add icon SVG to resources/icons/ and register in qml.qrc
+
+CODEXBAR_PROVIDER(Abacus,       "abacus",       abacus      )
+CODEXBAR_PROVIDER(Alibaba,      "alibaba",      alibaba     )
+CODEXBAR_PROVIDER(Amp,          "amp",          amp         )
+CODEXBAR_PROVIDER(Antigravity,  "antigravity",  antigravity )
+CODEXBAR_PROVIDER(Augment,      "augment",      augment     )
+CODEXBAR_PROVIDER(Claude,       "claude",       claude      )
+CODEXBAR_PROVIDER(Codebuff,     "codebuff",     codebuff    )
+CODEXBAR_PROVIDER(Codex,        "codex",        codex       )
+CODEXBAR_PROVIDER(Copilot,      "copilot",      copilot     )
+CODEXBAR_PROVIDER(Cursor,       "cursor",       cursor      )
+CODEXBAR_PROVIDER(DeepSeek,     "deepseek",     deepseek    )
+CODEXBAR_PROVIDER(Factory,      "factory",      factory     )
+CODEXBAR_PROVIDER(Gemini,       "gemini",       gemini      )
+CODEXBAR_PROVIDER(JetBrains,    "jetbrains",    jetbrains   )
+CODEXBAR_PROVIDER(Kilo,         "kilo",         kilo        )
+CODEXBAR_PROVIDER(Kimi,         "kimi",         kimi        )
+CODEXBAR_PROVIDER(KimiK2,       "kimik2",       kimik2      )
+CODEXBAR_PROVIDER(Kiro,         "kiro",         kiro        )
+CODEXBAR_PROVIDER(MiniMax,      "minimax",      minimax     )
+CODEXBAR_PROVIDER(Mistral,      "mistral",      mistral     )
+CODEXBAR_PROVIDER(Ollama,       "ollama",       ollama      )
+CODEXBAR_PROVIDER(OpenCode,     "opencode",     opencode    )
+CODEXBAR_PROVIDER(OpenCodeGo,   "opencodego",   opencodego  )
+CODEXBAR_PROVIDER(OpenRouter,   "openrouter",   openrouter  )
+CODEXBAR_PROVIDER(Perplexity,   "perplexity",   perplexity  )
+CODEXBAR_PROVIDER(Synthetic,    "synthetic",    synthetic   )
+CODEXBAR_PROVIDER(VertexAI,     "vertexai",     vertexai    )
+CODEXBAR_PROVIDER(Warp,         "warp",         warp        )
+CODEXBAR_PROVIDER(Windsurf,     "windsurf",     windsurf    )
+CODEXBAR_PROVIDER(Zai,          "zai",          zai         )
+
+#undef CODEXBAR_PROVIDER

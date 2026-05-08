@@ -2,36 +2,38 @@
 
 #include "ProviderCatalogSnapshot.h"
 #include "ProviderRegistry.h"
-#include "zai/ZaiProvider.h"
-#include "openrouter/OpenRouterProvider.h"
+
+// Provider includes — alphabetically ordered, compile-time checked
+#include "abacus/AbacusProvider.h"
+#include "alibaba/AlibabaProvider.h"
+#include "amp/AmpProvider.h"
+#include "antigravity/AntigravityProvider.h"
+#include "augment/AugmentProvider.h"
+#include "claude/ClaudeProvider.h"
+#include "codebuff/CodebuffProvider.h"
+#include "codex/CodexProvider.h"
 #include "copilot/CopilotProvider.h"
-#include "kimik2/KimiK2Provider.h"
+#include "cursor/CursorProvider.h"
+#include "deepseek/DeepSeekProvider.h"
+#include "factory/FactoryProvider.h"
+#include "gemini/GeminiProvider.h"
+#include "jetbrains/JetBrainsProvider.h"
 #include "kilo/KiloProvider.h"
+#include "kimi/KimiProvider.h"
+#include "kimik2/KimiK2Provider.h"
 #include "kiro/KiroProvider.h"
+#include "minimax/MiniMaxProvider.h"
 #include "mistral/MistralProvider.h"
 #include "ollama/OllamaProvider.h"
-#include "codex/CodexProvider.h"
-#include "claude/ClaudeProvider.h"
-#include "cursor/CursorProvider.h"
-#include "kimi/KimiProvider.h"
 #include "opencode/OpenCodeProvider.h"
 #include "opencode/OpenCodeGoProvider.h"
-#include "alibaba/AlibabaProvider.h"
-#include "deepseek/DeepSeekProvider.h"
-#include "minimax/MiniMaxProvider.h"
-#include "synthetic/SyntheticProvider.h"
+#include "openrouter/OpenRouterProvider.h"
 #include "perplexity/PerplexityProvider.h"
-#include "amp/AmpProvider.h"
-#include "augment/AugmentProvider.h"
-#include "gemini/GeminiProvider.h"
+#include "synthetic/SyntheticProvider.h"
 #include "vertexai/VertexAIProvider.h"
-#include "jetbrains/JetBrainsProvider.h"
-#include "factory/FactoryProvider.h"
-#include "antigravity/AntigravityProvider.h"
 #include "warp/WarpProvider.h"
-#include "abacus/AbacusProvider.h"
-#include "codebuff/CodebuffProvider.h"
 #include "windsurf/WindsurfProvider.h"
+#include "zai/ZaiProvider.h"
 
 #include "../app/SettingsStore.h"
 #include "../app/UsageStore.h"
@@ -57,36 +59,9 @@ namespace ProviderBootstrap {
 
 void registerAllProviders()
 {
-    registerProviderIfMissing<ZaiProvider>(QStringLiteral("zai"));
-    registerProviderIfMissing<OpenRouterProvider>(QStringLiteral("openrouter"));
-    registerProviderIfMissing<CopilotProvider>(QStringLiteral("copilot"));
-    registerProviderIfMissing<KimiK2Provider>(QStringLiteral("kimik2"));
-    registerProviderIfMissing<KiloProvider>(QStringLiteral("kilo"));
-    registerProviderIfMissing<KiroProvider>(QStringLiteral("kiro"));
-    registerProviderIfMissing<MistralProvider>(QStringLiteral("mistral"));
-    registerProviderIfMissing<OllamaProvider>(QStringLiteral("ollama"));
-    registerProviderIfMissing<CodexProvider>(QStringLiteral("codex"));
-    registerProviderIfMissing<ClaudeProvider>(QStringLiteral("claude"));
-    registerProviderIfMissing<CursorProvider>(QStringLiteral("cursor"));
-    registerProviderIfMissing<KimiProvider>(QStringLiteral("kimi"));
-    registerProviderIfMissing<OpenCodeProvider>(QStringLiteral("opencode"));
-    registerProviderIfMissing<OpenCodeGoProvider>(QStringLiteral("opencodego"));
-    registerProviderIfMissing<AlibabaProvider>(QStringLiteral("alibaba"));
-    registerProviderIfMissing<DeepSeekProvider>(QStringLiteral("deepseek"));
-    registerProviderIfMissing<MiniMaxProvider>(QStringLiteral("minimax"));
-    registerProviderIfMissing<SyntheticProvider>(QStringLiteral("synthetic"));
-    registerProviderIfMissing<PerplexityProvider>(QStringLiteral("perplexity"));
-    registerProviderIfMissing<AmpProvider>(QStringLiteral("amp"));
-    registerProviderIfMissing<AugmentProvider>(QStringLiteral("augment"));
-    registerProviderIfMissing<GeminiProvider>(QStringLiteral("gemini"));
-    registerProviderIfMissing<VertexAIProvider>(QStringLiteral("vertexai"));
-    registerProviderIfMissing<JetBrainsProvider>(QStringLiteral("jetbrains"));
-    registerProviderIfMissing<FactoryProvider>(QStringLiteral("factory"));
-    registerProviderIfMissing<AntigravityProvider>(QStringLiteral("antigravity"));
-    registerProviderIfMissing<WarpProvider>(QStringLiteral("warp"));
-    registerProviderIfMissing<AbacusProvider>(QStringLiteral("abacus"));
-    registerProviderIfMissing<CodebuffProvider>(QStringLiteral("codebuff"));
-    registerProviderIfMissing<WindsurfProvider>(QStringLiteral("windsurf"));
+#define CODEXBAR_PROVIDER(ClassName, stringId, enumName) \
+    registerProviderIfMissing<ClassName##Provider>(QStringLiteral(stringId));
+#include "ProviderDefs.def"
 }
 
 void applyStoredProviderEnabledStates(SettingsStore* settings, UsageStore* usageStore)
@@ -119,3 +94,11 @@ void syncEnabledProviderRuntimes()
 }
 
 } // namespace ProviderBootstrap
+
+std::optional<UsageProvider> usageProviderFromString(const QString& id)
+{
+#define CODEXBAR_PROVIDER(ClassName, stringId, enumName) \
+    if (id == QLatin1String(stringId)) return UsageProvider::enumName;
+#include "ProviderDefs.def"
+    return std::nullopt;
+}

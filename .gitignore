@@ -26,6 +26,8 @@
 *.local
 AGENTS.md
 
+.claude
+
 # Local documentation moved from the macOS parent repository
 /docs/
 
