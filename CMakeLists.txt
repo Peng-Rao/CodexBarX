@@ -48,6 +48,7 @@ set(CORE_SOURCES
     src/providers/ProviderBootstrap.cpp
     src/providers/ProviderCatalogSnapshot.cpp
     src/providers/ProviderPipeline.cpp
+    src/providers/ProviderCredentialManager.cpp
     src/providers/shared/ProviderCredentialStore.cpp
 
     src/providers/zai/ZaiProvider.cpp

@@ -28,6 +28,7 @@ class SettingsStore;
 class PlanUtilizationHistoryStore;
 class BatchUpdateController;
 class UsageBackend;
+class ProviderCredentialManager;
 struct UsageBackendResult;
 struct ProviderLoginStartPayload;
 
@@ -273,6 +274,9 @@ private:
 
     // Codex multi-account
     class ManagedCodexAccountService* m_codexAccountService = nullptr;
+
+    // Credential manager (Phase 1 extraction)
+    ProviderCredentialManager* m_credentialManager = nullptr;
 
     // Credential cache to avoid blocking main thread with WinCred API calls
     struct CredentialEntry {

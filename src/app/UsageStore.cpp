@@ -11,6 +11,7 @@
 #include "../providers/ProviderPipeline.h"
 #include "../providers/ProviderFetchContext.h"
 #include "../providers/shared/ProviderCredentialStore.h"
+#include "../providers/ProviderCredentialManager.h"
 #include "../providers/shared/ProviderStatusFetcher.h"
 #include "../app/SettingsStore.h"
 #include "../network/NetworkManager.h"
@@ -331,6 +332,11 @@ UsageStore::UsageStore(QObject* parent)
                      this, &UsageStore::codexRemovalFinished);
     QObject::connect(m_codexAccountService, &ManagedCodexAccountService::removalFinished,
                      this, [this](const QString&, bool) { emit codexAccountStateChanged(); });
+
+    // Initialize credential manager (Phase 1 extraction)
+    m_credentialManager = new ProviderCredentialManager(this);
+    QObject::connect(m_credentialManager, &ProviderCredentialManager::secretChanged,
+                     this, &UsageStore::providerSecretChanged);
 
     TokenAccountStore* tokenStore = TokenAccountStore::instance();
     QObject::connect(tokenStore, &TokenAccountStore::accountsChanged,
