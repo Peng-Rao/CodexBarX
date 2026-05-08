@@ -161,8 +161,13 @@ jobs:
           body: |
             ## Downloads
             
+            ### Windows
             - **WinCodexBar-${{ github.ref_name }}-portable.zip** - Portable version (no installation required)
             - **WinCodexBar-${{ github.ref_name }}-Installer.exe** - Windows installer
+            
+            ### macOS
+            - **WinCodexBar-${{ github.ref_name }}-macOS.zip** - ZIP archive (extract and drag to Applications)
+            - **WinCodexBar-${{ github.ref_name }}-macOS.dmg** - DMG disk image (drag to Applications)
             
             ## Changes
             See [commit history](https://github.com/${{ github.repository }}/commits/${{ github.ref_name }}) for details.
@@ -171,5 +176,66 @@ jobs:
             WinCodexBar-*-Installer.exe
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-and-release-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Qt 6.5.3
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.5.3'
+          host: 'mac'
+          target: 'desktop'
+          arch: 'clang_64'
+          modules: 'qtwebsockets'
+          cache: true
+
+      - name: Configure CMake
+        run: |
+          cmake -B build \
+            -DCMAKE_PREFIX_PATH="${{ env.Qt6_DIR }}" \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build Release
+        run: cmake --build build --parallel
+
+      - name: Deploy Qt dependencies
+        run: |
+          ${{ env.Qt6_DIR }}/bin/macdeployqt build/WinCodexBar.app -qmldir=qml
+
+      - name: Copy translations
+        run: |
+          if [ -d "build/translations" ]; then
+            mkdir -p build/WinCodexBar.app/Contents/MacOS/translations
+            cp build/translations/*.qm build/WinCodexBar.app/Contents/MacOS/translations/
+          fi
+
+      - name: Ad-hoc sign
+        run: |
+          codesign --deep --force --sign - build/WinCodexBar.app
+
+      - name: Create ZIP package
+        run: |
+          ditto -c -k --keepParent build/WinCodexBar.app WinCodexBar-${{ github.ref_name }}-macOS.zip
+
+      - name: Create DMG package
+        run: |
+          mkdir -p dmg_staging
+          cp -R build/WinCodexBar.app dmg_staging/
+          ln -s /Applications dmg_staging/Applications
+          hdiutil create -volname "WinCodexBar" -srcfolder dmg_staging -ov -format UDZO WinCodexBar-${{ github.ref_name }}-macOS.dmg
+
+      - name: Upload macOS artifacts to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            WinCodexBar-${{ github.ref_name }}-macOS.zip
+            WinCodexBar-${{ github.ref_name }}-macOS.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

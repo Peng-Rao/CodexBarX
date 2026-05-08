@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Package>
-    <DisplayName>WinCodexBar Application</DisplayName>
+    <DisplayName>CodexBarX Application</DisplayName>
     <Description>AI coding assistant usage tracker for Windows system tray</Description>
     <Version>0.1.0</Version>
     <ReleaseDate>2025-01-01</ReleaseDate>

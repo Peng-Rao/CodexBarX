@@ -17,7 +17,7 @@ $installerDir = Join-Path $projectRoot "installer"
 $buildDir = Join-Path $projectRoot "build"
 $releaseDir = Join-Path $buildDir $BuildType
 
-Write-Host "=== WinCodexBar Installer Builder ===" -ForegroundColor Cyan
+Write-Host "=== CodexBarX Installer Builder ===" -ForegroundColor Cyan
 Write-Host "Version: $Version"
 Write-Host "Build Type: $BuildType"
 Write-Host "Project Root: $projectRoot"
@@ -62,9 +62,9 @@ if (-not (Test-Path $releaseDir)) {
     exit 1
 }
 
-$exePath = Join-Path $releaseDir "WinCodexBar.exe"
+$exePath = Join-Path $releaseDir "CodexBarX.exe"
 if (-not (Test-Path $exePath)) {
-    Write-Error "WinCodexBar.exe not found at: $exePath"
+    Write-Error "CodexBarX.exe not found at: $exePath"
     exit 1
 }
 
@@ -114,7 +114,7 @@ Write-Host "Release Date: $releaseDate"
 
 # Create offline installer
 Write-Host "`n=== Building offline installer ===" -ForegroundColor Cyan
-$outputName = "WinCodexBar-$Version-Installer.exe"
+$outputName = "CodexBarX-$Version-Installer.exe"
 $outputPath = Join-Path $projectRoot $outputName
 
 if (Test-Path $outputPath) {

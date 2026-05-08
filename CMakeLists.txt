@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(WinCodexBar VERSION 0.1.0 LANGUAGES CXX)
+project(CodexBarX VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -309,18 +309,18 @@ if(WINCODEXBAR_QT_RUNTIME_FOUND)
         resources/qml.qrc
     )
     if(WIN32)
-        list(APPEND WINCODEXBAR_APP_SOURCES resources/wincodexbar.rc)
+        list(APPEND WINCODEXBAR_APP_SOURCES resources/codexbarx.rc)
     endif()
 
-    add_executable(WinCodexBar WIN32 MACOSX_BUNDLE ${WINCODEXBAR_APP_SOURCES})
-    target_link_libraries(WinCodexBar PRIVATE
+    add_executable(CodexBarX WIN32 MACOSX_BUNDLE ${WINCODEXBAR_APP_SOURCES})
+    target_link_libraries(CodexBarX PRIVATE
         codexbar_core
         Qt6::Quick Qt6::Qml Qt6::Widgets
     )
 
     if(WIN32 AND TARGET Qt6::windeployqt)
-        add_custom_command(TARGET WinCodexBar POST_BUILD
-            COMMAND Qt6::windeployqt --qmldir "${CMAKE_CURRENT_SOURCE_DIR}/qml" "$<TARGET_FILE:WinCodexBar>"
+        add_custom_command(TARGET CodexBarX POST_BUILD
+            COMMAND Qt6::windeployqt --qmldir "${CMAKE_CURRENT_SOURCE_DIR}/qml" "$<TARGET_FILE:CodexBarX>"
             COMMENT "Deploying Qt runtime and QML modules"
         )
     endif()
@@ -328,8 +328,8 @@ if(WINCODEXBAR_QT_RUNTIME_FOUND)
     # Compile .ts to .qm using lrelease
     if(TARGET Qt6::lrelease)
         set(TS_FILES
-            "${CMAKE_CURRENT_SOURCE_DIR}/translations/WinCodexBar_en.ts"
-            "${CMAKE_CURRENT_SOURCE_DIR}/translations/WinCodexBar_zh_CN.ts"
+            "${CMAKE_CURRENT_SOURCE_DIR}/translations/CodexBarX_en.ts"
+            "${CMAKE_CURRENT_SOURCE_DIR}/translations/CodexBarX_zh_CN.ts"
         )
         set(QM_FILES)
         foreach(TS_FILE ${TS_FILES})
@@ -345,10 +345,10 @@ if(WINCODEXBAR_QT_RUNTIME_FOUND)
             list(APPEND QM_FILES ${QM_FILE})
         endforeach()
         add_custom_target(translations ALL DEPENDS ${QM_FILES})
-        add_dependencies(WinCodexBar translations)
-        add_custom_command(TARGET WinCodexBar POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:WinCodexBar>/translations"
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${QM_FILES} "$<TARGET_FILE_DIR:WinCodexBar>/translations"
+        add_dependencies(CodexBarX translations)
+        add_custom_command(TARGET CodexBarX POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:CodexBarX>/translations"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${QM_FILES} "$<TARGET_FILE_DIR:CodexBarX>/translations"
             COMMENT "Deploying translation files"
         )
     else()

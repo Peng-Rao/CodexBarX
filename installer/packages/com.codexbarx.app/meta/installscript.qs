@@ -9,80 +9,80 @@ Component.prototype.createOperations = function() {
         if (installer.value("os") === "win") {
             // Create desktop shortcut
             component.addOperation("CreateShortcut",
-                "@TargetDir@/WinCodexBar.exe",
-                "@DesktopDir@/WinCodexBar.lnk",
-                "workingDirectory=@TargetDir@,iconPath=@TargetDir@/WinCodexBar.exe,iconId=0"
+                "@TargetDir@/CodexBarX.exe",
+                "@DesktopDir@/CodexBarX.lnk",
+                "workingDirectory=@TargetDir@,iconPath=@TargetDir@/CodexBarX.exe,iconId=0"
             );
 
             // Create start menu shortcut
             component.addOperation("CreateShortcut",
-                "@TargetDir@/WinCodexBar.exe",
-                "@StartMenuDir@/WinCodexBar.lnk",
-                "workingDirectory=@TargetDir@,iconPath=@TargetDir@/WinCodexBar.exe,iconId=0"
+                "@TargetDir@/CodexBarX.exe",
+                "@StartMenuDir@/CodexBarX.lnk",
+                "workingDirectory=@TargetDir@,iconPath=@TargetDir@/CodexBarX.exe,iconId=0"
             );
 
             // Create uninstall shortcut in start menu
             component.addOperation("CreateShortcut",
                 "@TargetDir@/@MaintenanceToolName@.exe",
-                "@StartMenuDir@/Uninstall WinCodexBar.lnk",
+                "@StartMenuDir@/Uninstall CodexBarX.lnk",
                 "workingDirectory=@TargetDir@"
             );
 
             // Register uninstaller in Windows Add/Remove Programs
             component.addOperation("RegisterFileType",
-                "WinCodexBar.Assoc",
-                "@TargetDir@/WinCodexBar.exe",
-                "WinCodexBar Application"
+                "CodexBarX.Assoc",
+                "@TargetDir@/CodexBarX.exe",
+                "CodexBarX Application"
             );
 
             component.addElevatedOperation("Settings",
-                "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\WinCodexBar",
-                "DisplayName", "WinCodexBar",
+                "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\CodexBarX",
+                "DisplayName", "CodexBarX",
                 "string"
             );
 
             component.addElevatedOperation("Settings",
-                "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\WinCodexBar",
+                "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\CodexBarX",
                 "DisplayVersion", "@Version@",
                 "string"
             );
 
             component.addElevatedOperation("Settings",
-                "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\WinCodexBar",
-                "Publisher", "WinCodexBar",
+                "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\CodexBarX",
+                "Publisher", "CodexBarX",
                 "string"
             );
 
             component.addElevatedOperation("Settings",
-                "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\WinCodexBar",
+                "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\CodexBarX",
                 "UninstallString",
                 "@TargetDir@/@MaintenanceToolName@.exe",
                 "string"
             );
 
             component.addElevatedOperation("Settings",
-                "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\WinCodexBar",
+                "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\CodexBarX",
                 "InstallLocation",
                 "@TargetDir@",
                 "string"
             );
 
             component.addElevatedOperation("Settings",
-                "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\WinCodexBar",
+                "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\CodexBarX",
                 "DisplayIcon",
-                "@TargetDir@/WinCodexBar.exe,0",
+                "@TargetDir@/CodexBarX.exe,0",
                 "string"
             );
 
             component.addElevatedOperation("Settings",
-                "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\WinCodexBar",
+                "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\CodexBarX",
                 "NoModify",
                 "1",
                 "dword"
             );
 
             component.addElevatedOperation("Settings",
-                "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\WinCodexBar",
+                "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\CodexBarX",
                 "NoRepair",
                 "1",
                 "dword"
