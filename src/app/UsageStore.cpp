@@ -98,187 +98,6 @@ void rebuildSystemEnvCache()
     g_systemEnvCachePopulated = true;
 }
 
-struct ProviderListBuildItem {
-    QString id;
-    bool enabled = false;
-    QString name;
-    QString sessionLabel;
-    QString weeklyLabel;
-    bool supportsCredits = false;
-    QString dashboardURL;
-    QString statusPageURL;
-    QString statusLinkURL;
-    QString statusWorkspaceProductID;
-    QString brandColor;
-    QVector<QString> sourceModes;
-    bool supportsMultipleAccounts = false;
-    QVector<QString> requiredCredentialTypes;
-    QString defaultTokenAccount;
-    int tokenAccountCount = 0;
-    bool hasUsage = false;
-    double usagePercent = 0.0;
-    QString status;
-};
-
-QVariantList buildProviderListFromItems(QVector<ProviderListBuildItem> items,
-                                        const QStringList& order)
-{
-    if (!order.isEmpty()) {
-        std::sort(items.begin(), items.end(), [&](const ProviderListBuildItem& a,
-                                                  const ProviderListBuildItem& b) {
-            int idxA = order.indexOf(a.id);
-            int idxB = order.indexOf(b.id);
-            if (idxA == -1 && idxB == -1) return a.id < b.id;
-            if (idxA == -1) return false;
-            if (idxB == -1) return true;
-            return idxA < idxB;
-        });
-    } else {
-        std::sort(items.begin(), items.end(), [](const ProviderListBuildItem& a,
-                                                 const ProviderListBuildItem& b) {
-            return a.id < b.id;
-        });
-    }
-
-    QVariantList list;
-    for (const auto& item : items) {
-        QVariantMap entry;
-        entry[QStringLiteral("id")] = item.id;
-        entry[QStringLiteral("enabled")] = item.enabled;
-        entry[QStringLiteral("name")] = item.name;
-        entry[QStringLiteral("sessionLabel")] = Localization::providerLabel(item.sessionLabel);
-        entry[QStringLiteral("weeklyLabel")] = Localization::providerLabel(item.weeklyLabel);
-        entry[QStringLiteral("supportsCredits")] = item.supportsCredits;
-        entry[QStringLiteral("dashboardURL")] = item.dashboardURL;
-        entry[QStringLiteral("statusPageURL")] = item.statusPageURL;
-        entry[QStringLiteral("statusLinkURL")] = item.statusLinkURL;
-        entry[QStringLiteral("statusWorkspaceProductID")] = item.statusWorkspaceProductID;
-        entry[QStringLiteral("brandColor")] = item.brandColor;
-
-        QVariantList sourceModes;
-        for (const auto& mode : item.sourceModes) sourceModes.append(mode);
-        entry[QStringLiteral("sourceModes")] = sourceModes;
-
-        QVariantMap tokenAccount;
-        tokenAccount[QStringLiteral("supportsMultipleAccounts")] = item.supportsMultipleAccounts;
-        QVariantList requiredCredentials;
-        for (const auto& credential : item.requiredCredentialTypes) {
-            requiredCredentials.append(credential);
-        }
-        tokenAccount[QStringLiteral("requiredCredentialTypes")] = requiredCredentials;
-        entry[QStringLiteral("tokenAccount")] = tokenAccount;
-        entry[QStringLiteral("defaultTokenAccount")] = item.defaultTokenAccount;
-        entry[QStringLiteral("tokenAccountCount")] = item.tokenAccountCount;
-
-        if (item.hasUsage) {
-            QVariantMap usage;
-            usage[QStringLiteral("percent")] = item.usagePercent;
-            usage[QStringLiteral("remaining")] = 100.0 - item.usagePercent;
-            entry[QStringLiteral("usage")] = usage;
-        }
-
-        if (!item.status.isEmpty()) {
-            entry[QStringLiteral("status")] = item.status;
-        }
-
-        list.append(entry);
-    }
-    return list;
-}
-
-struct ProviderSettingFieldBuildInput {
-    ProviderSettingsDescriptor descriptor;
-    QVariant value;
-    QVariantMap secretStatus;
-};
-
-QVariantList buildProviderSettingsFieldsFromInputs(const QVector<ProviderSettingFieldBuildInput>& inputs)
-{
-    QVariantList list;
-    for (const auto& input : inputs) {
-        const auto& d = input.descriptor;
-        QVariantMap field;
-        field[QStringLiteral("key")] = d.key;
-        field[QStringLiteral("label")] = Localization::providerSettingLabel(d.label);
-        field[QStringLiteral("type")] = d.type;
-        field[QStringLiteral("defaultValue")] = d.defaultValue;
-        field[QStringLiteral("value")] = d.sensitive ? QVariant() : input.value;
-        field[QStringLiteral("credentialTarget")] = d.credentialTarget;
-        field[QStringLiteral("envVar")] = d.envVar;
-        field[QStringLiteral("placeholder")] = d.placeholder;
-        field[QStringLiteral("helpText")] = d.helpText;
-        field[QStringLiteral("multiline")] = d.multiline;
-        field[QStringLiteral("sensitive")] = d.sensitive;
-        if (d.sensitive) {
-            field[QStringLiteral("secretStatus")] = input.secretStatus;
-        }
-
-        QVariantList options;
-        for (const auto& option : d.options) {
-            QVariantMap opt;
-            opt[QStringLiteral("value")] = option.value;
-            opt[QStringLiteral("label")] = Localization::providerSettingLabel(option.label);
-            options.append(opt);
-        }
-        field[QStringLiteral("options")] = options;
-        list.append(field);
-    }
-    return list;
-}
-
-struct ProviderDescriptorBuildInput {
-    QString providerId;
-    bool hasDescriptor = false;
-    ProviderDescriptor descriptor;
-    bool enabled = false;
-    QString brandColor;
-    QString statusURL;
-    QString defaultTokenAccount;
-    int tokenAccountCount = 0;
-    QVector<ProviderSettingFieldBuildInput> settingsFields;
-};
-
-QVariantMap buildProviderDescriptorFromInput(const ProviderDescriptorBuildInput& input)
-{
-    QVariantMap data;
-    if (!input.hasDescriptor) return data;
-
-    const auto& desc = input.descriptor;
-    data[QStringLiteral("id")] = desc.id;
-    data[QStringLiteral("displayName")] = desc.metadata.displayName;
-    data[QStringLiteral("sessionLabel")] = Localization::providerLabel(desc.metadata.sessionLabel);
-    data[QStringLiteral("weeklyLabel")] = Localization::providerLabel(desc.metadata.weeklyLabel);
-    data[QStringLiteral("dashboardURL")] = desc.metadata.dashboardURL;
-    data[QStringLiteral("subscriptionDashboardURL")] = desc.metadata.subscriptionDashboardURL;
-    data[QStringLiteral("statusPageURL")] = desc.metadata.statusPageURL;
-    data[QStringLiteral("statusLinkURL")] = desc.metadata.statusLinkURL;
-    data[QStringLiteral("statusWorkspaceProductID")] = desc.metadata.statusWorkspaceProductID;
-    data[QStringLiteral("statusURL")] = input.statusURL;
-    data[QStringLiteral("supportsCredits")] = desc.metadata.supportsCredits;
-    data[QStringLiteral("cliName")] = desc.metadata.cliName;
-    data[QStringLiteral("enabled")] = input.enabled;
-    data[QStringLiteral("settingsFields")] = buildProviderSettingsFieldsFromInputs(input.settingsFields);
-    data[QStringLiteral("brandColor")] = input.brandColor;
-
-    QVariantList modes;
-    for (const auto& mode : desc.fetchPlan.allowedSourceModes) modes.append(mode);
-    data[QStringLiteral("sourceModes")] = modes;
-    data[QStringLiteral("defaultSourceMode")] = desc.fetchPlan.defaultSourceMode;
-
-    QVariantMap tokenAccount;
-    tokenAccount[QStringLiteral("supportsMultipleAccounts")] = desc.tokenAccounts.supportsMultipleAccounts;
-    QVariantList requiredCredentials;
-    for (const auto& credential : desc.tokenAccounts.requiredCredentialTypes) {
-        requiredCredentials.append(credential);
-    }
-    tokenAccount[QStringLiteral("requiredCredentialTypes")] = requiredCredentials;
-    data[QStringLiteral("tokenAccount")] = tokenAccount;
-    data[QStringLiteral("supportsMultipleAccounts")] = desc.tokenAccounts.supportsMultipleAccounts;
-    data[QStringLiteral("defaultTokenAccount")] = input.defaultTokenAccount;
-    data[QStringLiteral("tokenAccountCount")] = input.tokenAccountCount;
-    return data;
-}
-
 } // namespace
 
 UsageStore::UsageStore(QObject* parent)
@@ -347,7 +166,10 @@ UsageStore::UsageStore(QObject* parent)
     QObject::connect(m_statusManager, &ProviderStatusManager::statusChanged,
                      this, &UsageStore::providerStatusChanged);
     QObject::connect(m_statusManager, &ProviderStatusManager::revisionChanged,
-                     this, &UsageStore::statusRevisionChanged);
+                     this, [this]() {
+        m_uiService->invalidateProviderListCache();
+        emit statusRevisionChanged();
+    });
 
     // Initialize connection tester (Phase 3 extraction)
     m_connectionTester = new ProviderConnectionTester(this);
@@ -1374,16 +1196,9 @@ void UsageStore::handleBackendResult(const UsageBackendResult& result)
     }
 
     if (result.kind == QLatin1String("providerStatuses")) {
-        if (result.generation != m_providerStatusRefreshGeneration) {
-            return;
+        if (m_statusManager) {
+            m_statusManager->handleBackendResult(result.generation, result.success, result.payload);
         }
-        if (!result.success) {
-            qWarning() << "Provider status backend job failed:" << result.message;
-            return;
-        }
-
-        const auto payload = result.payload.value<ProviderStatusesPayload>();
-        setProviderStatuses(payload.statuses);
         return;
     }
 
@@ -2298,11 +2113,6 @@ void UsageStore::setProviderStatus(const QString& providerId, const QVariantMap&
     m_uiService->invalidateProviderListCache();
 }
 
-void UsageStore::setProviderStatuses(const QHash<QString, QVariantMap>& statuses) {
-    m_statusManager->setStatuses(statuses);
-    m_uiService->invalidateProviderListCache();
-}
-
 QVariantMap UsageStore::providerStatus(const QString& providerId) const {
     return m_statusManager->status(providerId);
 }
@@ -2318,121 +2128,15 @@ QString UsageStore::providerStatusURL(const QString& providerId) const {
 }
 
 QVariantMap UsageStore::providerUsageSnapshot(const QString& providerId) const {
-    QVariantMap result;
     UsageSnapshot snap = snapshot(providerId);
-    if (!snap.updatedAt.isValid()) return result;
-
-    const bool showUsedPercent = m_settingsStore ? m_settingsStore->usageBarsShowUsed() : false;
-    const bool isDetailProvider = (providerId == "deepseek" || providerId == "warp" || providerId == "kilo" || providerId == "abacus");
-
-    auto metricMap = [&](const RateWindow& rw) {
-        QVariantMap metric;
-        const double remaining = rw.remainingPercent();
-        metric["percent"] = showUsedPercent ? rw.usedPercent : remaining;
-        metric["usedPercent"] = rw.usedPercent;
-        metric["remaining"] = remaining;
-        metric["displayIsUsed"] = showUsedPercent;
-        if (rw.resetsAt.has_value() && rw.resetsAt.value().isValid()) {
-            metric["resetsAt"] = rw.resetsAt.value().toString(Qt::ISODate);
-        }
-        return metric;
-    };
-
-    if (snap.primary.has_value()) {
-        result["primary"] = metricMap(*snap.primary);
-        if (isDetailProvider && snap.primary->resetDescription.has_value()) {
-            QString detail = snap.primary->resetDescription.value().trimmed();
-            if (!detail.isEmpty()) result["detail"] = detail;
-        }
-    }
-    if (snap.secondary.has_value()) {
-        result["secondary"] = metricMap(*snap.secondary);
-    }
-    if (snap.tertiary.has_value()) {
-        result["tertiary"] = metricMap(*snap.tertiary);
-    }
-    return result;
+    if (!snap.updatedAt.isValid()) return {};
+    return m_uiService ? m_uiService->providerUsageSnapshot(providerId, snap) : QVariantMap{};
 }
 
 void UsageStore::refreshProviderStatuses() {
-    const bool enabled = m_settingsStore ? m_settingsStore->statusChecksEnabled() : true;
-    if (!enabled) return;
-
-    QVector<ProviderStatusPollTarget> targets;
-    for (const auto& provider : m_providerCatalog.providers()) {
-        if (!provider.hasDescriptor) continue;
-        const auto& desc = provider.descriptor;
-
-        const auto providerTargets = ProviderStatusFetcher::buildPollTargets(
-            {provider.id}, desc.metadata.statusPageURL, desc.metadata.statusLinkURL,
-            desc.metadata.statusWorkspaceProductID);
-        targets.append(providerTargets);
+    if (m_statusManager) {
+        m_statusManager->refreshStatuses(m_providerCatalog, m_backend);
     }
-
-    const int generation = ++m_providerStatusRefreshGeneration;
-    m_backend->dispatchValueJob(QStringLiteral("providerStatuses"), generation,
-                                [targets]() -> QVariant {
-        QHash<QString, QVariantMap> statuses;
-        QVector<ProviderStatusPollTarget> statuspageTargets;
-        QVector<ProviderStatusPollTarget> workspaceTargets;
-
-        for (const auto& target : targets) {
-            if (target.source == ProviderStatusSource::Statuspage) {
-                statuspageTargets.append(target);
-            } else {
-                workspaceTargets.append(target);
-            }
-        }
-
-        for (const auto& target : statuspageTargets) {
-            if (target.requestURL.isEmpty()) {
-                statuses[target.providerId] = {{QStringLiteral("state"), QStringLiteral("unknown")}};
-                continue;
-            }
-
-            QJsonObject json = NetworkManager::instance().getJsonSync(target.requestURL, {}, 8000);
-            ProviderStatusSnapshot snap;
-            if (!json.isEmpty()) {
-                snap = ProviderStatusFetcher::parseStatuspageResponse(json, target.statusPageURL);
-            } else {
-                snap.state = QStringLiteral("unknown");
-                snap.source = QStringLiteral("statuspage");
-                snap.statusURL = target.statusPageURL;
-                snap.updatedAt = QDateTime::currentDateTime().toMSecsSinceEpoch();
-            }
-            statuses[target.providerId] = snap.toVariantMap();
-        }
-
-        if (!workspaceTargets.isEmpty()) {
-            const QUrl workspaceURL(QStringLiteral(
-                "https://www.google.com/appsstatus/dashboard/incidents.json"));
-            const QString response = NetworkManager::instance().getStringSync(workspaceURL, {}, 8000);
-            const QByteArray rawData = response.toUtf8();
-
-            if (rawData.trimmed().isEmpty()) {
-                for (const auto& target : workspaceTargets) {
-                    if (statuses.contains(target.providerId)) continue;
-                    QVariantMap map;
-                    map[QStringLiteral("state")] = QStringLiteral("unknown");
-                    map[QStringLiteral("source")] = QStringLiteral("workspace");
-                    map[QStringLiteral("statusURL")] = target.statusLinkURL;
-                    map[QStringLiteral("updatedAt")] = QDateTime::currentDateTime().toMSecsSinceEpoch();
-                    statuses[target.providerId] = map;
-                }
-            } else {
-                for (const auto& target : workspaceTargets) {
-                    if (statuses.contains(target.providerId)) continue;
-                    auto snap = ProviderStatusFetcher::parseWorkspaceResponse(
-                        rawData, target.workspaceProductID, target.statusLinkURL);
-                    statuses[target.providerId] = snap.toVariantMap();
-                }
-            }
-        }
-
-        ProviderStatusesPayload payload;
-        payload.statuses = statuses;
-        return QVariant::fromValue(payload);
-    });
 }
 
 // ============================================================================

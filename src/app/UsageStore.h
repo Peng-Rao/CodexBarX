@@ -222,13 +222,10 @@ private:
     std::optional<ProviderSettingsDescriptor> settingDescriptor(const QString& providerId,
                                                                 const QString& key) const;
     void rebuildProviderCatalogSnapshot();
-    QVariantList buildProviderListNow() const;
-    QVariantMap buildProviderDescriptorDataNow(const QString& id) const;
     QSet<QString> costUsageSubscribedProviderIDs() const;
     void setProviderLoginState(const QString& providerId, const QVariantMap& state);
     void setProviderConnectionTest(const QString& providerId, const QVariantMap& state);
     void setProviderStatus(const QString& providerId, const QVariantMap& status);
-    void setProviderStatuses(const QHash<QString, QVariantMap>& statuses);
     void onProviderRefreshSuccess(const QString& providerId, const ProviderFetchResult& result);
     void onProviderRefreshFailed(const QString& providerId, const QString& errorMessage);
     void applyProviderConnectionTestResult(const QString& providerId,
@@ -324,7 +321,6 @@ private:
     mutable int m_costUsageProviderDetailBuildGeneration = 0;
     int m_costUsageRefreshGeneration = 0;
 
-    int m_providerStatusRefreshGeneration = 0;
     QHash<QString, QString> m_backendRequestProviderIds;
     QHash<QString, CodexAccountRefreshGuard> m_backendCodexCreditGuards;
     QHash<QString, QByteArray> m_backendSecretValues;
@@ -357,7 +353,6 @@ private:
     UsageSnapshot waitForCodexSnapshot(const QDateTime& minimumUpdatedAt, int timeoutMs = 6000) const;
 
     void clearCodexOpenAIWebState();
-    void doRefresh(const QStringList& ids);
     // Batch update controller (merges UI signals to avoid signal storm)
     BatchUpdateController* m_batchUpdater = nullptr;
 

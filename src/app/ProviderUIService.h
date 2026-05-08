@@ -8,6 +8,8 @@
 #include <QSet>
 #include <functional>
 
+#include "../models/UsageSnapshot.h"
+
 class ProviderCatalogSnapshot;
 class ProviderStatusManager;
 class ProviderCredentialManager;
@@ -34,6 +36,9 @@ public:
     // === Provider Descriptor ===
     QVariantMap providerDescriptorData(const QString& id) const;
     void requestProviderDescriptor(const QString& providerId);
+
+    // === Usage Snapshot ===
+    QVariantMap providerUsageSnapshot(const QString& providerId, const UsageSnapshot& snap) const;
 
     // === Cache Invalidation ===
     void invalidateProviderListCache();

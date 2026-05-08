@@ -512,6 +512,41 @@ QVariantList ProviderUIService::buildProviderListNow() const
     return list;
 }
 
+QVariantMap ProviderUIService::providerUsageSnapshot(const QString& providerId, const UsageSnapshot& snap) const
+{
+    QVariantMap result;
+    const bool showUsedPercent = m_settingsStore ? m_settingsStore->usageBarsShowUsed() : false;
+    const bool isDetailProvider = (providerId == "deepseek" || providerId == "warp" || providerId == "kilo" || providerId == "abacus");
+
+    auto metricMap = [&](const RateWindow& rw) {
+        QVariantMap metric;
+        const double remaining = rw.remainingPercent();
+        metric["percent"] = showUsedPercent ? rw.usedPercent : remaining;
+        metric["usedPercent"] = rw.usedPercent;
+        metric["remaining"] = remaining;
+        metric["displayIsUsed"] = showUsedPercent;
+        if (rw.resetsAt.has_value() && rw.resetsAt.value().isValid()) {
+            metric["resetsAt"] = rw.resetsAt.value().toString(Qt::ISODate);
+        }
+        return metric;
+    };
+
+    if (snap.primary.has_value()) {
+        result["primary"] = metricMap(*snap.primary);
+        if (isDetailProvider && snap.primary->resetDescription.has_value()) {
+            QString detail = snap.primary->resetDescription.value().trimmed();
+            if (!detail.isEmpty()) result["detail"] = detail;
+        }
+    }
+    if (snap.secondary.has_value()) {
+        result["secondary"] = metricMap(*snap.secondary);
+    }
+    if (snap.tertiary.has_value()) {
+        result["tertiary"] = metricMap(*snap.tertiary);
+    }
+    return result;
+}
+
 QVariantMap ProviderUIService::buildDescriptorDataNow(const QString& id) const
 {
     if (!m_catalog) {
