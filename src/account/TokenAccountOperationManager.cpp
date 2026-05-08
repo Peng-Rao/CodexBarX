@@ -5,6 +5,101 @@
 #include <QUuid>
 #include <QDateTime>
 
+namespace {
+
+TokenAccount makeTokenAccount(const QString& providerId,
+                              const QString& displayName,
+                              int sourceMode)
+{
+    TokenAccount account;
+    account.accountId = TokenAccount::generateAccountId();
+    account.providerId = providerId;
+    account.displayName = displayName.trimmed().isEmpty() ? providerId : displayName.trimmed();
+    account.sourceMode = static_cast<ProviderSourceMode>(sourceMode);
+    account.visibility = AccountVisibility::Visible;
+    account.createdAt = QDateTime::currentDateTimeUtc();
+    account.lastUsedAt = account.createdAt;
+    return account;
+}
+
+QVariantMap makeOperationPayload(const QString& operationId,
+                                 const QString& providerId,
+                                 bool success,
+                                 const QString& message,
+                                 bool refreshProviderOnSuccess = true)
+{
+    QVariantMap payload;
+    payload.insert(QStringLiteral("operationId"), operationId);
+    payload.insert(QStringLiteral("providerId"), providerId);
+    payload.insert(QStringLiteral("success"), success);
+    payload.insert(QStringLiteral("message"), message);
+    payload.insert(QStringLiteral("refreshProviderOnSuccess"), refreshProviderOnSuccess);
+    return payload;
+}
+
+QString saveConfigurationError()
+{
+    return QStringLiteral("Failed to save token account configuration.");
+}
+
+bool saveStore(QString* message = nullptr)
+{
+    const bool ok = TokenAccountStore::instance()->saveToDisk();
+    if (!ok && message) {
+        *message = saveConfigurationError();
+    }
+    return ok;
+}
+
+void attachApiKey(TokenAccount& account, const QString& apiKey)
+{
+    const QString trimmedKey = apiKey.trimmed();
+    if (trimmedKey.isEmpty()) {
+        return;
+    }
+
+    APICredentials api;
+    api.apiKey = SecureString(trimmedKey);
+    account.credentials.api = api;
+}
+
+void setDefaultIfFirstAccount(const QString& providerId, const QString& accountId)
+{
+    if (TokenAccountStore::instance()->accountCountForProvider(providerId) == 1) {
+        TokenAccountStore::instance()->setDefaultAccountId(providerId, accountId);
+    }
+}
+
+bool saveUpdatedMetadata(const QString& accountId, const TokenAccount& account, QString* message = nullptr)
+{
+    bool ok = TokenAccountStore::instance()->updateAccountMetadata(accountId, account);
+    if (!ok) {
+        if (message) {
+            *message = QStringLiteral("Token account no longer exists.");
+        }
+        return false;
+    }
+
+    return saveStore(message);
+}
+
+void dispatchMetadataUpdate(UsageBackend* backend,
+                            const QString& backendKind,
+                            const QString& operationId,
+                            const QString& providerId,
+                            const QString& accountId,
+                            const TokenAccount& account)
+{
+    backend->dispatchValueJob(backendKind, 0,
+        [operationId, providerId, accountId, account]() -> QVariant {
+            QString message;
+            const bool ok = saveUpdatedMetadata(accountId, account, &message);
+            return makeOperationPayload(operationId, providerId, ok, message);
+        });
+}
+
+} // namespace
+
 TokenAccountOperationManager::TokenAccountOperationManager(QObject* parent)
     : QObject(parent)
 {
@@ -104,39 +199,97 @@ void TokenAccountOperationManager::handleBackendResult(const QString& kind,
     finishOperation(operationId, providerId, success, message, refreshProviderOnSuccess);
 }
 
+QString TokenAccountOperationManager::addAccount(const QString& providerId,
+                                                  const QString& displayName,
+                                                  int sourceMode)
+{
+    TokenAccount account = makeTokenAccount(providerId, displayName, sourceMode);
+    const QString accountId = TokenAccountStore::instance()->addAccountMetadata(account);
+    setDefaultIfFirstAccount(providerId, accountId);
+    TokenAccountStore::instance()->saveToDisk();
+    return accountId;
+}
+
+QString TokenAccountOperationManager::addAccountWithApiKey(const QString& providerId,
+                                                            const QString& displayName,
+                                                            int sourceMode,
+                                                            const QString& apiKey)
+{
+    TokenAccount account = makeTokenAccount(providerId, displayName, sourceMode);
+    attachApiKey(account, apiKey);
+
+    const QString accountId = TokenAccountStore::instance()->addAccount(account);
+    setDefaultIfFirstAccount(providerId, accountId);
+    TokenAccountStore::instance()->saveToDisk();
+    return accountId;
+}
+
+bool TokenAccountOperationManager::removeAccount(const QString& accountId)
+{
+    const bool ok = TokenAccountStore::instance()->removeAccount(accountId);
+    if (ok) {
+        TokenAccountStore::instance()->saveToDisk();
+    }
+    return ok;
+}
+
+bool TokenAccountOperationManager::setVisibility(const QString& accountId, int visibility)
+{
+    auto accOpt = TokenAccountStore::instance()->accountMetadata(accountId);
+    if (!accOpt.has_value()) {
+        return false;
+    }
+    TokenAccount acc = accOpt.value();
+    acc.visibility = static_cast<AccountVisibility>(visibility);
+    return saveUpdatedMetadata(accountId, acc);
+}
+
+bool TokenAccountOperationManager::setSourceMode(const QString& accountId, int sourceMode)
+{
+    auto accOpt = TokenAccountStore::instance()->accountMetadata(accountId);
+    if (!accOpt.has_value()) {
+        return false;
+    }
+    TokenAccount acc = accOpt.value();
+    acc.sourceMode = static_cast<ProviderSourceMode>(sourceMode);
+    return saveUpdatedMetadata(accountId, acc);
+}
+
+bool TokenAccountOperationManager::setDefault(const QString& providerId, const QString& accountId)
+{
+    if (!accountId.isEmpty()) {
+        auto accOpt = TokenAccountStore::instance()->accountMetadata(accountId);
+        if (!accOpt.has_value() || accOpt->providerId != providerId) {
+            return false;
+        }
+    }
+    TokenAccountStore::instance()->setDefaultAccountId(providerId, accountId);
+    TokenAccountStore::instance()->saveToDisk();
+    return true;
+}
+
 QString TokenAccountOperationManager::requestAddAccount(const QString& providerId,
                                                          const QString& displayName,
                                                          int sourceMode,
                                                          UsageBackend* backend)
 {
-    TokenAccount account;
-    account.accountId = TokenAccount::generateAccountId();
-    account.providerId = providerId;
-    account.displayName = displayName.trimmed().isEmpty() ? providerId : displayName.trimmed();
-    account.sourceMode = static_cast<ProviderSourceMode>(sourceMode);
-    account.visibility = AccountVisibility::Visible;
-    account.createdAt = QDateTime::currentDateTimeUtc();
-    account.lastUsedAt = account.createdAt;
+    TokenAccount account = makeTokenAccount(providerId, displayName, sourceMode);
 
     const QString operationId = beginOperation(
         QStringLiteral("addTokenAccount"), providerId, account.accountId);
 
+    if (!backend) {
+        finishOperation(operationId, providerId, false, QStringLiteral("Backend is not available."), false);
+        return operationId;
+    }
+
     backend->dispatchValueJob(QStringLiteral("tokenAccount.add"), 0,
         [operationId, providerId, account]() -> QVariant {
             TokenAccountStore::instance()->addAccountMetadata(account);
-            if (TokenAccountStore::instance()->accountCountForProvider(providerId) == 1) {
-                TokenAccountStore::instance()->setDefaultAccountId(providerId, account.accountId);
-            }
+            setDefaultIfFirstAccount(providerId, account.accountId);
             const bool saved = TokenAccountStore::instance()->saveToDisk();
-            QVariantMap payload;
-            payload.insert(QStringLiteral("operationId"), operationId);
-            payload.insert(QStringLiteral("providerId"), providerId);
-            payload.insert(QStringLiteral("success"), saved);
-            payload.insert(QStringLiteral("message"),
-                           saved ? QString()
-                                 : QStringLiteral("Failed to save token account configuration."));
-            payload.insert(QStringLiteral("refreshProviderOnSuccess"), true);
-            return payload;
+            return makeOperationPayload(operationId, providerId, saved,
+                                        saved ? QString() : saveConfigurationError());
         });
 
     return operationId;
@@ -148,24 +301,16 @@ QString TokenAccountOperationManager::requestAddAccountWithApiKey(const QString&
                                                                    const QString& apiKey,
                                                                    UsageBackend* backend)
 {
-    TokenAccount account;
-    account.accountId = TokenAccount::generateAccountId();
-    account.providerId = providerId;
-    account.displayName = displayName.trimmed().isEmpty() ? providerId : displayName.trimmed();
-    account.sourceMode = static_cast<ProviderSourceMode>(sourceMode);
-    account.visibility = AccountVisibility::Visible;
-    account.createdAt = QDateTime::currentDateTimeUtc();
-    account.lastUsedAt = account.createdAt;
-
-    const QString trimmedKey = apiKey.trimmed();
-    if (!trimmedKey.isEmpty()) {
-        APICredentials api;
-        api.apiKey = SecureString(trimmedKey);
-        account.credentials.api = api;
-    }
+    TokenAccount account = makeTokenAccount(providerId, displayName, sourceMode);
+    attachApiKey(account, apiKey);
 
     const QString operationId = beginOperation(
         QStringLiteral("addTokenAccountWithApiKey"), providerId, account.accountId);
+
+    if (!backend) {
+        finishOperation(operationId, providerId, false, QStringLiteral("Backend is not available."), false);
+        return operationId;
+    }
 
     TokenAccount metadata = account;
     metadata.credentials = {};
@@ -183,21 +328,10 @@ QString TokenAccountOperationManager::requestAddAccountWithApiKey(const QString&
             }
             if (ok) {
                 TokenAccountStore::instance()->addAccountMetadata(metadata);
-                if (TokenAccountStore::instance()->accountCountForProvider(providerId) == 1) {
-                    TokenAccountStore::instance()->setDefaultAccountId(providerId, metadata.accountId);
-                }
-                ok = TokenAccountStore::instance()->saveToDisk();
-                if (!ok) {
-                    message = QStringLiteral("Failed to save token account configuration.");
-                }
+                setDefaultIfFirstAccount(providerId, metadata.accountId);
+                ok = saveStore(&message);
             }
-            QVariantMap payload;
-            payload.insert(QStringLiteral("operationId"), operationId);
-            payload.insert(QStringLiteral("providerId"), providerId);
-            payload.insert(QStringLiteral("success"), ok);
-            payload.insert(QStringLiteral("message"), message);
-            payload.insert(QStringLiteral("refreshProviderOnSuccess"), true);
-            return payload;
+            return makeOperationPayload(operationId, providerId, ok, message);
         });
 
     return operationId;
@@ -214,6 +348,11 @@ QString TokenAccountOperationManager::requestRemoveAccount(const QString& accoun
     const QString operationId = beginOperation(
         QStringLiteral("removeTokenAccount"), providerId, accountId);
 
+    if (!backend) {
+        finishOperation(operationId, providerId, false, QStringLiteral("Backend is not available."), false);
+        return operationId;
+    }
+
     backend->dispatchValueJob(QStringLiteral("tokenAccount.remove"), 0,
         [operationId, providerId, accountId]() -> QVariant {
             TokenAccountStore::instance()->removeAccountCredentials(accountId);
@@ -222,18 +361,9 @@ QString TokenAccountOperationManager::requestRemoveAccount(const QString& accoun
             if (!ok) {
                 message = QStringLiteral("Token account no longer exists.");
             } else {
-                ok = TokenAccountStore::instance()->saveToDisk();
-                if (!ok) {
-                    message = QStringLiteral("Failed to save token account configuration.");
-                }
+                ok = saveStore(&message);
             }
-            QVariantMap payload;
-            payload.insert(QStringLiteral("operationId"), operationId);
-            payload.insert(QStringLiteral("providerId"), providerId);
-            payload.insert(QStringLiteral("success"), ok);
-            payload.insert(QStringLiteral("message"), message);
-            payload.insert(QStringLiteral("refreshProviderOnSuccess"), true);
-            return payload;
+            return makeOperationPayload(operationId, providerId, ok, message);
         });
 
     return operationId;
@@ -253,26 +383,13 @@ QString TokenAccountOperationManager::requestSetVisibility(const QString& accoun
     const QString operationId = beginOperation(
         QStringLiteral("setTokenAccountVisibility"), providerId, accountId);
 
-    backend->dispatchValueJob(QStringLiteral("tokenAccount.visibility"), 0,
-        [operationId, providerId, accountId, acc]() -> QVariant {
-            bool ok = TokenAccountStore::instance()->updateAccountMetadata(accountId, acc);
-            QString message;
-            if (!ok) {
-                message = QStringLiteral("Token account no longer exists.");
-            } else {
-                ok = TokenAccountStore::instance()->saveToDisk();
-                if (!ok) {
-                    message = QStringLiteral("Failed to save token account configuration.");
-                }
-            }
-            QVariantMap payload;
-            payload.insert(QStringLiteral("operationId"), operationId);
-            payload.insert(QStringLiteral("providerId"), providerId);
-            payload.insert(QStringLiteral("success"), ok);
-            payload.insert(QStringLiteral("message"), message);
-            payload.insert(QStringLiteral("refreshProviderOnSuccess"), true);
-            return payload;
-        });
+    if (!backend) {
+        finishOperation(operationId, providerId, false, QStringLiteral("Backend is not available."), false);
+        return operationId;
+    }
+
+    dispatchMetadataUpdate(backend, QStringLiteral("tokenAccount.visibility"),
+                           operationId, providerId, accountId, acc);
 
     return operationId;
 }
@@ -291,26 +408,13 @@ QString TokenAccountOperationManager::requestSetSourceMode(const QString& accoun
     const QString operationId = beginOperation(
         QStringLiteral("setTokenAccountSourceMode"), providerId, accountId);
 
-    backend->dispatchValueJob(QStringLiteral("tokenAccount.sourceMode"), 0,
-        [operationId, providerId, accountId, acc]() -> QVariant {
-            bool ok = TokenAccountStore::instance()->updateAccountMetadata(accountId, acc);
-            QString message;
-            if (!ok) {
-                message = QStringLiteral("Token account no longer exists.");
-            } else {
-                ok = TokenAccountStore::instance()->saveToDisk();
-                if (!ok) {
-                    message = QStringLiteral("Failed to save token account configuration.");
-                }
-            }
-            QVariantMap payload;
-            payload.insert(QStringLiteral("operationId"), operationId);
-            payload.insert(QStringLiteral("providerId"), providerId);
-            payload.insert(QStringLiteral("success"), ok);
-            payload.insert(QStringLiteral("message"), message);
-            payload.insert(QStringLiteral("refreshProviderOnSuccess"), true);
-            return payload;
-        });
+    if (!backend) {
+        finishOperation(operationId, providerId, false, QStringLiteral("Backend is not available."), false);
+        return operationId;
+    }
+
+    dispatchMetadataUpdate(backend, QStringLiteral("tokenAccount.sourceMode"),
+                           operationId, providerId, accountId, acc);
 
     return operationId;
 }
@@ -329,19 +433,17 @@ QString TokenAccountOperationManager::requestSetDefault(const QString& providerI
     const QString operationId = beginOperation(
         QStringLiteral("setDefaultTokenAccount"), providerId, accountId);
 
+    if (!backend) {
+        finishOperation(operationId, providerId, false, QStringLiteral("Backend is not available."), false);
+        return operationId;
+    }
+
     backend->dispatchValueJob(QStringLiteral("tokenAccount.default"), 0,
         [operationId, providerId, accountId]() -> QVariant {
             TokenAccountStore::instance()->setDefaultAccountId(providerId, accountId);
             const bool saved = TokenAccountStore::instance()->saveToDisk();
-            QVariantMap payload;
-            payload.insert(QStringLiteral("operationId"), operationId);
-            payload.insert(QStringLiteral("providerId"), providerId);
-            payload.insert(QStringLiteral("success"), saved);
-            payload.insert(QStringLiteral("message"),
-                           saved ? QString()
-                                 : QStringLiteral("Failed to save token account configuration."));
-            payload.insert(QStringLiteral("refreshProviderOnSuccess"), true);
-            return payload;
+            return makeOperationPayload(operationId, providerId, saved,
+                                        saved ? QString() : saveConfigurationError());
         });
 
     return operationId;

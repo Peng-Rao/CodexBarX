@@ -4,6 +4,7 @@
 #include "UsageBackendTypes.h"
 #include "../providers/IProvider.h"
 
+#include <QDebug>
 #include <QVariant>
 
 ProviderRefreshCoordinator::ProviderRefreshCoordinator(QObject* parent)
@@ -67,6 +68,16 @@ QString ProviderRefreshCoordinator::error(const QString& providerId) const
     return m_errors.value(providerId);
 }
 
+QVariantMap ProviderRefreshCoordinator::dashboardData(const QString& providerId) const
+{
+    return m_dashboardData.value(providerId);
+}
+
+QVector<ProviderFetchAttempt> ProviderRefreshCoordinator::fetchAttempts(const QString& providerId) const
+{
+    return m_lastFetchAttempts.value(providerId);
+}
+
 // ============================================================================
 // Dependencies
 // ============================================================================
@@ -93,26 +104,13 @@ void ProviderRefreshCoordinator::setProviderResolver(ProviderResolver resolver)
 void ProviderRefreshCoordinator::applyRefreshResult(const QString& providerId,
                                                      const ProviderFetchResult& result)
 {
-    if (result.success) {
-        m_snapshots[providerId] = result.usage;
-        m_errors.remove(providerId);
-        emit providerRefreshSuccess(providerId, result);
-        emit snapshotChanged(providerId);
-        m_revision++;
-        emit revisionChanged();
-    } else {
-        m_errors[providerId] = result.errorMessage;
-        emit providerRefreshFailed(providerId, result.errorMessage);
-        emit errorOccurred(providerId, result.errorMessage);
-        emit snapshotChanged(providerId);
-    }
-
-    completeRefresh();
+    applyResult(providerId, result, true);
 }
 
 void ProviderRefreshCoordinator::applyRefreshFailed(const QString& providerId,
                                                      const QString& errorMessage)
 {
+    clearResultMetadata(providerId);
     m_errors[providerId] = errorMessage;
     emit providerRefreshFailed(providerId, errorMessage);
     emit errorOccurred(providerId, errorMessage);
@@ -124,34 +122,44 @@ void ProviderRefreshCoordinator::removeSnapshot(const QString& providerId)
 {
     m_snapshots.remove(providerId);
     m_errors.remove(providerId);
+    clearResultMetadata(providerId);
 }
 
 void ProviderRefreshCoordinator::applySnapshotUpdate(const QString& providerId,
                                                       const ProviderFetchResult& result)
 {
-    // For connection tests and other non-refresh updates.
-    // Does NOT track pending refreshes.
-    if (result.success) {
-        m_snapshots[providerId] = result.usage;
-        m_errors.remove(providerId);
-        emit providerRefreshSuccess(providerId, result);
-        emit snapshotChanged(providerId);
-        m_revision++;
-        emit revisionChanged();
-    } else {
-        m_errors[providerId] = result.errorMessage;
-        emit providerRefreshFailed(providerId, result.errorMessage);
-        emit errorOccurred(providerId, result.errorMessage);
-        emit snapshotChanged(providerId);
-    }
+    applyResult(providerId, result, false);
 }
 
 void ProviderRefreshCoordinator::clearCache()
 {
     m_snapshots.clear();
     m_errors.clear();
+    m_dashboardData.clear();
+    m_lastFetchAttempts.clear();
     m_revision++;
     emit revisionChanged();
+}
+
+bool ProviderRefreshCoordinator::handleBackendResult(const UsageBackendResult& result)
+{
+    if (result.kind != QLatin1String("providerRefresh")) {
+        return false;
+    }
+
+    const QString requestProviderId = m_refreshRequestProviderIds.take(result.requestId);
+    if (!result.success) {
+        qWarning() << "Provider refresh backend job failed:" << requestProviderId << result.message;
+        if (!requestProviderId.isEmpty()) {
+            applyRefreshFailed(requestProviderId, result.message);
+        }
+        return true;
+    }
+
+    const auto payload = result.payload.value<ProviderRefreshPayload>();
+    emit credentialCacheUpdatesReady(payload.credentialUpdates);
+    applyRefreshResult(payload.providerId, payload.fetchResult);
+    return true;
 }
 
 void ProviderRefreshCoordinator::incrementPendingExternalWork()
@@ -201,23 +209,13 @@ void ProviderRefreshCoordinator::refreshWithBackend(const QString& providerId)
     m_pendingRefreshes++;
 
     if (!m_backend) {
-        m_pendingRefreshes--;
-        if (m_pendingRefreshes <= 0) {
-            m_isRefreshing = false;
-            emit refreshComplete();
-            emit refreshingChanged();
-        }
+        completeRefreshDispatchWithoutResult();
         return;
     }
 
     IProvider* provider = m_providerResolver ? m_providerResolver(providerId) : nullptr;
     if (!provider) {
-        m_pendingRefreshes--;
-        if (m_pendingRefreshes <= 0) {
-            m_isRefreshing = false;
-            emit refreshComplete();
-            emit refreshingChanged();
-        }
+        completeRefreshDispatchWithoutResult();
         return;
     }
 
@@ -231,8 +229,7 @@ void ProviderRefreshCoordinator::refreshWithBackend(const QString& providerId)
         return QVariant::fromValue(UsageBackendJobs::refreshProvider(provider, input));
     });
 
-    // Notify UsageStore so it can track the request ID mapping
-    emit refreshJobDispatched(request.requestId, providerId);
+    m_refreshRequestProviderIds.insert(request.requestId, providerId);
 }
 
 void ProviderRefreshCoordinator::completeRefresh()
@@ -243,4 +240,59 @@ void ProviderRefreshCoordinator::completeRefresh()
         emit refreshComplete();
         emit refreshingChanged();
     }
+}
+
+void ProviderRefreshCoordinator::completeRefreshDispatchWithoutResult()
+{
+    m_pendingRefreshes--;
+    if (m_pendingRefreshes <= 0) {
+        m_isRefreshing = false;
+        emit refreshComplete();
+        emit refreshingChanged();
+    }
+}
+
+void ProviderRefreshCoordinator::applyResult(const QString& providerId,
+                                             const ProviderFetchResult& result,
+                                             bool complete)
+{
+    if (result.success) {
+        updateResultMetadata(providerId, result);
+        m_snapshots[providerId] = result.usage;
+        m_errors.remove(providerId);
+        emit providerRefreshSuccess(providerId, result);
+        emit snapshotChanged(providerId);
+        m_revision++;
+        emit revisionChanged();
+    } else {
+        clearResultMetadata(providerId);
+        m_errors[providerId] = result.errorMessage;
+        emit providerRefreshFailed(providerId, result.errorMessage);
+        emit errorOccurred(providerId, result.errorMessage);
+        emit snapshotChanged(providerId);
+    }
+
+    if (complete) {
+        completeRefresh();
+    }
+}
+
+void ProviderRefreshCoordinator::updateResultMetadata(const QString& providerId,
+                                                       const ProviderFetchResult& result)
+{
+    m_lastFetchAttempts[providerId] = result.attempts;
+    emit fetchAttemptsChanged(providerId);
+
+    if (result.dashboard.has_value()) {
+        m_dashboardData[providerId] = result.dashboard->toVariantMap();
+    } else {
+        m_dashboardData.remove(providerId);
+    }
+}
+
+void ProviderRefreshCoordinator::clearResultMetadata(const QString& providerId)
+{
+    m_lastFetchAttempts[providerId] = {};
+    m_dashboardData.remove(providerId);
+    emit fetchAttemptsChanged(providerId);
 }

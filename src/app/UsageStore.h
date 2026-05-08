@@ -228,12 +228,14 @@ private:
     void setProviderStatus(const QString& providerId, const QVariantMap& status);
     void onProviderRefreshSuccess(const QString& providerId, const ProviderFetchResult& result);
     void onProviderRefreshFailed(const QString& providerId, const QString& errorMessage);
+    void resetCostUsageDerivedCaches(bool clearBuiltData);
     void applyProviderConnectionTestResult(const QString& providerId,
                                            const ProviderFetchResult& result,
                                            qint64 startedAt);
     void handleBackendResult(const UsageBackendResult& result);
     void configureStatusPolling();
     void queueCredentialStatusCheck(const QString& providerId, const QString& key, const QString& target) const;
+    void prepareCodexRefreshForProviders(const QStringList& ids);
     QHash<QString, QString> codexCreditsEnvironment() const;
     void dispatchCodexCreditsRefresh(const QHash<QString, QString>& env,
                                      const CodexAccountRefreshGuard& expectedGuard);
@@ -245,8 +247,6 @@ private:
 
     QTimer m_statusTimer;
     QHash<QString, std::optional<double>> m_lastKnownSessionRemaining;
-    QHash<QString, QVector<ProviderFetchAttempt>> m_lastFetchAttempts;
-    QHash<QString, QVariantMap> m_dashboardData;
     QString m_lastKnownSessionWindowSource;
     QStringList m_providerIDs;
 
@@ -299,9 +299,6 @@ private:
     mutable QSet<QString> m_credentialStatusInFlight;
     static constexpr int CREDENTIAL_CACHE_TTL_MS = 300000; // 5 minutes
 
-    // snapshotData() result cache — invalidated on snapshotChanged / snapshotRevisionChanged
-    mutable QHash<QString, QVariantMap> m_snapshotDataCache;
-
     // costUsageData() / providerCostUsageList() result caches — invalidated on costUsageChanged
     mutable QVariantMap m_costUsageDataCache;
     mutable QVariantList m_providerCostUsageListCache;
@@ -321,7 +318,7 @@ private:
     mutable int m_costUsageProviderDetailBuildGeneration = 0;
     int m_costUsageRefreshGeneration = 0;
 
-    QHash<QString, QString> m_backendRequestProviderIds;
+    QHash<QString, QString> m_connectionTestRequestProviderIds;
     QHash<QString, CodexAccountRefreshGuard> m_backendCodexCreditGuards;
     QHash<QString, QByteArray> m_backendSecretValues;
 

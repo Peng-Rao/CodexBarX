@@ -439,6 +439,12 @@ void QmlArchitectureTest::providerUiBuildersUseCatalogSnapshot()
              "UsageStore must delegate provider list building to ProviderUIService.");
     QVERIFY2(contents.contains(QStringLiteral("m_uiService->requestProviderDescriptor")),
              "UsageStore must delegate provider descriptor building to ProviderUIService.");
+    QVERIFY2(!contents.contains(QStringLiteral("m_snapshotDataCache")),
+             "snapshotData cache must live in ProviderUIService, not UsageStore.");
+    QVERIFY2(!contents.contains(QStringLiteral("refreshJobDispatched")),
+             "Provider refresh request mapping must stay inside ProviderRefreshCoordinator.");
+    QVERIFY2(!contents.contains(QStringLiteral("m_backendRequestProviderIds")),
+             "UsageStore must not own the shared provider refresh backend request map.");
 
     // Verify ProviderUIService uses catalog snapshot
     QFile uiService(QStringLiteral(PROJECT_SOURCE_DIR "/src/app/ProviderUIService.cpp"));
@@ -454,8 +460,10 @@ void QmlArchitectureTest::providerUiBuildersUseCatalogSnapshot()
     const QString listBody = uiServiceContents.mid(listStartIndex, listEndIndex - listStartIndex);
     QVERIFY2(!listBody.contains(QStringLiteral("ProviderRegistry::instance()")),
              "Provider list backend input must read ProviderCatalogSnapshot, not live ProviderRegistry/provider QObject.");
-    QVERIFY2(listBody.contains(QStringLiteral("m_catalog->providers()")),
-             "Provider list backend input must iterate catalog snapshot entries.");
+    QVERIFY2(listBody.contains(QStringLiteral("collectProviderListBuildItems(m_catalog")),
+             "Provider list backend input must be prepared from ProviderCatalogSnapshot helper input.");
+    QVERIFY2(uiServiceContents.contains(QStringLiteral("catalog->providers()")),
+             "Provider list helper must iterate catalog snapshot entries.");
 
     const QString descriptorStart = QStringLiteral("void ProviderUIService::requestProviderDescriptor");
     const QString descriptorEnd = QStringLiteral("void ProviderUIService::invalidateProviderListCache");
@@ -468,8 +476,10 @@ void QmlArchitectureTest::providerUiBuildersUseCatalogSnapshot()
              "Provider descriptor backend input must read ProviderCatalogSnapshot, not live ProviderRegistry/provider QObject.");
     QVERIFY2(!descriptorBody.contains(QStringLiteral("settingsDescriptors()")),
              "Provider descriptor backend input must use snapshotted settings descriptors.");
-    QVERIFY2(descriptorBody.contains(QStringLiteral("m_catalog->provider(providerId)")),
-             "Provider descriptor backend input must look up provider metadata in the catalog snapshot.");
+    QVERIFY2(descriptorBody.contains(QStringLiteral("buildProviderDescriptorInput(")),
+             "Provider descriptor backend input must be prepared through the descriptor helper.");
+    QVERIFY2(uiServiceContents.contains(QStringLiteral("catalog->provider(providerId)")),
+             "Provider descriptor helper must look up provider metadata in the catalog snapshot.");
 
     QVERIFY2(!contents.contains(QStringLiteral("UsageStore::providerSettingsFields")),
              "Provider settings fields must be prepared through providerDescriptorData instead of a direct QML getter.");

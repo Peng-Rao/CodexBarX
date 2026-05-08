@@ -7,7 +7,9 @@
 #include <QString>
 #include <QSet>
 #include <functional>
+#include <optional>
 
+#include "../models/CreditsSnapshot.h"
 #include "../models/UsageSnapshot.h"
 
 class ProviderCatalogSnapshot;
@@ -38,11 +40,18 @@ public:
     void requestProviderDescriptor(const QString& providerId);
 
     // === Usage Snapshot ===
+    struct CodexSnapshotContext {
+        std::optional<CreditsSnapshot> credits;
+        QString rawCreditsError;
+    };
+
+    QVariantMap snapshotData(const QString& providerId, const UsageSnapshot& snap) const;
     QVariantMap providerUsageSnapshot(const QString& providerId, const UsageSnapshot& snap) const;
 
     // === Cache Invalidation ===
     void invalidateProviderListCache();
     void invalidateDescriptorCache(const QString& providerId);
+    void invalidateSnapshotDataCache(const QString& providerId);
     void invalidateAllCaches();
 
     // === Cache State ===
@@ -63,12 +72,14 @@ public:
     using SecretStatusAccessor = std::function<QVariantMap(const QString& providerId, const QString& key)>;
     using DisplayNameAccessor = std::function<QString(const QString& providerId)>;
     using StatusURLAccessor = std::function<QString(const QString& providerId)>;
+    using CodexSnapshotContextAccessor = std::function<CodexSnapshotContext()>;
 
     void setSnapshotAccessor(SnapshotAccessor accessor);
     void setErrorAccessor(ErrorAccessor accessor);
     void setSecretStatusAccessor(SecretStatusAccessor accessor);
     void setDisplayNameAccessor(DisplayNameAccessor accessor);
     void setStatusURLAccessor(StatusURLAccessor accessor);
+    void setCodexSnapshotContextAccessor(CodexSnapshotContextAccessor accessor);
 
     // === Generation tracking ===
     int listGeneration() const { return m_listGeneration; }
@@ -98,6 +109,7 @@ private:
     SecretStatusAccessor m_secretStatusAccessor;
     DisplayNameAccessor m_displayNameAccessor;
     StatusURLAccessor m_statusURLAccessor;
+    CodexSnapshotContextAccessor m_codexSnapshotContextAccessor;
 
     // Provider list cache
     mutable QVariantList m_providerListCache;
@@ -109,4 +121,7 @@ private:
     mutable QHash<QString, QVariantMap> m_descriptorCache;
     mutable QSet<QString> m_descriptorRefreshQueued;
     QHash<QString, int> m_descriptorGenerations;
+
+    // Snapshot data cache
+    mutable QHash<QString, QVariantMap> m_snapshotDataCache;
 };

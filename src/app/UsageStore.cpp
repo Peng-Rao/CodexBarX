@@ -206,11 +206,23 @@ UsageStore::UsageStore(QObject* parent)
     m_uiService->setSecretStatusAccessor([this](const QString& providerId, const QString& key) -> QVariantMap {
         return providerSecretStatus(providerId, key);
     });
+    m_uiService->setErrorAccessor([this](const QString& providerId) -> QString {
+        return m_refreshCoordinator ? m_refreshCoordinator->error(providerId) : QString();
+    });
     m_uiService->setDisplayNameAccessor([this](const QString& providerId) -> QString {
         return providerDisplayName(providerId);
     });
     m_uiService->setStatusURLAccessor([this](const QString& providerId) -> QString {
         return providerStatusURL(providerId);
+    });
+    m_uiService->setCodexSnapshotContextAccessor([this]() -> ProviderUIService::CodexSnapshotContext {
+        ProviderUIService::CodexSnapshotContext context;
+        if (m_codexCreditsCache.snapshot.has_value() &&
+            m_codexCreditsCache.accountKey == currentCodexAccountKey()) {
+            context.credits = m_codexCreditsCache.snapshot;
+            context.rawCreditsError = m_codexCreditsCache.lastError;
+        }
+        return context;
     });
     QObject::connect(m_uiService, &ProviderUIService::providerListModelChanged,
                      this, &UsageStore::providerListModelChanged);
@@ -232,6 +244,7 @@ UsageStore::UsageStore(QObject* parent)
     // Forward coordinator signals
     QObject::connect(m_refreshCoordinator, &ProviderRefreshCoordinator::snapshotChanged,
                      this, [this](const QString& providerId) {
+        m_uiService->invalidateSnapshotDataCache(providerId);
         if (m_batchInProgress && m_batchUpdater) {
             m_batchUpdater->markDirty(providerId);
         } else {
@@ -240,16 +253,20 @@ UsageStore::UsageStore(QObject* parent)
     });
     QObject::connect(m_refreshCoordinator, &ProviderRefreshCoordinator::revisionChanged,
                      this, [this]() {
-        m_snapshotDataCache.clear();
+        m_uiService->invalidateSnapshotDataCache(QString());
         emit snapshotRevisionChanged();
     });
     QObject::connect(m_refreshCoordinator, &ProviderRefreshCoordinator::refreshingChanged,
                      this, &UsageStore::refreshingChanged);
     QObject::connect(m_refreshCoordinator, &ProviderRefreshCoordinator::errorOccurred,
                      this, &UsageStore::errorOccurred);
-    QObject::connect(m_refreshCoordinator, &ProviderRefreshCoordinator::refreshJobDispatched,
-                     this, [this](const QString& requestId, const QString& providerId) {
-        m_backendRequestProviderIds.insert(requestId, providerId);
+    QObject::connect(m_refreshCoordinator, &ProviderRefreshCoordinator::credentialCacheUpdatesReady,
+                     this, &UsageStore::applyCredentialCacheUpdates);
+    QObject::connect(m_refreshCoordinator, &ProviderRefreshCoordinator::fetchAttemptsChanged,
+                     this, [this](const QString& providerId) {
+        if (providerId == QLatin1String("codex")) {
+            emit codexFetchAttemptsChanged();
+        }
     });
     QObject::connect(m_refreshCoordinator, &ProviderRefreshCoordinator::providerRefreshSuccess,
                      this, &UsageStore::onProviderRefreshSuccess);
@@ -302,7 +319,7 @@ void UsageStore::setSettingsStore(SettingsStore* s) {
         connect(m_settingsStore, &SettingsStore::statusChecksEnabledChanged,
                 this, &UsageStore::configureStatusPolling);
         auto notifyDisplaySettingsChanged = [this]() {
-            m_snapshotDataCache.clear();
+            m_uiService->invalidateSnapshotDataCache(QString());
             emit snapshotRevisionChanged();
             // snapshotRevisionChanged() is sufficient; TrayPanel/PlanUtilizationChart
             // bind to snapshotRevision. No need to emit snapshotChanged(id) individually.
@@ -663,269 +680,7 @@ void UsageStore::updateProviderIDs() {
 
 QVariantMap UsageStore::snapshotData(const QString& id) const {
     PERF_PROBE("snapshotData", 1000);
-    auto cacheIt = m_snapshotDataCache.find(id);
-    if (cacheIt != m_snapshotDataCache.end()) {
-        return cacheIt.value();
-    }
-
-    auto snap = snapshot(id);
-    const auto catalogEntry = m_providerCatalog.provider(id);
-    const ProviderDescriptor* descriptor = (catalogEntry.has_value() && catalogEntry->hasDescriptor)
-        ? &catalogEntry->descriptor
-        : nullptr;
-    QVariantMap m;
-    const bool showUsedPercent = m_settingsStore ? m_settingsStore->usageBarsShowUsed() : false;
-    const bool showAbsoluteResetTimes = m_settingsStore ? m_settingsStore->resetTimesShowAbsolute() : false;
-    const bool showOptionalFields = m_settingsStore ? m_settingsStore->showOptionalCreditsAndExtraUsage() : true;
-
-    auto resetDisplay = [&](const RateWindow& rw) -> QString {
-        if (showAbsoluteResetTimes && rw.resetsAt.has_value() && rw.resetsAt->isValid()) {
-            return rw.resetsAt->toLocalTime().toString("yyyy-MM-dd hh:mm");
-        }
-        return rw.resetDescription.value_or(QString());
-    };
-
-    auto addWindowFields = [&](const QString& prefix, const RateWindow& rw, bool isDetailProvider) {
-        const double remaining = rw.remainingPercent();
-        m[prefix + "Used"] = rw.usedPercent;
-        m[prefix + "Remaining"] = remaining;
-        m[prefix + "DisplayPercent"] = showUsedPercent ? rw.usedPercent : remaining;
-        m[prefix + "DisplayIsUsed"] = showUsedPercent;
-        if (rw.resetsAt.has_value())
-            m[prefix + "ResetsAt"] = rw.resetsAt->toMSecsSinceEpoch();
-
-        // For detail-only providers (deepseek/warp/kilo/abacus),
-        // resetDescription contains balance/credit detail, not a reset time.
-        // Extract it to a separate detail field and avoid "Resets" rendering.
-        if (isDetailProvider && rw.resetDescription.has_value()) {
-            QString detail = rw.resetDescription.value().trimmed();
-            if (!detail.isEmpty())
-                m[prefix + "Detail"] = detail;
-        } else {
-            const QString resetText = resetDisplay(rw);
-            if (!resetText.isEmpty())
-                m[prefix + "ResetDesc"] = resetText;
-        }
-    };
-
-    m["sessionLabel"] = Localization::providerLabel(descriptor ? descriptor->metadata.sessionLabel : QStringLiteral("Session"));
-    m["weeklyLabel"] = Localization::providerLabel(descriptor ? descriptor->metadata.weeklyLabel : QStringLiteral("Weekly"));
-    m["opusLabel"] = Localization::providerLabel(
-        descriptor && descriptor->metadata.opusLabel.has_value()
-            ? descriptor->metadata.opusLabel.value()
-            : QString());
-    m["supportsCredits"] = descriptor ? descriptor->metadata.supportsCredits : false;
-    m["displayName"] = providerDisplayName(id);
-
-    const bool isDetailProvider = (id == "deepseek" || id == "warp" || id == "kilo" ||
-                                   id == "abacus" || id == "codebuff");
-
-    if (snap.primary.has_value()) {
-        addWindowFields("primary", *snap.primary, isDetailProvider);
-    } else {
-        m["primaryUsed"] = 0.0;
-        m["primaryRemaining"] = 100.0;
-        m["primaryDisplayPercent"] = showUsedPercent ? 0.0 : 100.0;
-        m["primaryDisplayIsUsed"] = showUsedPercent;
-    }
-    if (snap.secondary.has_value()) {
-        addWindowFields("secondary", *snap.secondary, false);
-        m["hasSecondary"] = true;
-    } else {
-        m["secondaryUsed"] = 0.0;
-        m["secondaryRemaining"] = 100.0;
-        m["secondaryDisplayPercent"] = showUsedPercent ? 0.0 : 100.0;
-        m["secondaryDisplayIsUsed"] = showUsedPercent;
-        m["hasSecondary"] = false;
-    }
-    if (snap.tertiary.has_value()) {
-        addWindowFields("tertiary", *snap.tertiary, false);
-        m["hasTertiary"] = true;
-    } else {
-        m["hasTertiary"] = false;
-    }
-    if (snap.identity.has_value()) {
-        if (snap.identity->loginMethod.has_value())
-            m["loginMethod"] = snap.identity->loginMethod.value();
-    }
-
-    bool hasUsage = snap.primary.has_value() || snap.secondary.has_value() || snap.tertiary.has_value();
-    m["hasUsage"] = hasUsage;
-
-    if (showOptionalFields && snap.providerCost.has_value()) {
-        m["providerCostUsed"] = snap.providerCost->used;
-        m["providerCostLimit"] = snap.providerCost->limit;
-        m["providerCostCurrency"] = snap.providerCost->currencyCode;
-        m["hasProviderCost"] = true;
-    } else {
-        m["hasProviderCost"] = false;
-    }
-
-    m["updatedAt"] = snap.updatedAt.toMSecsSinceEpoch();
-
-    if (showOptionalFields && snap.zaiUsage.has_value()) {
-        QVariantMap zai;
-        const auto& z = *snap.zaiUsage;
-        if (z.tokenLimit.has_value()) {
-            QVariantMap tl;
-            tl["usedPercent"] = z.tokenLimit->usedPercent();
-            tl["windowDescription"] = z.tokenLimit->windowDescription();
-            tl["windowLabel"] = z.tokenLimit->windowLabel();
-            if (z.tokenLimit->usage.has_value()) tl["usage"] = *z.tokenLimit->usage;
-            if (z.tokenLimit->currentValue.has_value()) tl["currentValue"] = *z.tokenLimit->currentValue;
-            if (z.tokenLimit->remaining.has_value()) tl["remaining"] = *z.tokenLimit->remaining;
-            QVariantList details;
-            for (auto& d : z.tokenLimit->usageDetails) {
-                QVariantMap dm;
-                dm["modelCode"] = d.modelCode;
-                dm["usage"] = d.usage;
-                details.append(dm);
-            }
-            tl["usageDetails"] = details;
-            zai["tokenLimit"] = tl;
-        }
-        if (z.timeLimit.has_value()) {
-            QVariantMap tl;
-            tl["usedPercent"] = z.timeLimit->usedPercent();
-            tl["windowDescription"] = z.timeLimit->windowDescription();
-            tl["windowLabel"] = z.timeLimit->windowLabel();
-            QVariantList details;
-            for (auto& d : z.timeLimit->usageDetails) {
-                QVariantMap dm;
-                dm["modelCode"] = d.modelCode;
-                dm["usage"] = d.usage;
-                details.append(dm);
-            }
-            tl["usageDetails"] = details;
-            zai["timeLimit"] = tl;
-        }
-        if (z.sessionTokenLimit.has_value()) {
-            QVariantMap sl;
-            sl["usedPercent"] = z.sessionTokenLimit->usedPercent();
-            sl["windowDescription"] = z.sessionTokenLimit->windowDescription();
-            sl["windowLabel"] = z.sessionTokenLimit->windowLabel();
-            zai["sessionTokenLimit"] = sl;
-        }
-        if (z.planName.has_value()) zai["planName"] = *z.planName;
-        m["zaiUsage"] = zai;
-    }
-
-    if (showOptionalFields && snap.openRouterUsage.has_value()) {
-        QVariantMap oru;
-        const auto& o = *snap.openRouterUsage;
-        oru["totalCredits"] = o.totalCredits;
-        oru["totalUsage"] = o.totalUsage;
-        oru["balance"] = o.balance;
-        oru["usedPercent"] = o.usedPercent;
-        oru["keyQuotaStatus"] = static_cast<int>(o.keyQuotaStatus());
-        if (o.keyLimit.has_value()) oru["keyLimit"] = *o.keyLimit;
-        if (o.keyUsage.has_value()) oru["keyUsage"] = *o.keyUsage;
-        if (o.hasValidKeyQuota()) {
-            oru["keyRemaining"] = o.keyRemaining();
-            oru["keyUsedPercent"] = o.keyUsedPercent();
-        }
-        if (o.rateLimit.has_value()) {
-            QVariantMap rl;
-            rl["requests"] = o.rateLimit->requests;
-            rl["interval"] = o.rateLimit->interval;
-            oru["rateLimit"] = rl;
-        }
-        m["openRouterUsage"] = oru;
-    }
-
-    if (showOptionalFields && snap.providerCost.has_value()) {
-        QVariantMap pc;
-        pc["used"] = snap.providerCost->used;
-        pc["limit"] = snap.providerCost->limit;
-        pc["currencyCode"] = snap.providerCost->currencyCode;
-        if (snap.providerCost->period.has_value()) pc["period"] = *snap.providerCost->period;
-        m["providerCost"] = pc;
-    }
-
-    m["updatedAt"] = snap.updatedAt.toMSecsSinceEpoch();
-
-    auto addPaceFields = [&](const QString& prefix, const RateWindow& rw) {
-        auto pace = UsagePace::weekly(rw, snap.updatedAt);
-        if (!pace.has_value()) return;
-        auto detail = UsagePaceText::weeklyDetail(*pace);
-        m[prefix + "PacePercent"] = pace->expectedUsedPercent;
-        m[prefix + "PaceOnTop"] = pace->actualUsedPercent <= pace->expectedUsedPercent;
-        m[prefix + "PaceLeftLabel"] = detail.leftLabel;
-        m[prefix + "PaceRightLabel"] = detail.rightLabel;
-        m[prefix + "PaceStage"] = static_cast<int>(pace->stage);
-    };
-
-    if (snap.primary.has_value()) addPaceFields("primary", *snap.primary);
-    if (snap.secondary.has_value()) addPaceFields("secondary", *snap.secondary);
-
-    m["error"] = Localization::providerError(error(id));
-
-    // Codex-specific: Consumer Projection
-    if (id == "codex") {
-        CodexConsumerProjection::Context ctx;
-        ctx.snapshot = snap;
-        ctx.rawUsageError = error(id);
-        ctx.now = QDateTime::currentDateTime();
-
-        if (m_codexCreditsCache.snapshot.has_value() &&
-            m_codexCreditsCache.accountKey == currentCodexAccountKey()) {
-            ctx.credits = &m_codexCreditsCache.snapshot.value();
-            ctx.rawCreditsError = m_codexCreditsCache.lastError;
-        }
-
-        auto projection = CodexConsumerProjection::make(
-            CodexConsumerProjection::Surface::LiveCard, ctx);
-
-        // Override primary/secondary with projected lanes
-        auto sessionWindow = CodexConsumerProjection::rateWindow(projection, CodexConsumerProjection::RateLane::Session);
-        if (sessionWindow.has_value()) {
-            addWindowFields("primary", *sessionWindow, false);
-        }
-        auto weeklyWindow = CodexConsumerProjection::rateWindow(projection, CodexConsumerProjection::RateLane::Weekly);
-        if (weeklyWindow.has_value()) {
-            addWindowFields("secondary", *weeklyWindow, false);
-            m["hasSecondary"] = true;
-        }
-
-        // Dashboard visibility
-        m["dashboardVisibility"] = static_cast<int>(projection.dashboardVisibility);
-
-        // Menu bar fallback
-        m["menuBarFallback"] = static_cast<int>(projection.menuBarFallback);
-
-        // User-facing errors (override raw error)
-        if (!projection.userFacingErrors.usage.isEmpty()) {
-            m["error"] = projection.userFacingErrors.usage;
-        }
-
-        // Credits data - try from projection first, then from providerCost
-        if (projection.credits.has_value() && projection.credits->snapshot.has_value()) {
-            m["hasCredits"] = true;
-            m["creditsRemaining"] = projection.credits->snapshot->remaining;
-            if (!projection.credits->userFacingError.isEmpty()) {
-                m["creditsError"] = projection.credits->userFacingError;
-            }
-        } else if (snap.providerCost.has_value()) {
-            // Fallback: use providerCost directly (credits are stored here)
-            m["hasCredits"] = true;
-            m["creditsRemaining"] = snap.providerCost->used;
-        } else {
-            m["hasCredits"] = false;
-        }
-
-        // For Codex, providerCost represents credits, not "extra usage"
-        if (snap.providerCost.has_value() && 
-            snap.providerCost->period.has_value() && 
-            snap.providerCost->period.value() == "Credits") {
-            m["hasProviderCost"] = false;  // Hide "Extra usage" for Codex credits
-        }
-
-        // Exhausted lane flag
-        m["hasExhaustedRateLane"] = CodexConsumerProjection::hasExhaustedRateLane(projection);
-    }
-
-    m_snapshotDataCache[id] = m;
-    return m;
+    return m_uiService->snapshotData(id, snapshot(id));
 }
 
 void UsageStore::setCostUsageEnabled(bool v) {
@@ -949,6 +704,29 @@ void UsageStore::releaseCostUsageViewCaches() const {
     m_costUsageDetailsRowsCacheValid = false;
     m_costUsageTokenProviderCountCache = 0;
     m_costUsageDetailsRowsBuildQueued = false;
+    ++m_costUsageDetailsRowsBuildGeneration;
+    ++m_costUsageProviderDetailBuildGeneration;
+}
+
+void UsageStore::resetCostUsageDerivedCaches(bool clearBuiltData)
+{
+    if (clearBuiltData) {
+        m_costUsageDataCache.clear();
+        m_providerCostUsageListCache.clear();
+        m_costUsageDetailsRowsCache.clear();
+    }
+
+    m_costUsageProviderDetailCache.clear();
+    m_costUsageProviderDetailQueued.clear();
+    m_costUsageDataCacheValid = false;
+    m_providerCostUsageListCacheValid = false;
+    m_costUsageDetailsRowsCacheValid = false;
+    m_costUsageTokenProviderCountCache = 0;
+    m_costUsageSummaryBuildQueued = false;
+    m_costUsageProviderRowsBuildQueued = false;
+    m_costUsageDetailsRowsBuildQueued = false;
+    ++m_costUsageSummaryBuildGeneration;
+    ++m_costUsageProviderRowsBuildGeneration;
     ++m_costUsageDetailsRowsBuildGeneration;
     ++m_costUsageProviderDetailBuildGeneration;
 }
@@ -1051,22 +829,7 @@ void UsageStore::refreshCostUsage() {
         m_costUsage = CostUsageSnapshot{};
         m_perProviderCostUsage.clear();
         m_allProviderCostUsage.clear();
-        m_costUsageDataCache.clear();
-        m_providerCostUsageListCache.clear();
-        m_costUsageDetailsRowsCache.clear();
-        m_costUsageProviderDetailCache.clear();
-        m_costUsageProviderDetailQueued.clear();
-        m_costUsageDataCacheValid = false;
-        m_providerCostUsageListCacheValid = false;
-        m_costUsageDetailsRowsCacheValid = false;
-        m_costUsageTokenProviderCountCache = 0;
-        m_costUsageSummaryBuildQueued = false;
-        m_costUsageProviderRowsBuildQueued = false;
-        m_costUsageDetailsRowsBuildQueued = false;
-        ++m_costUsageSummaryBuildGeneration;
-        ++m_costUsageProviderRowsBuildGeneration;
-        ++m_costUsageDetailsRowsBuildGeneration;
-        ++m_costUsageProviderDetailBuildGeneration;
+        resetCostUsageDerivedCaches(true);
         if (hadData) {
             emit costUsageChanged();
         }
@@ -1149,26 +912,12 @@ void UsageStore::requestCostUsageProviderDetail(const QString& providerId) const
 
 void UsageStore::handleBackendResult(const UsageBackendResult& result)
 {
-    if (result.kind == QLatin1String("providerRefresh")) {
-        const QString requestProviderId = m_backendRequestProviderIds.take(result.requestId);
-        if (!result.success) {
-            qWarning() << "Provider refresh backend job failed:" << requestProviderId << result.message;
-            if (m_refreshCoordinator && !requestProviderId.isEmpty()) {
-                m_refreshCoordinator->applyRefreshFailed(requestProviderId, result.message);
-            }
-            return;
-        }
-
-        const auto payload = result.payload.value<ProviderRefreshPayload>();
-        applyCredentialCacheUpdates(payload.credentialUpdates);
-        if (m_refreshCoordinator) {
-            m_refreshCoordinator->applyRefreshResult(payload.providerId, payload.fetchResult);
-        }
+    if (m_refreshCoordinator && m_refreshCoordinator->handleBackendResult(result)) {
         return;
     }
 
     if (result.kind == QLatin1String("providerConnectionTest")) {
-        const QString requestProviderId = m_backendRequestProviderIds.take(result.requestId);
+        const QString requestProviderId = m_connectionTestRequestProviderIds.take(result.requestId);
         if (!result.success) {
             qWarning() << "Provider connection test backend job failed:" << requestProviderId << result.message;
             if (requestProviderId.isEmpty()) {
@@ -1420,19 +1169,7 @@ void UsageStore::handleBackendResult(const UsageBackendResult& result)
         m_perProviderCostUsage = payload.perProvider;
         m_allProviderCostUsage = payload.allProviders;
         m_costUsageRefreshing = false;
-        m_costUsageDataCacheValid = false;
-        m_providerCostUsageListCacheValid = false;
-        m_costUsageDetailsRowsCacheValid = false;
-        m_costUsageProviderDetailCache.clear();
-        m_costUsageProviderDetailQueued.clear();
-        m_costUsageTokenProviderCountCache = 0;
-        m_costUsageSummaryBuildQueued = false;
-        m_costUsageProviderRowsBuildQueued = false;
-        m_costUsageDetailsRowsBuildQueued = false;
-        ++m_costUsageSummaryBuildGeneration;
-        ++m_costUsageProviderRowsBuildGeneration;
-        ++m_costUsageDetailsRowsBuildGeneration;
-        ++m_costUsageProviderDetailBuildGeneration;
+        resetCostUsageDerivedCaches(false);
         emit costUsageRefreshingChanged();
         emit costUsageChanged();
         return;
@@ -1553,27 +1290,29 @@ void UsageStore::dispatchProviderLoginPoll(const ProviderLoginStartPayload& star
     });
 }
 
-void UsageStore::refresh() {
-    if (!m_refreshCoordinator) return;
-    QStringList ids;
-    for (const QString& id : m_providerCatalog.enabledProviderIDs()) ids.append(id);
-
-    // Codex-specific pre-refresh setup
+void UsageStore::prepareCodexRefreshForProviders(const QStringList& ids)
+{
     auto currentGuard = currentCodexAccountRefreshGuard();
     if (currentGuard != m_lastCodexRefreshGuard) {
         clearCodexOpenAIWebState();
         m_lastCodexRefreshGuard = currentGuard;
     }
 
-    // Parallel credits refresh for Codex (mirrors original CodexBar behavior)
-    if (ids.contains("codex") && isProviderEnabled("codex")) {
+    if (ids.contains(QStringLiteral("codex")) && isProviderEnabled(QStringLiteral("codex"))) {
         auto expectedGuard = currentCodexAccountRefreshGuard();
         m_lastCodexRefreshGuard = expectedGuard;
         if (!expectedGuard.identity.isEmpty()) {
             dispatchCodexCreditsRefresh(codexCreditsEnvironment(), expectedGuard);
         }
     }
+}
 
+void UsageStore::refresh() {
+    if (!m_refreshCoordinator) return;
+    QStringList ids;
+    for (const QString& id : m_providerCatalog.enabledProviderIDs()) ids.append(id);
+
+    prepareCodexRefreshForProviders(ids);
     m_refreshCoordinator->refresh(ids);
 }
 
@@ -1582,21 +1321,7 @@ void UsageStore::refreshAll() {
     QStringList ids;
     for (const QString& id : m_providerCatalog.providerIDs()) ids.append(id);
 
-    // Codex-specific pre-refresh setup
-    auto currentGuard = currentCodexAccountRefreshGuard();
-    if (currentGuard != m_lastCodexRefreshGuard) {
-        clearCodexOpenAIWebState();
-        m_lastCodexRefreshGuard = currentGuard;
-    }
-
-    if (ids.contains("codex") && isProviderEnabled("codex")) {
-        auto expectedGuard = currentCodexAccountRefreshGuard();
-        m_lastCodexRefreshGuard = expectedGuard;
-        if (!expectedGuard.identity.isEmpty()) {
-            dispatchCodexCreditsRefresh(codexCreditsEnvironment(), expectedGuard);
-        }
-    }
-
+    prepareCodexRefreshForProviders(ids);
     m_refreshCoordinator->refresh(ids);
 }
 
@@ -1611,7 +1336,7 @@ void UsageStore::clearCache() {
         m_credentialCache.clear();
         m_credentialMissing.clear();
     }
-    m_snapshotDataCache.clear();
+    m_uiService->invalidateSnapshotDataCache(QString());
     // Batch emit connection test changes to avoid signal storm
     for (const auto& id : ids) {
         emit providerConnectionTestChanged(id);
@@ -1627,16 +1352,6 @@ void UsageStore::refreshProvider(const QString& providerId) {
 void UsageStore::onProviderRefreshSuccess(const QString& providerId,
                                            const ProviderFetchResult& result)
 {
-    m_lastFetchAttempts[providerId] = result.attempts;
-    if (providerId == "codex") {
-        emit codexFetchAttemptsChanged();
-    }
-    if (result.dashboard.has_value()) {
-        m_dashboardData[providerId] = result.dashboard->toVariantMap();
-    } else {
-        m_dashboardData.remove(providerId);
-    }
-
     if (m_historyStore) {
         m_historyStore->recordSample(providerId, result.usage);
     }
@@ -1690,10 +1405,7 @@ void UsageStore::onProviderRefreshSuccess(const QString& providerId,
 void UsageStore::onProviderRefreshFailed(const QString& providerId,
                                           const QString& /*errorMessage*/)
 {
-    m_lastFetchAttempts[providerId] = {};
-    if (providerId == "codex") {
-        emit codexFetchAttemptsChanged();
-    }
+    Q_UNUSED(providerId)
 }
 
 void UsageStore::startAutoRefresh(int intervalMinutes) {
@@ -2009,7 +1721,7 @@ void UsageStore::testProviderConnection(const QString& providerId) {
         [provider, input, startedAt]() {
         return QVariant::fromValue(UsageBackendJobs::testProviderConnection(provider, input, startedAt));
     });
-    m_backendRequestProviderIds.insert(request.requestId, providerId);
+    m_connectionTestRequestProviderIds.insert(request.requestId, providerId);
 }
 
 void UsageStore::applyProviderConnectionTestResult(const QString& providerId,
@@ -2017,15 +1729,6 @@ void UsageStore::applyProviderConnectionTestResult(const QString& providerId,
                                                    qint64 startedAt)
 {
     PERF_PROBE("testProviderConnection_callback", 2000);
-    m_lastFetchAttempts[providerId] = result.attempts;
-    if (providerId == "codex") {
-        emit codexFetchAttemptsChanged();
-    }
-    if (result.dashboard.has_value()) {
-        m_dashboardData[providerId] = result.dashboard->toVariantMap();
-    } else {
-        m_dashboardData.remove(providerId);
-    }
     const qint64 finishedAt = QDateTime::currentDateTime().toMSecsSinceEpoch();
     qDebug() << "[TestConnection] Provider:" << providerId << "success:" << result.success << "error:" << result.errorMessage;
     if (m_refreshCoordinator) {
@@ -2566,9 +2269,8 @@ QVariantMap UsageStore::codexConsumerProjectionData() const
 QVariantList UsageStore::codexFetchAttempts() const
 {
     QVariantList list;
-    auto it = m_lastFetchAttempts.find("codex");
-    if (it == m_lastFetchAttempts.end()) return list;
-    for (const auto& attempt : it.value()) {
+    if (!m_refreshCoordinator) return list;
+    for (const auto& attempt : m_refreshCoordinator->fetchAttempts(QStringLiteral("codex"))) {
         list.append(attempt.toMap());
     }
     return list;
@@ -2590,13 +2292,11 @@ void UsageStore::clearCodexOpenAIWebState()
         m_refreshCoordinator->removeSnapshot("codex");
     }
     m_connectionTester->clearTestState("codex");
-    m_dashboardData.remove("codex");
     m_lastKnownSessionRemaining.remove("codex");
     m_lastKnownSessionWindowSource.clear();
-    m_lastFetchAttempts.remove("codex");
 
     emit snapshotChanged("codex");
-    m_snapshotDataCache.remove("codex");
+    m_uiService->invalidateSnapshotDataCache(QStringLiteral("codex"));
     emit snapshotRevisionChanged();
     emit codexCreditsChanged();
     emit codexFetchAttemptsChanged();
@@ -2614,7 +2314,7 @@ void UsageStore::shutdown()
 
 QVariantMap UsageStore::providerDashboardData(const QString& providerId) const
 {
-    return m_dashboardData.value(providerId);
+    return m_refreshCoordinator ? m_refreshCoordinator->dashboardData(providerId) : QVariantMap();
 }
 
 // Token Account management implementations
@@ -2636,23 +2336,7 @@ QVariantMap UsageStore::tokenAccountOperationState() const
 
 QString UsageStore::addTokenAccount(const QString& providerId, const QString& displayName, int sourceMode)
 {
-    TokenAccount account;
-    account.providerId = providerId;
-    account.displayName = displayName.trimmed().isEmpty() ? providerId : displayName.trimmed();
-    account.sourceMode = static_cast<ProviderSourceMode>(sourceMode);
-    account.visibility = AccountVisibility::Visible;
-    account.createdAt = QDateTime::currentDateTimeUtc();
-    account.lastUsedAt = account.createdAt;
-
-    QString accountId = TokenAccountStore::instance()->addAccountMetadata(account);
-
-    // If this is the first account for this provider, set it as default
-    if (TokenAccountStore::instance()->accountCountForProvider(providerId) == 1) {
-        TokenAccountStore::instance()->setDefaultAccountId(providerId, accountId);
-    }
-
-    TokenAccountStore::instance()->saveToDisk();
-    return accountId;
+    return m_tokenAccountManager->addAccount(providerId, displayName, sourceMode);
 }
 
 QString UsageStore::addTokenAccountWithApiKey(const QString& providerId,
@@ -2660,70 +2344,27 @@ QString UsageStore::addTokenAccountWithApiKey(const QString& providerId,
                                               int sourceMode,
                                               const QString& apiKey)
 {
-    TokenAccount account;
-    account.providerId = providerId;
-    account.displayName = displayName.trimmed().isEmpty() ? providerId : displayName.trimmed();
-    account.sourceMode = static_cast<ProviderSourceMode>(sourceMode);
-    account.visibility = AccountVisibility::Visible;
-    account.createdAt = QDateTime::currentDateTimeUtc();
-    account.lastUsedAt = account.createdAt;
-
-    const QString trimmedKey = apiKey.trimmed();
-    if (!trimmedKey.isEmpty()) {
-        APICredentials api;
-        api.apiKey = SecureString(trimmedKey);
-        account.credentials.api = api;
-    }
-
-    QString accountId = TokenAccountStore::instance()->addAccount(account);
-    if (TokenAccountStore::instance()->accountCountForProvider(providerId) == 1) {
-        TokenAccountStore::instance()->setDefaultAccountId(providerId, accountId);
-    }
-
-    TokenAccountStore::instance()->saveToDisk();
-    return accountId;
+    return m_tokenAccountManager->addAccountWithApiKey(providerId, displayName, sourceMode, apiKey);
 }
 
 bool UsageStore::removeTokenAccount(const QString& accountId)
 {
-    const bool ok = TokenAccountStore::instance()->removeAccount(accountId);
-    if (ok) TokenAccountStore::instance()->saveToDisk();
-    return ok;
+    return m_tokenAccountManager->removeAccount(accountId);
 }
 
 bool UsageStore::setTokenAccountVisibility(const QString& accountId, int visibility)
 {
-    auto accOpt = TokenAccountStore::instance()->accountMetadata(accountId);
-    if (!accOpt.has_value()) return false;
-    TokenAccount acc = accOpt.value();
-    acc.visibility = static_cast<AccountVisibility>(visibility);
-    const bool ok = TokenAccountStore::instance()->updateAccountMetadata(accountId, acc);
-    if (ok) TokenAccountStore::instance()->saveToDisk();
-    return ok;
+    return m_tokenAccountManager->setVisibility(accountId, visibility);
 }
 
 bool UsageStore::setTokenAccountSourceMode(const QString& accountId, int sourceMode)
 {
-    auto accOpt = TokenAccountStore::instance()->accountMetadata(accountId);
-    if (!accOpt.has_value()) return false;
-    TokenAccount acc = accOpt.value();
-    acc.sourceMode = static_cast<ProviderSourceMode>(sourceMode);
-    const bool ok = TokenAccountStore::instance()->updateAccountMetadata(accountId, acc);
-    if (ok) TokenAccountStore::instance()->saveToDisk();
-    return ok;
+    return m_tokenAccountManager->setSourceMode(accountId, sourceMode);
 }
 
 bool UsageStore::setDefaultTokenAccount(const QString& providerId, const QString& accountId)
 {
-    if (!accountId.isEmpty()) {
-        auto accOpt = TokenAccountStore::instance()->accountMetadata(accountId);
-        if (!accOpt.has_value() || accOpt->providerId != providerId) {
-            return false;
-        }
-    }
-    TokenAccountStore::instance()->setDefaultAccountId(providerId, accountId);
-    TokenAccountStore::instance()->saveToDisk();
-    return true;
+    return m_tokenAccountManager->setDefault(providerId, accountId);
 }
 
 QString UsageStore::requestAddTokenAccount(const QString& providerId,
@@ -2775,7 +2416,7 @@ void UsageStore::onBatchUpdateReady(const QStringList& providerIds)
     }
 
     for (const auto& id : providerIds) {
-        m_snapshotDataCache.remove(id);
+        m_uiService->invalidateSnapshotDataCache(id);
     }
     m_uiService->invalidateProviderListCache();
 }

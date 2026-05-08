@@ -36,6 +36,21 @@ public:
                          const QString& message,
                          bool refreshProviderOnSuccess);
 
+    // Synchronous account mutations used by legacy QML-facing API.
+    QString addAccount(const QString& providerId,
+                       const QString& displayName,
+                       int sourceMode);
+
+    QString addAccountWithApiKey(const QString& providerId,
+                                 const QString& displayName,
+                                 int sourceMode,
+                                 const QString& apiKey);
+
+    bool removeAccount(const QString& accountId);
+    bool setVisibility(const QString& accountId, int visibility);
+    bool setSourceMode(const QString& accountId, int sourceMode);
+    bool setDefault(const QString& providerId, const QString& accountId);
+
     // Operation requests (async via backend) - returns operation ID
     QString requestAddAccount(const QString& providerId,
                               const QString& displayName,

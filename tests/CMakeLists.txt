@@ -242,6 +242,30 @@ target_compile_definitions(tst_UsageBackend PRIVATE ${COMMON_DEFINES})
 target_link_libraries(tst_UsageBackend PRIVATE codexbar_core Qt6::Core Qt6::Test)
 add_wincodexbar_test(tst_UsageBackend tst_UsageBackend)
 
+add_executable(tst_ProviderUIService
+    tst_ProviderUIService.cpp
+)
+target_include_directories(tst_ProviderUIService PRIVATE ${COMMON_INCLUDE})
+target_compile_definitions(tst_ProviderUIService PRIVATE ${COMMON_DEFINES})
+target_link_libraries(tst_ProviderUIService PRIVATE codexbar_core Qt6::Core Qt6::Test)
+add_wincodexbar_test(tst_ProviderUIService tst_ProviderUIService)
+
+add_executable(tst_ProviderRefreshCoordinator
+    tst_ProviderRefreshCoordinator.cpp
+)
+target_include_directories(tst_ProviderRefreshCoordinator PRIVATE ${COMMON_INCLUDE})
+target_compile_definitions(tst_ProviderRefreshCoordinator PRIVATE ${COMMON_DEFINES})
+target_link_libraries(tst_ProviderRefreshCoordinator PRIVATE codexbar_core Qt6::Core Qt6::Test)
+add_wincodexbar_test(tst_ProviderRefreshCoordinator tst_ProviderRefreshCoordinator)
+
+add_executable(tst_TokenAccountOperationManager
+    tst_TokenAccountOperationManager.cpp
+)
+target_include_directories(tst_TokenAccountOperationManager PRIVATE ${COMMON_INCLUDE})
+target_compile_definitions(tst_TokenAccountOperationManager PRIVATE ${COMMON_DEFINES})
+target_link_libraries(tst_TokenAccountOperationManager PRIVATE codexbar_core Qt6::Core Qt6::Test)
+add_wincodexbar_test(tst_TokenAccountOperationManager tst_TokenAccountOperationManager)
+
 # Provider unit tests (API Key)
 add_executable(tst_OpenCodeGoProvider tst_OpenCodeGoProvider.cpp)
 target_include_directories(tst_OpenCodeGoProvider PRIVATE ${COMMON_INCLUDE})

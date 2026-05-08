@@ -2,12 +2,16 @@
 #include "Localization.h"
 #include "UsageBackend.h"
 #include "UsageBackendTypes.h"
+#include "../models/UsagePace.h"
 #include "../providers/ProviderStatusManager.h"
 #include "../providers/ProviderCredentialManager.h"
 #include "../providers/ProviderCatalogSnapshot.h"
+#include "../providers/codex/CodexConsumerProjection.h"
 #include "../account/TokenAccountStore.h"
 #include "../app/SettingsStore.h"
+#include "../util/UsagePaceText.h"
 
+#include <QDateTime>
 #include <QMetaObject>
 
 namespace {
@@ -98,6 +102,66 @@ QVariantList buildProviderListFromItems(QVector<ProviderListBuildItem> items,
         list.append(entry);
     }
     return list;
+}
+
+QVector<ProviderListBuildItem> collectProviderListBuildItems(
+    const ProviderCatalogSnapshot* catalog,
+    const ProviderUIService::SnapshotAccessor& snapshotAccessor,
+    ProviderStatusManager* statusManager)
+{
+    QVector<ProviderListBuildItem> items;
+    if (!catalog) {
+        return items;
+    }
+
+    for (const auto& provider : catalog->providers()) {
+        const QString id = provider.id;
+        ProviderListBuildItem item;
+        item.id = id;
+        item.enabled = provider.enabled;
+        if (provider.hasDescriptor) {
+            const auto& desc = provider.descriptor;
+            item.name = desc.metadata.displayName;
+            item.sessionLabel = desc.metadata.sessionLabel;
+            item.weeklyLabel = desc.metadata.weeklyLabel;
+            item.supportsCredits = desc.metadata.supportsCredits;
+            item.dashboardURL = desc.metadata.dashboardURL;
+            item.statusPageURL = desc.metadata.statusPageURL;
+            item.statusLinkURL = desc.metadata.statusLinkURL;
+            item.statusWorkspaceProductID = desc.metadata.statusWorkspaceProductID;
+            item.brandColor = provider.brandColor;
+            item.sourceModes = desc.fetchPlan.allowedSourceModes;
+            item.supportsMultipleAccounts = desc.tokenAccounts.supportsMultipleAccounts;
+            item.requiredCredentialTypes = desc.tokenAccounts.requiredCredentialTypes;
+            item.defaultTokenAccount = TokenAccountStore::instance()->defaultAccountId(id);
+            item.tokenAccountCount = TokenAccountStore::instance()->accountCountForProvider(id);
+        } else {
+            item.name = id;
+            item.sessionLabel = QStringLiteral("Session");
+            item.weeklyLabel = QStringLiteral("Weekly");
+            item.supportsCredits = false;
+        }
+
+        if (snapshotAccessor) {
+            auto usagePercent = snapshotAccessor(id);
+            if (usagePercent.has_value()) {
+                item.hasUsage = true;
+                item.usagePercent = usagePercent.value();
+            }
+        }
+
+        if (statusManager) {
+            const QVariantMap statusMap = statusManager->status(id);
+            const QString statusState = statusMap.value(QStringLiteral("state"), QStringLiteral("unknown")).toString();
+            if (statusState != QStringLiteral("unknown")) {
+                item.status = statusState;
+            }
+        }
+
+        items.append(item);
+    }
+
+    return items;
 }
 
 struct ProviderSettingFieldBuildInput {
@@ -193,6 +257,49 @@ QVariantMap buildProviderDescriptorFromInput(const ProviderDescriptorBuildInput&
     return data;
 }
 
+ProviderDescriptorBuildInput buildProviderDescriptorInput(
+    const QString& providerId,
+    const ProviderCatalogSnapshot* catalog,
+    SettingsStore* settingsStore,
+    const ProviderUIService::SecretStatusAccessor& secretStatusAccessor,
+    const ProviderUIService::StatusURLAccessor& statusURLAccessor)
+{
+    ProviderDescriptorBuildInput input;
+    input.providerId = providerId;
+
+    const auto catalogEntry = catalog ? catalog->provider(providerId) : std::nullopt;
+    if (catalogEntry.has_value()) {
+        input.hasDescriptor = catalogEntry->hasDescriptor;
+        input.descriptor = catalogEntry->descriptor;
+        input.enabled = catalogEntry->enabled;
+        input.brandColor = catalogEntry->brandColor;
+    }
+
+    if (statusURLAccessor) {
+        input.statusURL = statusURLAccessor(providerId);
+    }
+
+    input.defaultTokenAccount = TokenAccountStore::instance()->defaultAccountId(providerId);
+    input.tokenAccountCount = TokenAccountStore::instance()->accountCountForProvider(providerId);
+
+    if (catalogEntry.has_value()) {
+        for (const auto& d : catalogEntry->settingsDescriptors) {
+            ProviderSettingFieldBuildInput field;
+            field.descriptor = d;
+            field.value = d.sensitive
+                ? QVariant()
+                : (settingsStore ? settingsStore->providerSetting(providerId, d.key, d.defaultValue)
+                                 : d.defaultValue);
+            if (d.sensitive && secretStatusAccessor) {
+                field.secretStatus = secretStatusAccessor(providerId, d.key);
+            }
+            input.settingsFields.append(field);
+        }
+    }
+
+    return input;
+}
+
 } // namespace
 
 ProviderUIService::ProviderUIService(QObject* parent)
@@ -221,55 +328,8 @@ void ProviderUIService::requestProviderList()
     m_providerListRefreshQueued = true;
     const int generation = ++m_listGeneration;
 
-    QVector<ProviderListBuildItem> items;
-    for (const auto& provider : m_catalog->providers()) {
-        const QString id = provider.id;
-        ProviderListBuildItem item;
-        item.id = id;
-        item.enabled = provider.enabled;
-        if (provider.hasDescriptor) {
-            const auto& desc = provider.descriptor;
-            item.name = desc.metadata.displayName;
-            item.sessionLabel = desc.metadata.sessionLabel;
-            item.weeklyLabel = desc.metadata.weeklyLabel;
-            item.supportsCredits = desc.metadata.supportsCredits;
-            item.dashboardURL = desc.metadata.dashboardURL;
-            item.statusPageURL = desc.metadata.statusPageURL;
-            item.statusLinkURL = desc.metadata.statusLinkURL;
-            item.statusWorkspaceProductID = desc.metadata.statusWorkspaceProductID;
-            item.brandColor = provider.brandColor;
-            item.sourceModes = desc.fetchPlan.allowedSourceModes;
-            item.supportsMultipleAccounts = desc.tokenAccounts.supportsMultipleAccounts;
-            item.requiredCredentialTypes = desc.tokenAccounts.requiredCredentialTypes;
-            item.defaultTokenAccount = TokenAccountStore::instance()->defaultAccountId(id);
-            item.tokenAccountCount = TokenAccountStore::instance()->accountCountForProvider(id);
-        } else {
-            item.name = id;
-            item.sessionLabel = QStringLiteral("Session");
-            item.weeklyLabel = QStringLiteral("Weekly");
-            item.supportsCredits = false;
-        }
-
-        // Use snapshot accessor if available
-        if (m_snapshotAccessor) {
-            auto usagePercent = m_snapshotAccessor(id);
-            if (usagePercent.has_value()) {
-                item.hasUsage = true;
-                item.usagePercent = usagePercent.value();
-            }
-        }
-
-        // Get status from status manager
-        if (m_statusManager) {
-            const QVariantMap statusMap = m_statusManager->status(id);
-            const QString statusState = statusMap.value(QStringLiteral("state"), QStringLiteral("unknown")).toString();
-            if (statusState != QStringLiteral("unknown")) {
-                item.status = statusState;
-            }
-        }
-
-        items.append(item);
-    }
+    const QVector<ProviderListBuildItem> items =
+        collectProviderListBuildItems(m_catalog, m_snapshotAccessor, m_statusManager);
 
     const QStringList order = m_settingsStore ? m_settingsStore->providerOrder() : QStringList();
     m_backend->dispatchValueJob(QStringLiteral("providerListModel"), generation,
@@ -317,38 +377,8 @@ void ProviderUIService::requestProviderDescriptor(const QString& providerId)
     const int generation = m_descriptorGenerations.value(providerId, 0) + 1;
     m_descriptorGenerations.insert(providerId, generation);
 
-    ProviderDescriptorBuildInput input;
-    input.providerId = providerId;
-    const auto catalogEntry = m_catalog->provider(providerId);
-    if (catalogEntry.has_value()) {
-        input.hasDescriptor = catalogEntry->hasDescriptor;
-        input.descriptor = catalogEntry->descriptor;
-        input.enabled = catalogEntry->enabled;
-        input.brandColor = catalogEntry->brandColor;
-    }
-
-    // Use status URL accessor
-    if (m_statusURLAccessor) {
-        input.statusURL = m_statusURLAccessor(providerId);
-    }
-
-    input.defaultTokenAccount = TokenAccountStore::instance()->defaultAccountId(providerId);
-    input.tokenAccountCount = TokenAccountStore::instance()->accountCountForProvider(providerId);
-
-    if (catalogEntry.has_value()) {
-        for (const auto& d : catalogEntry->settingsDescriptors) {
-            ProviderSettingFieldBuildInput field;
-            field.descriptor = d;
-            field.value = d.sensitive
-                ? QVariant()
-                : (m_settingsStore ? m_settingsStore->providerSetting(providerId, d.key, d.defaultValue)
-                                   : d.defaultValue);
-            if (d.sensitive && m_secretStatusAccessor) {
-                field.secretStatus = m_secretStatusAccessor(providerId, d.key);
-            }
-            input.settingsFields.append(field);
-        }
-    }
+    const ProviderDescriptorBuildInput input = buildProviderDescriptorInput(
+        providerId, m_catalog, m_settingsStore, m_secretStatusAccessor, m_statusURLAccessor);
 
     m_backend->dispatchValueJob(QStringLiteral("providerDescriptorData"), generation,
                                 [input]() -> QVariant {
@@ -369,11 +399,21 @@ void ProviderUIService::invalidateDescriptorCache(const QString& providerId)
     m_descriptorCache.remove(providerId);
 }
 
+void ProviderUIService::invalidateSnapshotDataCache(const QString& providerId)
+{
+    if (providerId.isEmpty()) {
+        m_snapshotDataCache.clear();
+    } else {
+        m_snapshotDataCache.remove(providerId);
+    }
+}
+
 void ProviderUIService::invalidateAllCaches()
 {
     m_providerListCacheValid = false;
     m_providerListCache.clear();
     m_descriptorCache.clear();
+    m_snapshotDataCache.clear();
 }
 
 void ProviderUIService::setCatalog(const ProviderCatalogSnapshot* catalog)
@@ -426,6 +466,11 @@ void ProviderUIService::setStatusURLAccessor(StatusURLAccessor accessor)
     m_statusURLAccessor = std::move(accessor);
 }
 
+void ProviderUIService::setCodexSnapshotContextAccessor(CodexSnapshotContextAccessor accessor)
+{
+    m_codexSnapshotContextAccessor = std::move(accessor);
+}
+
 bool ProviderUIService::handleProviderListResult(int generation, const QVariantList& providers)
 {
     if (generation != m_listGeneration) {
@@ -451,59 +496,273 @@ bool ProviderUIService::handleDescriptorResult(const QString& providerId, int ge
     return true;
 }
 
+QVariantMap ProviderUIService::snapshotData(const QString& id, const UsageSnapshot& snap) const
+{
+    auto cacheIt = m_snapshotDataCache.find(id);
+    if (cacheIt != m_snapshotDataCache.end()) {
+        return cacheIt.value();
+    }
+
+    const ProviderDescriptor* descriptor = nullptr;
+    if (m_catalog) {
+        const auto catalogEntry = m_catalog->provider(id);
+        if (catalogEntry.has_value() && catalogEntry->hasDescriptor) {
+            descriptor = &catalogEntry->descriptor;
+        }
+    }
+
+    QVariantMap m;
+    const bool showUsedPercent = m_settingsStore ? m_settingsStore->usageBarsShowUsed() : false;
+    const bool showAbsoluteResetTimes = m_settingsStore ? m_settingsStore->resetTimesShowAbsolute() : false;
+    const bool showOptionalFields = m_settingsStore ? m_settingsStore->showOptionalCreditsAndExtraUsage() : true;
+
+    auto resetDisplay = [&](const RateWindow& rw) -> QString {
+        if (showAbsoluteResetTimes && rw.resetsAt.has_value() && rw.resetsAt->isValid()) {
+            return rw.resetsAt->toLocalTime().toString("yyyy-MM-dd hh:mm");
+        }
+        return rw.resetDescription.value_or(QString());
+    };
+
+    auto addWindowFields = [&](const QString& prefix, const RateWindow& rw, bool isDetailProvider) {
+        const double remaining = rw.remainingPercent();
+        m[prefix + "Used"] = rw.usedPercent;
+        m[prefix + "Remaining"] = remaining;
+        m[prefix + "DisplayPercent"] = showUsedPercent ? rw.usedPercent : remaining;
+        m[prefix + "DisplayIsUsed"] = showUsedPercent;
+        if (rw.resetsAt.has_value()) {
+            m[prefix + "ResetsAt"] = rw.resetsAt->toMSecsSinceEpoch();
+        }
+
+        if (isDetailProvider && rw.resetDescription.has_value()) {
+            QString detail = rw.resetDescription.value().trimmed();
+            if (!detail.isEmpty()) {
+                m[prefix + "Detail"] = detail;
+            }
+        } else {
+            const QString resetText = resetDisplay(rw);
+            if (!resetText.isEmpty()) {
+                m[prefix + "ResetDesc"] = resetText;
+            }
+        }
+    };
+
+    m["sessionLabel"] = Localization::providerLabel(descriptor ? descriptor->metadata.sessionLabel : QStringLiteral("Session"));
+    m["weeklyLabel"] = Localization::providerLabel(descriptor ? descriptor->metadata.weeklyLabel : QStringLiteral("Weekly"));
+    m["opusLabel"] = Localization::providerLabel(
+        descriptor && descriptor->metadata.opusLabel.has_value()
+            ? descriptor->metadata.opusLabel.value()
+            : QString());
+    m["supportsCredits"] = descriptor ? descriptor->metadata.supportsCredits : false;
+    m["displayName"] = m_displayNameAccessor ? m_displayNameAccessor(id) : id;
+
+    const bool isDetailProvider = (id == "deepseek" || id == "warp" || id == "kilo" ||
+                                   id == "abacus" || id == "codebuff");
+
+    if (snap.primary.has_value()) {
+        addWindowFields("primary", *snap.primary, isDetailProvider);
+    } else {
+        m["primaryUsed"] = 0.0;
+        m["primaryRemaining"] = 100.0;
+        m["primaryDisplayPercent"] = showUsedPercent ? 0.0 : 100.0;
+        m["primaryDisplayIsUsed"] = showUsedPercent;
+    }
+    if (snap.secondary.has_value()) {
+        addWindowFields("secondary", *snap.secondary, false);
+        m["hasSecondary"] = true;
+    } else {
+        m["secondaryUsed"] = 0.0;
+        m["secondaryRemaining"] = 100.0;
+        m["secondaryDisplayPercent"] = showUsedPercent ? 0.0 : 100.0;
+        m["secondaryDisplayIsUsed"] = showUsedPercent;
+        m["hasSecondary"] = false;
+    }
+    if (snap.tertiary.has_value()) {
+        addWindowFields("tertiary", *snap.tertiary, false);
+        m["hasTertiary"] = true;
+    } else {
+        m["hasTertiary"] = false;
+    }
+    if (snap.identity.has_value() && snap.identity->loginMethod.has_value()) {
+        m["loginMethod"] = snap.identity->loginMethod.value();
+    }
+
+    m["hasUsage"] = snap.primary.has_value() || snap.secondary.has_value() || snap.tertiary.has_value();
+
+    if (showOptionalFields && snap.providerCost.has_value()) {
+        m["providerCostUsed"] = snap.providerCost->used;
+        m["providerCostLimit"] = snap.providerCost->limit;
+        m["providerCostCurrency"] = snap.providerCost->currencyCode;
+        m["hasProviderCost"] = true;
+    } else {
+        m["hasProviderCost"] = false;
+    }
+
+    m["updatedAt"] = snap.updatedAt.toMSecsSinceEpoch();
+
+    if (showOptionalFields && snap.zaiUsage.has_value()) {
+        QVariantMap zai;
+        const auto& z = *snap.zaiUsage;
+        if (z.tokenLimit.has_value()) {
+            QVariantMap tl;
+            tl["usedPercent"] = z.tokenLimit->usedPercent();
+            tl["windowDescription"] = z.tokenLimit->windowDescription();
+            tl["windowLabel"] = z.tokenLimit->windowLabel();
+            if (z.tokenLimit->usage.has_value()) tl["usage"] = *z.tokenLimit->usage;
+            if (z.tokenLimit->currentValue.has_value()) tl["currentValue"] = *z.tokenLimit->currentValue;
+            if (z.tokenLimit->remaining.has_value()) tl["remaining"] = *z.tokenLimit->remaining;
+            QVariantList details;
+            for (auto& d : z.tokenLimit->usageDetails) {
+                QVariantMap dm;
+                dm["modelCode"] = d.modelCode;
+                dm["usage"] = d.usage;
+                details.append(dm);
+            }
+            tl["usageDetails"] = details;
+            zai["tokenLimit"] = tl;
+        }
+        if (z.timeLimit.has_value()) {
+            QVariantMap tl;
+            tl["usedPercent"] = z.timeLimit->usedPercent();
+            tl["windowDescription"] = z.timeLimit->windowDescription();
+            tl["windowLabel"] = z.timeLimit->windowLabel();
+            QVariantList details;
+            for (auto& d : z.timeLimit->usageDetails) {
+                QVariantMap dm;
+                dm["modelCode"] = d.modelCode;
+                dm["usage"] = d.usage;
+                details.append(dm);
+            }
+            tl["usageDetails"] = details;
+            zai["timeLimit"] = tl;
+        }
+        if (z.sessionTokenLimit.has_value()) {
+            QVariantMap sl;
+            sl["usedPercent"] = z.sessionTokenLimit->usedPercent();
+            sl["windowDescription"] = z.sessionTokenLimit->windowDescription();
+            sl["windowLabel"] = z.sessionTokenLimit->windowLabel();
+            zai["sessionTokenLimit"] = sl;
+        }
+        if (z.planName.has_value()) zai["planName"] = *z.planName;
+        m["zaiUsage"] = zai;
+    }
+
+    if (showOptionalFields && snap.openRouterUsage.has_value()) {
+        QVariantMap oru;
+        const auto& o = *snap.openRouterUsage;
+        oru["totalCredits"] = o.totalCredits;
+        oru["totalUsage"] = o.totalUsage;
+        oru["balance"] = o.balance;
+        oru["usedPercent"] = o.usedPercent;
+        oru["keyQuotaStatus"] = static_cast<int>(o.keyQuotaStatus());
+        if (o.keyLimit.has_value()) oru["keyLimit"] = *o.keyLimit;
+        if (o.keyUsage.has_value()) oru["keyUsage"] = *o.keyUsage;
+        if (o.hasValidKeyQuota()) {
+            oru["keyRemaining"] = o.keyRemaining();
+            oru["keyUsedPercent"] = o.keyUsedPercent();
+        }
+        if (o.rateLimit.has_value()) {
+            QVariantMap rl;
+            rl["requests"] = o.rateLimit->requests;
+            rl["interval"] = o.rateLimit->interval;
+            oru["rateLimit"] = rl;
+        }
+        m["openRouterUsage"] = oru;
+    }
+
+    if (showOptionalFields && snap.providerCost.has_value()) {
+        QVariantMap pc;
+        pc["used"] = snap.providerCost->used;
+        pc["limit"] = snap.providerCost->limit;
+        pc["currencyCode"] = snap.providerCost->currencyCode;
+        if (snap.providerCost->period.has_value()) pc["period"] = *snap.providerCost->period;
+        m["providerCost"] = pc;
+    }
+
+    auto addPaceFields = [&](const QString& prefix, const RateWindow& rw) {
+        auto pace = UsagePace::weekly(rw, snap.updatedAt);
+        if (!pace.has_value()) return;
+        auto detail = UsagePaceText::weeklyDetail(*pace);
+        m[prefix + "PacePercent"] = pace->expectedUsedPercent;
+        m[prefix + "PaceOnTop"] = pace->actualUsedPercent <= pace->expectedUsedPercent;
+        m[prefix + "PaceLeftLabel"] = detail.leftLabel;
+        m[prefix + "PaceRightLabel"] = detail.rightLabel;
+        m[prefix + "PaceStage"] = static_cast<int>(pace->stage);
+    };
+
+    if (snap.primary.has_value()) addPaceFields("primary", *snap.primary);
+    if (snap.secondary.has_value()) addPaceFields("secondary", *snap.secondary);
+
+    const QString rawError = m_errorAccessor ? m_errorAccessor(id) : QString();
+    m["error"] = Localization::providerError(rawError);
+
+    if (id == "codex") {
+        CodexConsumerProjection::Context ctx;
+        ctx.snapshot = snap;
+        ctx.rawUsageError = rawError;
+        ctx.now = QDateTime::currentDateTime();
+
+        const CodexSnapshotContext codexContext = m_codexSnapshotContextAccessor
+            ? m_codexSnapshotContextAccessor()
+            : CodexSnapshotContext{};
+        if (codexContext.credits.has_value()) {
+            ctx.credits = &codexContext.credits.value();
+            ctx.rawCreditsError = codexContext.rawCreditsError;
+        }
+
+        auto projection = CodexConsumerProjection::make(
+            CodexConsumerProjection::Surface::LiveCard, ctx);
+
+        auto sessionWindow = CodexConsumerProjection::rateWindow(projection, CodexConsumerProjection::RateLane::Session);
+        if (sessionWindow.has_value()) {
+            addWindowFields("primary", *sessionWindow, false);
+        }
+        auto weeklyWindow = CodexConsumerProjection::rateWindow(projection, CodexConsumerProjection::RateLane::Weekly);
+        if (weeklyWindow.has_value()) {
+            addWindowFields("secondary", *weeklyWindow, false);
+            m["hasSecondary"] = true;
+        }
+
+        m["dashboardVisibility"] = static_cast<int>(projection.dashboardVisibility);
+        m["menuBarFallback"] = static_cast<int>(projection.menuBarFallback);
+
+        if (!projection.userFacingErrors.usage.isEmpty()) {
+            m["error"] = projection.userFacingErrors.usage;
+        }
+
+        if (projection.credits.has_value() && projection.credits->snapshot.has_value()) {
+            m["hasCredits"] = true;
+            m["creditsRemaining"] = projection.credits->snapshot->remaining;
+            if (!projection.credits->userFacingError.isEmpty()) {
+                m["creditsError"] = projection.credits->userFacingError;
+            }
+        } else if (snap.providerCost.has_value()) {
+            m["hasCredits"] = true;
+            m["creditsRemaining"] = snap.providerCost->used;
+        } else {
+            m["hasCredits"] = false;
+        }
+
+        if (snap.providerCost.has_value() &&
+            snap.providerCost->period.has_value() &&
+            snap.providerCost->period.value() == "Credits") {
+            m["hasProviderCost"] = false;
+        }
+
+        m["hasExhaustedRateLane"] = CodexConsumerProjection::hasExhaustedRateLane(projection);
+    }
+
+    m_snapshotDataCache[id] = m;
+    return m;
+}
+
 QVariantList ProviderUIService::buildProviderListNow() const
 {
     if (!m_catalog) {
         return {};
     }
 
-    QVector<ProviderListBuildItem> items;
-    for (const auto& provider : m_catalog->providers()) {
-        const QString id = provider.id;
-        ProviderListBuildItem item;
-        item.id = id;
-        item.enabled = provider.enabled;
-        if (provider.hasDescriptor) {
-            const auto& desc = provider.descriptor;
-            item.name = desc.metadata.displayName;
-            item.sessionLabel = desc.metadata.sessionLabel;
-            item.weeklyLabel = desc.metadata.weeklyLabel;
-            item.supportsCredits = desc.metadata.supportsCredits;
-            item.dashboardURL = desc.metadata.dashboardURL;
-            item.statusPageURL = desc.metadata.statusPageURL;
-            item.statusLinkURL = desc.metadata.statusLinkURL;
-            item.statusWorkspaceProductID = desc.metadata.statusWorkspaceProductID;
-            item.brandColor = provider.brandColor;
-            item.sourceModes = desc.fetchPlan.allowedSourceModes;
-            item.supportsMultipleAccounts = desc.tokenAccounts.supportsMultipleAccounts;
-            item.requiredCredentialTypes = desc.tokenAccounts.requiredCredentialTypes;
-            item.defaultTokenAccount = TokenAccountStore::instance()->defaultAccountId(id);
-            item.tokenAccountCount = TokenAccountStore::instance()->accountCountForProvider(id);
-        } else {
-            item.name = id;
-            item.sessionLabel = QStringLiteral("Session");
-            item.weeklyLabel = QStringLiteral("Weekly");
-            item.supportsCredits = false;
-        }
-
-        if (m_snapshotAccessor) {
-            auto usagePercent = m_snapshotAccessor(id);
-            if (usagePercent.has_value()) {
-                item.hasUsage = true;
-                item.usagePercent = usagePercent.value();
-            }
-        }
-
-        if (m_statusManager) {
-            const QVariantMap statusMap = m_statusManager->status(id);
-            const QString statusState = statusMap.value(QStringLiteral("state"), QStringLiteral("unknown")).toString();
-            if (statusState != QStringLiteral("unknown")) {
-                item.status = statusState;
-            }
-        }
-
-        items.append(item);
-    }
+    const QVector<ProviderListBuildItem> items =
+        collectProviderListBuildItems(m_catalog, m_snapshotAccessor, m_statusManager);
 
     const QStringList order = m_settingsStore ? m_settingsStore->providerOrder() : QStringList();
     const QVariantList list = buildProviderListFromItems(items, order);
@@ -553,37 +812,12 @@ QVariantMap ProviderUIService::buildDescriptorDataNow(const QString& id) const
         return {};
     }
 
-    const auto catalogEntry = m_catalog->provider(id);
-    if (!catalogEntry.has_value()) {
+    if (!m_catalog->provider(id).has_value()) {
         return {};
     }
 
-    ProviderDescriptorBuildInput input;
-    input.providerId = id;
-    input.hasDescriptor = catalogEntry->hasDescriptor;
-    input.descriptor = catalogEntry->descriptor;
-    input.enabled = catalogEntry->enabled;
-    input.brandColor = catalogEntry->brandColor;
-
-    if (m_statusURLAccessor) {
-        input.statusURL = m_statusURLAccessor(id);
-    }
-
-    input.defaultTokenAccount = TokenAccountStore::instance()->defaultAccountId(id);
-    input.tokenAccountCount = TokenAccountStore::instance()->accountCountForProvider(id);
-
-    for (const auto& d : catalogEntry->settingsDescriptors) {
-        ProviderSettingFieldBuildInput field;
-        field.descriptor = d;
-        field.value = d.sensitive
-            ? QVariant()
-            : (m_settingsStore ? m_settingsStore->providerSetting(id, d.key, d.defaultValue)
-                               : d.defaultValue);
-        if (d.sensitive && m_secretStatusAccessor) {
-            field.secretStatus = m_secretStatusAccessor(id, d.key);
-        }
-        input.settingsFields.append(field);
-    }
+    const ProviderDescriptorBuildInput input = buildProviderDescriptorInput(
+        id, m_catalog, m_settingsStore, m_secretStatusAccessor, m_statusURLAccessor);
 
     const QVariantMap data = buildProviderDescriptorFromInput(input);
     m_descriptorCache.insert(id, data);

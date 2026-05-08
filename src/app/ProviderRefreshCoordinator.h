@@ -5,9 +5,12 @@
 #include <QString>
 #include <QStringList>
 #include <QTimer>
+#include <QVariantMap>
+#include <QVector>
 #include <functional>
 
 #include "UsageBackendJobs.h"
+#include "UsageBackendTypes.h"
 #include "../models/UsageSnapshot.h"
 #include "../providers/ProviderFetchResult.h"
 
@@ -38,6 +41,8 @@ public:
     // Snapshot access
     UsageSnapshot snapshot(const QString& providerId) const;
     QString error(const QString& providerId) const;
+    QVariantMap dashboardData(const QString& providerId) const;
+    QVector<ProviderFetchAttempt> fetchAttempts(const QString& providerId) const;
     bool isRefreshing() const { return m_isRefreshing; }
     int revision() const { return m_revision; }
 
@@ -53,6 +58,7 @@ public:
     // For connection tests and other non-refresh snapshot updates
     void applySnapshotUpdate(const QString& providerId, const ProviderFetchResult& result);
     void clearCache();
+    bool handleBackendResult(const UsageBackendResult& result);
 
     // External async work tracking (e.g., Codex credits refresh)
     void incrementPendingExternalWork();
@@ -75,16 +81,24 @@ signals:
     void refreshComplete();
     void providerRefreshSuccess(const QString& providerId, const ProviderFetchResult& result);
     void providerRefreshFailed(const QString& providerId, const QString& errorMessage);
-    void refreshJobDispatched(const QString& requestId, const QString& providerId);
+    void credentialCacheUpdatesReady(const QVector<CredentialCacheUpdatePayload>& updates);
+    void fetchAttemptsChanged(const QString& providerId);
 
 private:
     void doRefresh(const QStringList& ids);
     void refreshWithBackend(const QString& providerId);
     void completeRefresh();
+    void completeRefreshDispatchWithoutResult();
+    void applyResult(const QString& providerId, const ProviderFetchResult& result, bool complete);
+    void updateResultMetadata(const QString& providerId, const ProviderFetchResult& result);
+    void clearResultMetadata(const QString& providerId);
 
     QTimer m_refreshTimer;
     QHash<QString, UsageSnapshot> m_snapshots;
     QHash<QString, QString> m_errors;
+    QHash<QString, QVariantMap> m_dashboardData;
+    QHash<QString, QVector<ProviderFetchAttempt>> m_lastFetchAttempts;
+    QHash<QString, QString> m_refreshRequestProviderIds;
     bool m_isRefreshing = false;
     int m_pendingRefreshes = 0;
     int m_pendingExternalWork = 0;
