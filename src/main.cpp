@@ -23,6 +23,8 @@
 #ifdef Q_OS_WIN
 #include <cmath>
 #include <windows.h>
+#else
+#include <unistd.h>
 #endif
 
 #include "cli/CLIEntry.h"

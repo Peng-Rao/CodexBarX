@@ -276,7 +276,7 @@ set(CORE_HEADERS
 
 add_library(codexbar_core STATIC ${CORE_SOURCES} ${CORE_HEADERS})
 target_include_directories(codexbar_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
-target_compile_definitions(codexbar_core PUBLIC NOMINMAX _WIN32_WINNT=0x0A00 WINVER=0x0A00)
+target_compile_definitions(codexbar_core PUBLIC NOMINMAX)
 
 if(WINCODEXBAR_QT_RUNTIME_FOUND)
     target_link_libraries(codexbar_core PUBLIC
@@ -284,26 +284,35 @@ if(WINCODEXBAR_QT_RUNTIME_FOUND)
     )
 endif()
 
+target_sources(codexbar_core PRIVATE
+    src/providers/shared/CookieImporter.cpp
+    src/providers/shared/ConPTYSession.cpp
+    src/providers/shared/BrowserDetection.cpp
+    src/providers/shared/ChromiumLocalStorageReader.cpp
+    src/providers/shared/ProviderStatusFetcher.cpp
+)
+
 if(WIN32)
-    target_sources(codexbar_core PRIVATE
-        src/providers/shared/WindowsCredentialStore.cpp
-        src/providers/shared/CookieImporter.cpp
-        src/providers/shared/ConPTYSession.cpp
-        src/providers/shared/BrowserDetection.cpp
-        src/providers/shared/ChromiumLocalStorageReader.cpp
-        src/providers/shared/ProviderStatusFetcher.cpp
-    )
+    target_sources(codexbar_core PRIVATE src/providers/shared/WindowsCredentialStore.cpp)
+    target_compile_definitions(codexbar_core PUBLIC _WIN32_WINNT=0x0A00 WINVER=0x0A00)
     target_link_libraries(codexbar_core PRIVATE
         advapi32 crypt32 bcrypt shell32 user32 dwmapi
     )
+elseif(APPLE)
+    target_sources(codexbar_core PRIVATE src/providers/shared/MacOSCredentialStore.cpp)
+    target_link_libraries(codexbar_core PRIVATE "-framework Security")
 endif()
 
 if(WINCODEXBAR_QT_RUNTIME_FOUND)
-    add_executable(WinCodexBar WIN32
+    set(WINCODEXBAR_APP_SOURCES
         src/main.cpp
         resources/qml.qrc
-        resources/wincodexbar.rc
     )
+    if(WIN32)
+        list(APPEND WINCODEXBAR_APP_SOURCES resources/wincodexbar.rc)
+    endif()
+
+    add_executable(WinCodexBar WIN32 MACOSX_BUNDLE ${WINCODEXBAR_APP_SOURCES})
     target_link_libraries(WinCodexBar PRIVATE
         codexbar_core
         Qt6::Quick Qt6::Qml Qt6::Widgets
@@ -328,6 +337,7 @@ if(WINCODEXBAR_QT_RUNTIME_FOUND)
             set(QM_FILE "${CMAKE_CURRENT_BINARY_DIR}/translations/${TS_NAME}.qm")
             add_custom_command(
                 OUTPUT ${QM_FILE}
+                COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/translations"
                 COMMAND Qt6::lrelease ${TS_FILE} -qm ${QM_FILE}
                 DEPENDS ${TS_FILE}
                 COMMENT "Generating ${TS_NAME}.qm"

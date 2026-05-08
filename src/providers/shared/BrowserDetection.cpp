@@ -24,6 +24,33 @@ QString roamingAppData() {
 }
 
 QString chromiumRoot(CookieImporter::Browser browser) {
+#ifdef Q_OS_MACOS
+    const QString appSupport = QDir::homePath() + QStringLiteral("/Library/Application Support");
+    switch (browser) {
+    case CookieImporter::Chrome:
+        return envPath("CODEXBAR_CHROME_USER_DATA_DIR").isEmpty()
+            ? appSupport + QStringLiteral("/Google/Chrome")
+            : envPath("CODEXBAR_CHROME_USER_DATA_DIR");
+    case CookieImporter::Edge:
+        return envPath("CODEXBAR_EDGE_USER_DATA_DIR").isEmpty()
+            ? appSupport + QStringLiteral("/Microsoft Edge")
+            : envPath("CODEXBAR_EDGE_USER_DATA_DIR");
+    case CookieImporter::Brave:
+        return envPath("CODEXBAR_BRAVE_USER_DATA_DIR").isEmpty()
+            ? appSupport + QStringLiteral("/BraveSoftware/Brave-Browser")
+            : envPath("CODEXBAR_BRAVE_USER_DATA_DIR");
+    case CookieImporter::Opera:
+        return envPath("CODEXBAR_OPERA_USER_DATA_DIR").isEmpty()
+            ? appSupport + QStringLiteral("/com.operasoftware.Opera")
+            : envPath("CODEXBAR_OPERA_USER_DATA_DIR");
+    case CookieImporter::Vivaldi:
+        return envPath("CODEXBAR_VIVALDI_USER_DATA_DIR").isEmpty()
+            ? appSupport + QStringLiteral("/Vivaldi")
+            : envPath("CODEXBAR_VIVALDI_USER_DATA_DIR");
+    case CookieImporter::Firefox:
+        return {};
+    }
+#else
     switch (browser) {
     case CookieImporter::Chrome: {
         QString override = envPath("CODEXBAR_CHROME_USER_DATA_DIR");
@@ -48,12 +75,19 @@ QString chromiumRoot(CookieImporter::Browser browser) {
     case CookieImporter::Firefox:
         return {};
     }
+#endif
     return {};
 }
 
 QString firefoxProfilesRoot() {
     QString override = envPath("CODEXBAR_FIREFOX_PROFILES_DIR");
+#ifdef Q_OS_MACOS
+    return override.isEmpty()
+        ? QDir::homePath() + QStringLiteral("/Library/Application Support/Firefox/Profiles")
+        : override;
+#else
     return override.isEmpty() ? roamingAppData() + "/Mozilla/Firefox/Profiles" : override;
+#endif
 }
 
 QString chromiumCookiePathForProfile(const QString& profile) {

@@ -1,16 +1,24 @@
 #include "StatusItemController.h"
 #include "TrayIconRenderer.h"
+#ifdef Q_OS_WIN
 #include "TrayPopupPositioner.h"
+#endif
 #include "../app/LanguageManager.h"
 #include "../app/UsageStore.h"
 #include "../app/SettingsStore.h"
 
 #include <QCoreApplication>
+#include <QCursor>
 #include <QDesktopServices>
 #include <QMenu>
 #include <QMessageBox>
 #include <QScreen>
+#ifdef Q_OS_WIN
 #include <shellapi.h>
+#else
+#include <QGuiApplication>
+#include <QSystemTrayIcon>
+#endif
 
 StatusItemController::StatusItemController(UsageStore* store,
                                              SettingsStore* settings,
@@ -44,6 +52,7 @@ StatusItemController::~StatusItemController() {
 }
 
 bool StatusItemController::createMessageWindow() {
+#ifdef Q_OS_WIN
     WNDCLASSEXW wc = {};
     wc.cbSize = sizeof(wc);
     wc.lpfnWndProc = &StatusItemController::messageWindowProc;
@@ -55,9 +64,13 @@ bool StatusItemController::createMessageWindow() {
         0, L"CodexBarTrayMessageWindow", L"", 0,
         0, 0, 0, 0, nullptr, nullptr, GetModuleHandleW(nullptr), this);
     return m_hwndMsgWindow != nullptr;
+#else
+    return true;
+#endif
 }
 
 bool StatusItemController::createTrayIcon() {
+#ifdef Q_OS_WIN
     if (!m_hwndMsgWindow && !createMessageWindow()) return false;
 
     memset(&m_nid, 0, sizeof(m_nid));
@@ -102,9 +115,52 @@ bool StatusItemController::createTrayIcon() {
     rebuildProviderMenu();
 
     return true;
+#else
+    if (!QSystemTrayIcon::isSystemTrayAvailable()) {
+        return false;
+    }
+
+    m_trayIcon = new QSystemTrayIcon(this);
+    m_contextMenu = new QMenu();
+    m_refreshAction = m_contextMenu->addAction(QString());
+    QObject::connect(m_refreshAction, &QAction::triggered, m_store, &UsageStore::refresh);
+
+    m_providerMenu = m_contextMenu->addMenu(QString());
+
+    m_statusPageAction = m_contextMenu->addAction(QString());
+    QObject::connect(m_statusPageAction, &QAction::triggered,
+                     this, &StatusItemController::openCurrentStatusPage);
+
+    m_providerSeparator = m_contextMenu->addSeparator();
+
+    m_settingsAction = m_contextMenu->addAction(QString());
+    QObject::connect(m_settingsAction, &QAction::triggered, this, &StatusItemController::settingsRequested);
+
+    m_aboutAction = m_contextMenu->addAction(QString());
+    QObject::connect(m_aboutAction, &QAction::triggered, this, &StatusItemController::aboutRequested);
+
+    m_contextMenu->addSeparator();
+    m_quitAction = m_contextMenu->addAction(QString());
+    QObject::connect(m_quitAction, &QAction::triggered, this, &StatusItemController::quitRequested);
+
+    m_trayIcon->setContextMenu(m_contextMenu);
+    QObject::connect(m_trayIcon, &QSystemTrayIcon::activated,
+                     this, [this](QSystemTrayIcon::ActivationReason reason) {
+        if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick) {
+            emit trayPanelRequested();
+        }
+    });
+
+    retranslateMenu();
+    rebuildProviderMenu();
+    applyMergedIcon();
+    m_trayIcon->show();
+    return true;
+#endif
 }
 
 void StatusItemController::destroyTrayIcon() {
+#ifdef Q_OS_WIN
     if (m_nid.hIcon) {
         HICON defaultIcon = LoadIconW(nullptr, IDI_APPLICATION);
         if (m_nid.hIcon != defaultIcon) {
@@ -130,9 +186,28 @@ void StatusItemController::destroyTrayIcon() {
     m_aboutAction = nullptr;
     m_quitAction = nullptr;
     m_statusPageAction = nullptr;
+#else
+    if (m_trayIcon) {
+        m_trayIcon->hide();
+        delete m_trayIcon;
+        m_trayIcon = nullptr;
+    }
+    if (m_contextMenu) {
+        delete m_contextMenu;
+        m_contextMenu = nullptr;
+    }
+    m_providerMenu = nullptr;
+    m_providerSeparator = nullptr;
+    m_refreshAction = nullptr;
+    m_settingsAction = nullptr;
+    m_aboutAction = nullptr;
+    m_quitAction = nullptr;
+    m_statusPageAction = nullptr;
+#endif
 }
 
 void StatusItemController::showBalloon(const QString& title, const QString& message) {
+#ifdef Q_OS_WIN
     if (!m_nid.hWnd) return;
     NOTIFYICONDATAW nid = m_nid;
     nid.uFlags = NIF_INFO;
@@ -143,6 +218,11 @@ void StatusItemController::showBalloon(const QString& title, const QString& mess
     wcscpy_s(nid.szInfoTitle, ARRAYSIZE(nid.szInfoTitle), tW.c_str());
     wcscpy_s(nid.szInfo, ARRAYSIZE(nid.szInfo), mW.c_str());
     Shell_NotifyIconW(NIM_MODIFY, &nid);
+#else
+    if (m_trayIcon) {
+        m_trayIcon->showMessage(title, message, QSystemTrayIcon::Information, 5000);
+    }
+#endif
 }
 
 bool StatusItemController::initialize() {
@@ -246,15 +326,6 @@ void StatusItemController::applyIcon(const QString& providerId) {
 
     QIcon icon = m_renderer->makeIcon(primary, weekly, std::nullopt, false,
                                        TrayIconRenderer::IconStyle::Default);
-    int iconSize = GetSystemMetrics(SM_CXSMICON);
-    HICON prevIcon = m_nid.hIcon;
-    m_nid.hIcon = icon.pixmap(iconSize, iconSize).toImage().toHICON();
-    HICON defaultIcon = LoadIconW(nullptr, IDI_APPLICATION);
-    if (prevIcon && prevIcon != defaultIcon) {
-        DestroyIcon(prevIcon);
-    }
-    m_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
-
     QString tip = m_store->providerDisplayName(providerId);
     if (snap.primary.has_value()) {
         tip += QString(" %1%").arg(static_cast<int>(primary));
@@ -264,9 +335,26 @@ void StatusItemController::applyIcon(const QString& providerId) {
     if (!statusState.isEmpty() && statusState != "unknown" && statusState != "ok") {
         tip += QString(" · %1").arg(statusState);
     }
+#ifdef Q_OS_WIN
+    int iconSize = GetSystemMetrics(SM_CXSMICON);
+    HICON prevIcon = m_nid.hIcon;
+    m_nid.hIcon = icon.pixmap(iconSize, iconSize).toImage().toHICON();
+    HICON defaultIcon = LoadIconW(nullptr, IDI_APPLICATION);
+    if (prevIcon && prevIcon != defaultIcon) {
+        DestroyIcon(prevIcon);
+    }
+    m_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+
     wcsncpy_s(m_nid.szTip, tip.toStdWString().c_str(), _TRUNCATE);
 
     Shell_NotifyIconW(NIM_MODIFY, &m_nid);
+#else
+    const int iconSize = 22;
+    if (m_trayIcon) {
+        m_trayIcon->setIcon(QIcon(icon.pixmap(iconSize, iconSize)));
+        m_trayIcon->setToolTip(tip);
+    }
+#endif
 }
 
 void StatusItemController::applyMergedIcon() {
@@ -306,15 +394,6 @@ void StatusItemController::applyMergedIcon() {
 
     QIcon icon = m_renderer->makeIcon(lowestPrimary, lowestWeekly, std::nullopt, false,
                                        TrayIconRenderer::IconStyle::Default);
-    int iconSize = GetSystemMetrics(SM_CXSMICON);
-    HICON prevIcon = m_nid.hIcon;
-    m_nid.hIcon = icon.pixmap(iconSize, iconSize).toImage().toHICON();
-    HICON defaultIcon = LoadIconW(nullptr, IDI_APPLICATION);
-    if (prevIcon && prevIcon != defaultIcon) {
-        DestroyIcon(prevIcon);
-    }
-    m_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
-
     QString tip = tr("CodexBar");
     if (!tightestProvider.isEmpty() && lowestPrimary.has_value()) {
         tip += QString(" · %1 %2%")
@@ -324,13 +403,38 @@ void StatusItemController::applyMergedIcon() {
     if (!notableStatus.isEmpty()) {
         tip += QString(" · %1").arg(notableStatus);
     }
+#ifdef Q_OS_WIN
+    int iconSize = GetSystemMetrics(SM_CXSMICON);
+    HICON prevIcon = m_nid.hIcon;
+    m_nid.hIcon = icon.pixmap(iconSize, iconSize).toImage().toHICON();
+    HICON defaultIcon = LoadIconW(nullptr, IDI_APPLICATION);
+    if (prevIcon && prevIcon != defaultIcon) {
+        DestroyIcon(prevIcon);
+    }
+    m_nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+
     wcsncpy_s(m_nid.szTip, tip.toStdWString().c_str(), _TRUNCATE);
 
     Shell_NotifyIconW(NIM_MODIFY, &m_nid);
+#else
+    const int iconSize = 22;
+    if (m_trayIcon) {
+        m_trayIcon->setIcon(QIcon(icon.pixmap(iconSize, iconSize)));
+        m_trayIcon->setToolTip(tip);
+    }
+#endif
 }
 
 QRect StatusItemController::trayIconRect() const {
+#ifdef Q_OS_WIN
     return TrayPopupPositioner::getTrayIconRect(m_hwndMsgWindow, TASKBAR_ICON_ID);
+#else
+    if (m_trayIcon && m_trayIcon->geometry().isValid()) {
+        return m_trayIcon->geometry();
+    }
+    const QScreen* screen = QGuiApplication::primaryScreen();
+    return screen ? screen->availableGeometry() : QRect();
+#endif
 }
 
 void StatusItemController::showTrayPanel() {
@@ -360,6 +464,7 @@ void StatusItemController::onSnapshotChanged(const QString& providerId) {
     }
 }
 
+#ifdef Q_OS_WIN
 LRESULT CALLBACK StatusItemController::messageWindowProc(
     HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
@@ -406,3 +511,4 @@ LRESULT CALLBACK StatusItemController::messageWindowProc(
 
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
+#endif
