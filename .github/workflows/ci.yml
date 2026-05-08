@@ -52,7 +52,7 @@ jobs:
           version: '6.5.3'
           host: 'mac'
           target: 'desktop'
-          arch: 'clang_arm64'
+          arch: 'clang_64'
           modules: 'qtwebsockets'
           cache: true
 
