@@ -160,10 +160,11 @@ jobs:
           name: WinCodexBar ${{ github.ref_name }}
           body: |
             ## Downloads
-            
-            - **WinCodexBar-${{ github.ref_name }}-portable.zip** - Portable version (no installation required)
-            - **WinCodexBar-${{ github.ref_name }}-Installer.exe** - Windows installer
-            
+
+            - **WinCodexBar-${{ github.ref_name }}-portable.zip** — Windows portable (no installation required)
+            - **WinCodexBar-${{ github.ref_name }}-Installer.exe** — Windows installer
+            - **WinCodexBar-${{ github.ref_name }}-macOS.dmg** — macOS universal binary (Apple Silicon + Intel)
+
             ## Changes
             See [commit history](https://github.com/${{ github.repository }}/commits/${{ github.ref_name }}) for details.
           files: |

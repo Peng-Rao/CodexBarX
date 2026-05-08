@@ -1,0 +1,72 @@
+name: macOS Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build-and-release:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Qt 6.5.3
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.5.3'
+          host: 'mac'
+          target: 'desktop'
+          arch: 'clang_64'
+          modules: 'qtwebsockets'
+          cache: true
+
+      - name: Configure CMake (universal binary)
+        run: |
+          cmake -B build \
+            -DCMAKE_PREFIX_PATH="${{ env.Qt6_DIR }}" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
+            -DBUILD_TESTS=OFF
+
+      - name: Build Release
+        run: cmake --build build --config Release --parallel
+
+      - name: Bundle translations into .app
+        run: |
+          APP_PATH="build/WinCodexBar.app"
+          if [ -d "build/translations" ]; then
+            mkdir -p "$APP_PATH/Contents/Resources/translations"
+            cp build/translations/*.qm "$APP_PATH/Contents/Resources/translations/" 2>/dev/null || true
+          fi
+
+      - name: Deploy Qt and create DMG
+        run: |
+          macdeployqt "build/WinCodexBar.app" -qmldir=qml -dmg
+
+      - name: Rename DMG with version
+        run: |
+          TAG_NAME="${{ github.ref_name }}"
+          mv "build/WinCodexBar.dmg" "WinCodexBar-${TAG_NAME}-macOS.dmg"
+
+      - name: Create Release and upload DMG
+        uses: softprops/action-gh-release@v2
+        with:
+          name: WinCodexBar ${{ github.ref_name }}
+          body: |
+            ## Downloads
+
+            - **WinCodexBar-${{ github.ref_name }}-portable.zip** — Windows portable (no installation required)
+            - **WinCodexBar-${{ github.ref_name }}-Installer.exe** — Windows installer
+            - **WinCodexBar-${{ github.ref_name }}-macOS.dmg** — macOS universal binary (Apple Silicon + Intel)
+
+            ## Changes
+            See [commit history](https://github.com/${{ github.repository }}/commits/${{ github.ref_name }}) for details.
+          files: |
+            WinCodexBar-${{ github.ref_name }}-macOS.dmg
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
