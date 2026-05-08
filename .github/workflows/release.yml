@@ -1,4 +1,4 @@
-name: Release
+﻿name: Release
 
 on:
   push:
@@ -47,7 +47,7 @@ jobs:
 
       - name: Deploy Qt dependencies
         run: |
-          $exePath = "build\Release\WinCodexBar.exe"
+          $exePath = "build\Release\CodexBarX.exe"
           $qmlDir = "qml"
           windeployqt --qmldir $qmlDir $exePath --no-opengl-sw --no-system-d3d-compiler --no-translations
 
@@ -92,7 +92,7 @@ jobs:
       - name: Prepare portable package
         run: |
           $tagName = "${{ github.ref_name }}"
-          $packageName = "WinCodexBar-$tagName-portable"
+          $packageName = "CodexBarX-$tagName-portable"
           
           New-Item -ItemType Directory -Path "release_package" -Force | Out-Null
           
@@ -127,7 +127,7 @@ jobs:
           }
           
           # Prepare installer data
-          $dataDir = "installer\packages\com.wincodexbar.app\data"
+          $dataDir = "installer\packages\com.CodexBarX.app\data"
           if (Test-Path $dataDir) { Remove-Item -Recurse -Force $dataDir }
           New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
           Copy-Item -Path "build\Release\*" -Destination $dataDir -Recurse -Force
@@ -139,7 +139,7 @@ jobs:
           # Update version
           $releaseDate = Get-Date -Format "yyyy-MM-dd"
           $configXml = "installer\config\config.xml"
-          $packageXml = "installer\packages\com.wincodexbar.app\meta\package.xml"
+          $packageXml = "installer\packages\com.CodexBarX.app\meta\package.xml"
           
           (Get-Content $configXml) -replace '<Version>[^<]*</Version>', "<Version>$version</Version>" | Set-Content $configXml
           (Get-Content $packageXml) -replace '<Version>[^<]*</Version>', "<Version>$version</Version>" -replace '<ReleaseDate>[^<]*</ReleaseDate>', "<ReleaseDate>$releaseDate</ReleaseDate>" | Set-Content $packageXml
@@ -147,33 +147,33 @@ jobs:
           # Build installer
           Push-Location installer
           try {
-            binarycreator.exe -c "config\config.xml" -p "packages" "..\WinCodexBar-$version-Installer.exe"
+            binarycreator.exe -c "config\config.xml" -p "packages" "..\CodexBarX-$version-Installer.exe"
           } finally {
             Pop-Location
           }
           
-          Write-Host "Installer created: WinCodexBar-$version-Installer.exe"
+          Write-Host "Installer created: CodexBarX-$version-Installer.exe"
 
       - name: Create Release and upload assets
         uses: softprops/action-gh-release@v2
         with:
-          name: WinCodexBar ${{ github.ref_name }}
+          name: CodexBarX ${{ github.ref_name }}
           body: |
             ## Downloads
             
             ### Windows
-            - **WinCodexBar-${{ github.ref_name }}-portable.zip** - Portable version (no installation required)
-            - **WinCodexBar-${{ github.ref_name }}-Installer.exe** - Windows installer
+            - **CodexBarX-${{ github.ref_name }}-portable.zip** - Portable version (no installation required)
+            - **CodexBarX-${{ github.ref_name }}-Installer.exe** - Windows installer
             
             ### macOS
-            - **WinCodexBar-${{ github.ref_name }}-macOS.zip** - ZIP archive (extract and drag to Applications)
-            - **WinCodexBar-${{ github.ref_name }}-macOS.dmg** - DMG disk image (drag to Applications)
+            - **CodexBarX-${{ github.ref_name }}-macOS.zip** - ZIP archive (extract and drag to Applications)
+            - **CodexBarX-${{ github.ref_name }}-macOS.dmg** - DMG disk image (drag to Applications)
             
             ## Changes
             See [commit history](https://github.com/${{ github.repository }}/commits/${{ github.ref_name }}) for details.
           files: |
-            WinCodexBar-${{ github.ref_name }}-portable.zip
-            WinCodexBar-*-Installer.exe
+            CodexBarX-${{ github.ref_name }}-portable.zip
+            CodexBarX-*-Installer.exe
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
         env:
@@ -207,35 +207,35 @@ jobs:
 
       - name: Deploy Qt dependencies
         run: |
-          ${{ env.Qt6_DIR }}/bin/macdeployqt build/WinCodexBar.app -qmldir=qml
+          ${{ env.Qt6_DIR }}/bin/macdeployqt build/CodexBarX.app -qmldir=qml
 
       - name: Copy translations
         run: |
           if [ -d "build/translations" ]; then
-            mkdir -p build/WinCodexBar.app/Contents/MacOS/translations
-            cp build/translations/*.qm build/WinCodexBar.app/Contents/MacOS/translations/
+            mkdir -p build/CodexBarX.app/Contents/MacOS/translations
+            cp build/translations/*.qm build/CodexBarX.app/Contents/MacOS/translations/
           fi
 
       - name: Ad-hoc sign
         run: |
-          codesign --deep --force --sign - build/WinCodexBar.app
+          codesign --deep --force --sign - build/CodexBarX.app
 
       - name: Create ZIP package
         run: |
-          ditto -c -k --keepParent build/WinCodexBar.app WinCodexBar-${{ github.ref_name }}-macOS.zip
+          ditto -c -k --keepParent build/CodexBarX.app CodexBarX-${{ github.ref_name }}-macOS.zip
 
       - name: Create DMG package
         run: |
           mkdir -p dmg_staging
-          cp -R build/WinCodexBar.app dmg_staging/
+          cp -R build/CodexBarX.app dmg_staging/
           ln -s /Applications dmg_staging/Applications
-          hdiutil create -volname "WinCodexBar" -srcfolder dmg_staging -ov -format UDZO WinCodexBar-${{ github.ref_name }}-macOS.dmg
+          hdiutil create -volname "CodexBarX" -srcfolder dmg_staging -ov -format UDZO CodexBarX-${{ github.ref_name }}-macOS.dmg
 
       - name: Upload macOS artifacts to Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            WinCodexBar-${{ github.ref_name }}-macOS.zip
-            WinCodexBar-${{ github.ref_name }}-macOS.dmg
+            CodexBarX-${{ github.ref_name }}-macOS.zip
+            CodexBarX-${{ github.ref_name }}-macOS.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
