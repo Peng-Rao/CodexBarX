@@ -1,4 +1,4 @@
-﻿#include "ProviderStatusFetcher.h"
+#include "ProviderStatusFetcher.h"
 
 #include <QByteArray>
 #include <QJsonArray>

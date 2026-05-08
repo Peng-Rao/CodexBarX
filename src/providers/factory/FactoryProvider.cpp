@@ -1,4 +1,4 @@
-﻿#include "FactoryProvider.h"
+#include "FactoryProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../shared/CookieImporter.h"
 #include "../shared/BrowserDetection.h"

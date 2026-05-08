@@ -1,4 +1,4 @@
-﻿#include "E2ETestUtils.h"
+#include "E2ETestUtils.h"
 
 #include "../src/providers/ProviderRegistry.h"
 #include "../src/providers/ProviderPipeline.h"

@@ -1,4 +1,4 @@
-﻿#include "CookieImporter.h"
+#include "CookieImporter.h"
 #include "BrowserDetection.h"
 
 #include <QDateTime>

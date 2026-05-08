@@ -1,4 +1,4 @@
-﻿#include "DeepSeekProvider.h"
+#include "DeepSeekProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/ProviderCredentialStore.h"
 

@@ -1,4 +1,4 @@
-﻿#include "ZaiUsageSnapshot.h"
+#include "ZaiUsageSnapshot.h"
 #include "UsageSnapshot.h"
 
 #include <cmath>

@@ -1,4 +1,4 @@
-﻿#include "app/AppTheme.h"
+#include "app/AppTheme.h"
 
 #include <QColor>
 #include <QtTest/QtTest>

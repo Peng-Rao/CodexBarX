@@ -1,4 +1,4 @@
-﻿#include "CodexUsageResponse.h"
+#include "CodexUsageResponse.h"
 #include "UsageSnapshot.h"
 
 #include <QJsonDocument>

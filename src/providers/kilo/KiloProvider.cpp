@@ -1,4 +1,4 @@
-﻿#include "KiloProvider.h"
+#include "KiloProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/ProviderCredentialStore.h"
 #include <QJsonObject>

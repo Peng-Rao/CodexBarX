@@ -1,4 +1,4 @@
-﻿#include <QtTest>
+#include <QtTest>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>

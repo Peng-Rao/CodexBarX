@@ -1,4 +1,4 @@
-﻿#include "MiniMaxUsageSnapshot.h"
+#include "MiniMaxUsageSnapshot.h"
 #include "UsageSnapshot.h"
 
 QString MiniMaxUsageSnapshot::windowDescription() const {

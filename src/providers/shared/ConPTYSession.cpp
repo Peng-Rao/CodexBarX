@@ -1,4 +1,4 @@
-﻿#include "ConPTYSession.h"
+#include "ConPTYSession.h"
 
 #include <QDebug>
 #include <QDateTime>

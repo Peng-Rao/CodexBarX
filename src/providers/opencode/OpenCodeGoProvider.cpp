@@ -1,4 +1,4 @@
-﻿#include "OpenCodeGoProvider.h"
+#include "OpenCodeGoProvider.h"
 #include "OpenCodeUtils.h"
 #include "../../network/NetworkManager.h"
 

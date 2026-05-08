@@ -1,4 +1,4 @@
-﻿#include "CopilotProvider.h"
+#include "CopilotProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/ProviderCredentialStore.h"
 

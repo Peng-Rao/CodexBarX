@@ -1,4 +1,4 @@
-﻿#include "tst_TextParser.h"
+#include "tst_TextParser.h"
 #include <QtTest>
 #include "util/TextParser.h"
 

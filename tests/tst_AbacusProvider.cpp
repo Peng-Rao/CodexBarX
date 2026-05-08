@@ -1,4 +1,4 @@
-﻿#include <QtTest/QtTest>
+#include <QtTest/QtTest>
 #include "../src/providers/abacus/AbacusProvider.h"
 
 class tst_AbacusProvider : public QObject {

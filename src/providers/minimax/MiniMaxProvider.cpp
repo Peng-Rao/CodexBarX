@@ -1,4 +1,4 @@
-﻿#include "MiniMaxProvider.h"
+#include "MiniMaxProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/ProviderCredentialStore.h"
 #include "../../providers/shared/CookieImporter.h"

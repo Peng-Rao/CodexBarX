@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 // NOTE: WidgetSnapshot is currently unused in WinCodexBar.
 // It was ported from the macOS upstream CodexBar for potential

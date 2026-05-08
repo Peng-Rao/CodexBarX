@@ -1,4 +1,4 @@
-﻿#include "TextParser.h"
+#include "TextParser.h"
 
 QString TextParser::stripAnsiEscapes(const QString& text) {
     QString result = text;

@@ -1,4 +1,4 @@
-﻿#include "StatusItemController.h"
+#include "StatusItemController.h"
 #include "TrayIconRenderer.h"
 #ifdef Q_OS_WIN
 #include "TrayPopupPositioner.h"

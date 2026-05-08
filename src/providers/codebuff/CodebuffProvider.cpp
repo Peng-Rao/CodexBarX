@@ -1,4 +1,4 @@
-﻿#include "CodebuffProvider.h"
+#include "CodebuffProvider.h"
 
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/ProviderCredentialStore.h"

@@ -1,4 +1,4 @@
-﻿#include "SettingsStore.h"
+#include "SettingsStore.h"
 
 #include <QCoreApplication>
 #include <QDir>

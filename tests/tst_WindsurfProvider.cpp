@@ -1,4 +1,4 @@
-﻿#include <QtTest/QtTest>
+#include <QtTest/QtTest>
 
 #include "../src/providers/windsurf/WindsurfProvider.h"
 #include "../src/providers/windsurf/WindsurfDevinSessionImporter.h"

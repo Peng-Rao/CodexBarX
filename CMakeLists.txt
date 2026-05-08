@@ -1,5 +1,16 @@
 cmake_minimum_required(VERSION 3.21)
-project(CodexBarX VERSION 0.1.0 LANGUAGES CXX)
+
+# macOS deployment target must be set before project() for Qt 6.5 compatibility
+if(APPLE)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
+    set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "Build architectures")
+endif()
+
+if(APPLE)
+    project(CodexBarX VERSION 0.1.0 LANGUAGES CXX OBJCXX)
+else()
+    project(CodexBarX VERSION 0.1.0 LANGUAGES CXX)
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -276,7 +287,9 @@ set(CORE_HEADERS
 
 add_library(codexbar_core STATIC ${CORE_SOURCES} ${CORE_HEADERS})
 target_include_directories(codexbar_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
-target_compile_definitions(codexbar_core PUBLIC NOMINMAX)
+if(WIN32)
+    target_compile_definitions(codexbar_core PUBLIC NOMINMAX)
+endif()
 
 if(WINCODEXBAR_QT_RUNTIME_FOUND)
     target_link_libraries(codexbar_core PUBLIC

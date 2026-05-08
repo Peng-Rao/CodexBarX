@@ -1,4 +1,4 @@
-﻿#include "CodexDashboardCache.h"
+#include "CodexDashboardCache.h"
 
 #include <QFile>
 #include <QDir>

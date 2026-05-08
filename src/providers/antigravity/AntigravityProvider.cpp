@@ -1,4 +1,4 @@
-﻿#include "AntigravityProvider.h"
+#include "AntigravityProvider.h"
 #include "../../network/NetworkManager.h"
 
 #include <QProcess>

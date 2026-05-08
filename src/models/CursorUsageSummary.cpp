@@ -1,4 +1,4 @@
-﻿#include "CursorUsageSummary.h"
+#include "CursorUsageSummary.h"
 #include "UsageSnapshot.h"
 
 #include <QJsonArray>

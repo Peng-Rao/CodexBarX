@@ -1,4 +1,4 @@
-﻿#include <QtTest/QtTest>
+#include <QtTest/QtTest>
 #include "../src/models/CostUsageReport.h"
 
 class PerProviderCostUsageTest : public QObject {

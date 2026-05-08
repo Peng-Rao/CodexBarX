@@ -1,4 +1,4 @@
-﻿#include "OpenRouterProvider.h"
+#include "OpenRouterProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/ProviderCredentialStore.h"
 

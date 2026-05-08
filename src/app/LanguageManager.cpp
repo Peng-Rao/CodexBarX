@@ -1,4 +1,4 @@
-﻿#include "LanguageManager.h"
+#include "LanguageManager.h"
 
 #include <QCoreApplication>
 #include <QDir>

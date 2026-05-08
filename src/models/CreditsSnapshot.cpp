@@ -1,1 +1,1 @@
-﻿#include "CreditsSnapshot.h"
+#include "CreditsSnapshot.h"

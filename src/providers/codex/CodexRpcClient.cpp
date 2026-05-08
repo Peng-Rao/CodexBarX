@@ -1,4 +1,4 @@
-﻿#include "CodexRpcClient.h"
+#include "CodexRpcClient.h"
 
 #include <QJsonDocument>
 #include <QElapsedTimer>

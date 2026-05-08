@@ -1,4 +1,4 @@
-﻿#include "UsageStore.h"
+#include "UsageStore.h"
 #include "BatchUpdateController.h"
 #include "CostUsageService.h"
 #include "Localization.h"

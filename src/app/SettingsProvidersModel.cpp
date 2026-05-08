@@ -1,4 +1,4 @@
-﻿#include "SettingsProvidersModel.h"
+#include "SettingsProvidersModel.h"
 
 #include "UsageStore.h"
 

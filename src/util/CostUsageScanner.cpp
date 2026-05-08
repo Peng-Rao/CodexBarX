@@ -1,4 +1,4 @@
-﻿#include "CostUsageScanner.h"
+#include "CostUsageScanner.h"
 #include "CostUsageCache.h"
 
 #include <QDir>

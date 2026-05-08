@@ -1,4 +1,4 @@
-﻿#include "CodexOpenAIWorkspaceResolver.h"
+#include "CodexOpenAIWorkspaceResolver.h"
 #include "../../network/NetworkManager.h"
 
 #include <QJsonDocument>

@@ -1,4 +1,4 @@
-﻿#include "ProviderBootstrap.h"
+#include "ProviderBootstrap.h"
 
 #include "ProviderCatalogSnapshot.h"
 #include "ProviderRegistry.h"

@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "ManagedCodexAccount.h"
 #include "CodexAccountReconciliation.h"

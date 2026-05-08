@@ -1,4 +1,4 @@
-﻿#include "CodexUIErrorMapper.h"
+#include "CodexUIErrorMapper.h"
 
 QString CodexUIErrorMapper::userFacingMessage(const QString& raw) {
     if (raw.isEmpty()) return {};

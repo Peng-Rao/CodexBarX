@@ -1,4 +1,4 @@
-﻿#include <QtTest/QtTest>
+#include <QtTest/QtTest>
 #include "../src/providers/vertexai/VertexAIProvider.h"
 
 class tst_VertexAIProvider : public QObject {

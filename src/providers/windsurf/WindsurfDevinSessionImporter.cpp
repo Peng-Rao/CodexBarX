@@ -1,4 +1,4 @@
-﻿#include "WindsurfDevinSessionImporter.h"
+#include "WindsurfDevinSessionImporter.h"
 #include "../shared/BrowserDetection.h"
 #include "../shared/ChromiumLocalStorageReader.h"
 

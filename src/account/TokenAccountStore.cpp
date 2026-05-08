@@ -1,4 +1,4 @@
-﻿#include "TokenAccountStore.h"
+#include "TokenAccountStore.h"
 #include "../providers/shared/ProviderCredentialStore.h"
 #include "../app/SettingsStore.h"
 #include "../providers/ProviderRegistry.h"

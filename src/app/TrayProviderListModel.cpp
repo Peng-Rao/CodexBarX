@@ -1,4 +1,4 @@
-﻿#include "TrayProviderListModel.h"
+#include "TrayProviderListModel.h"
 
 #include "UsageStore.h"
 

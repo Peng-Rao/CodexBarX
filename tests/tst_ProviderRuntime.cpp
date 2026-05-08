@@ -1,4 +1,4 @@
-﻿#include <QtTest/QtTest>
+#include <QtTest/QtTest>
 #include "runtime/ProviderRuntimeManager.h"
 #include "runtime/GenericRuntime.h"
 #include "runtime/IProviderRuntime.h"

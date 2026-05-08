@@ -1,4 +1,4 @@
-﻿#include "CodexPersistentCLISession.h"
+#include "CodexPersistentCLISession.h"
 #include "../shared/ConPTYSession.h"
 
 #include <QThread>

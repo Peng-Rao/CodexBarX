@@ -1,4 +1,4 @@
-﻿#include "CodexProvider.h"
+#include "CodexProvider.h"
 #include "CodexHomeScope.h"
 #include "CodexDashboardAuthorityContext.h"
 #include "CodexDashboardCache.h"

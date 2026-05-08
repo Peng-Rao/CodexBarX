@@ -1,4 +1,4 @@
-﻿#include "CLIEntry.h"
+#include "CLIEntry.h"
 #include "CLIRenderer.h"
 #include "CLIUsageCommand.h"
 #include "CLICostCommand.h"

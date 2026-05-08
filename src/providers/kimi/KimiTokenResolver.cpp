@@ -1,4 +1,4 @@
-﻿#include "KimiTokenResolver.h"
+#include "KimiTokenResolver.h"
 #include <QRegularExpression>
 #include <QJsonDocument>
 

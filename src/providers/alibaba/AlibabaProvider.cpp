@@ -1,4 +1,4 @@
-﻿#include "AlibabaProvider.h"
+#include "AlibabaProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/CookieImporter.h"
 #include "../../providers/shared/ProviderCredentialStore.h"

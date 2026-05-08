@@ -1,4 +1,4 @@
-﻿#include "UsagePaceText.h"
+#include "UsagePaceText.h"
 
 #include <QCoreApplication>
 

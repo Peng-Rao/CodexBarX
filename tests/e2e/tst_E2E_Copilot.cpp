@@ -1,4 +1,4 @@
-﻿#include <QtTest/QtTest>
+#include <QtTest/QtTest>
 #include "E2ETestUtils.h"
 
 #include "../src/providers/shared/ProviderCredentialStore.h"

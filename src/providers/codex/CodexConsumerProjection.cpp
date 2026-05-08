@@ -1,4 +1,4 @@
-﻿#include "CodexConsumerProjection.h"
+#include "CodexConsumerProjection.h"
 
 CodexConsumerProjection::Result CodexConsumerProjection::make(Surface surface, const Context& context) {
     Result result;

@@ -1,4 +1,4 @@
-﻿#include <QtTest/QtTest>
+#include <QtTest/QtTest>
 #include "../src/providers/augment/AugmentProvider.h"
 #include "../src/models/UsageSnapshot.h"
 

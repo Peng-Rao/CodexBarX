@@ -1,4 +1,4 @@
-﻿#include "ZaiProvider.h"
+#include "ZaiProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/ProviderCredentialStore.h"
 #include "../../models/UsagePace.h"

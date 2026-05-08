@@ -1,4 +1,4 @@
-﻿#include "SyntheticProvider.h"
+#include "SyntheticProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/ProviderCredentialStore.h"
 

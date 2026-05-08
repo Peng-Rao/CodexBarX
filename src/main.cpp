@@ -1,4 +1,4 @@
-﻿#include <QApplication>
+#include <QApplication>
 #include <QClipboard>
 #include <QColor>
 #include <QDesktopServices>

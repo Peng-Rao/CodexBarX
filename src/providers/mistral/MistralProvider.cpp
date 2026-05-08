@@ -1,4 +1,4 @@
-﻿#include "MistralProvider.h"
+#include "MistralProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/CookieImporter.h"
 #include <QJsonObject>

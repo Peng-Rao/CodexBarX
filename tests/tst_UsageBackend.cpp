@@ -1,4 +1,4 @@
-﻿#include "app/UsageBackend.h"
+#include "app/UsageBackend.h"
 #include "app/UsageBackendTypes.h"
 
 #include <QtTest/QtTest>

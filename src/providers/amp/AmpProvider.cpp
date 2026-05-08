@@ -1,4 +1,4 @@
-﻿#include "AmpProvider.h"
+#include "AmpProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../shared/CookieImporter.h"
 #include "../shared/BrowserDetection.h"

@@ -1,4 +1,4 @@
-﻿#include "CodexDashboardAuthorityContext.h"
+#include "CodexDashboardAuthorityContext.h"
 #include "../ProviderFetchContext.h"
 
 #include <QSettings>

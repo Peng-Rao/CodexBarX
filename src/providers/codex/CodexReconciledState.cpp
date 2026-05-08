@@ -1,4 +1,4 @@
-﻿#include "CodexReconciledState.h"
+#include "CodexReconciledState.h"
 #include "../../models/CodexUsageResponse.h"
 
 #include <QJsonObject>

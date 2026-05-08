@@ -1,4 +1,4 @@
-﻿#include "CLICostCommand.h"
+#include "CLICostCommand.h"
 #include "../util/CostUsageScanner.h"
 #include "../util/CostUsageCache.h"
 #include "../models/CostUsageReport.h"

@@ -1,4 +1,4 @@
-﻿#include <QtTest/QtTest>
+#include <QtTest/QtTest>
 
 #include "../src/app/SettingsStore.h"
 #include "../src/app/UsageStore.h"

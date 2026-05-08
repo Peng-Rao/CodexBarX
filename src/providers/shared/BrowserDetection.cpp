@@ -1,4 +1,4 @@
-﻿#include "BrowserDetection.h"
+#include "BrowserDetection.h"
 
 #include <QDir>
 #include <QFileInfo>

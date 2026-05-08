@@ -1,4 +1,4 @@
-﻿#include <QtTest/QtTest>
+#include <QtTest/QtTest>
 #include "../src/util/CostUsageCache.h"
 #include "../src/models/CostUsageReport.h"
 

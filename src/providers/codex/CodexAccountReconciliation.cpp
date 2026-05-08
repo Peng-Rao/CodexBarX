@@ -1,4 +1,4 @@
-﻿#include "CodexAccountReconciliation.h"
+#include "CodexAccountReconciliation.h"
 #include "CodexHomeScope.h"
 #include "../../models/CodexUsageResponse.h"
 

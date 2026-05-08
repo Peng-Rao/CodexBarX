@@ -1,4 +1,4 @@
-﻿#include <QCoreApplication>
+#include <QCoreApplication>
 #include <QDebug>
 #include "../src/providers/opencode/OpenCodeProvider.h"
 #include "../src/providers/ProviderFetchContext.h"

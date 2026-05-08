@@ -1,4 +1,4 @@
-﻿#include "KimiK2Provider.h"
+#include "KimiK2Provider.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/ProviderCredentialStore.h"
 #include <QJsonObject>

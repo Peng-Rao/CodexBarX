@@ -1,4 +1,4 @@
-﻿#include "TrayIconRenderer.h"
+#include "TrayIconRenderer.h"
 
 #include <QPainter>
 #include <QLinearGradient>

@@ -1,1 +1,1 @@
-﻿#include "UsageSnapshot.h"
+#include "UsageSnapshot.h"

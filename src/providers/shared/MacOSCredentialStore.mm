@@ -1,4 +1,4 @@
-﻿#include "MacOSCredentialStore.h"
+#include "MacOSCredentialStore.h"
 
 #include <Security/Security.h>
 

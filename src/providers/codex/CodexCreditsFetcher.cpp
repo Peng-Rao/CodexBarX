@@ -1,4 +1,4 @@
-﻿#include "CodexCreditsFetcher.h"
+#include "CodexCreditsFetcher.h"
 #include "CodexOAuthUsageFetcher.h"
 #include "CodexStatusProbe.h"
 #include "CodexRpcClient.h"

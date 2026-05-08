@@ -1,4 +1,4 @@
-﻿#include "AugmentProvider.h"
+#include "AugmentProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../../util/BinaryLocator.h"
 #include "../shared/CookieImporter.h"

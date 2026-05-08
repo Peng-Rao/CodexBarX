@@ -1,4 +1,4 @@
-﻿#include "UsagePace.h"
+#include "UsagePace.h"
 #include "RateWindow.h"
 
 #include <QDateTime>

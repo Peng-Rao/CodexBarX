@@ -1,4 +1,4 @@
-﻿#include "GeminiProvider.h"
+#include "GeminiProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/ProviderCredentialStore.h"
 

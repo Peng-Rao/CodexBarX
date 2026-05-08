@@ -1,4 +1,4 @@
-﻿#include "UsageBackendJobs.h"
+#include "UsageBackendJobs.h"
 
 #include "../account/TokenAccountStore.h"
 #include "../providers/IProvider.h"

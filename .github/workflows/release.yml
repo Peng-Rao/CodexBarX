@@ -192,7 +192,7 @@ jobs:
           version: '6.5.3'
           host: 'mac'
           target: 'desktop'
-          arch: 'clang_64'
+          arch: 'macos'
           modules: 'qtwebsockets'
           cache: true
 
@@ -200,7 +200,9 @@ jobs:
         run: |
           cmake -B build \
             -DCMAKE_PREFIX_PATH="${{ env.Qt6_DIR }}" \
-            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+            -DCMAKE_OSX_ARCHITECTURES=arm64
 
       - name: Build Release
         run: cmake --build build --parallel

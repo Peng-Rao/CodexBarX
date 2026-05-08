@@ -1,4 +1,4 @@
-﻿#include "VertexAIProvider.h"
+#include "VertexAIProvider.h"
 #include "../../network/NetworkManager.h"
 
 #include <QJsonDocument>

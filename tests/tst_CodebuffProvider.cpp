@@ -1,4 +1,4 @@
-﻿#include <QtTest/QtTest>
+#include <QtTest/QtTest>
 
 #include "providers/codebuff/CodebuffProvider.h"
 

@@ -1,4 +1,4 @@
-﻿#include "CodexOAuthUsageFetcher.h"
+#include "CodexOAuthUsageFetcher.h"
 #include "../../network/NetworkManager.h"
 
 #include <QFile>

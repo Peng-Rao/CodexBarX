@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "TokenAccount.h"
 #include <QObject>

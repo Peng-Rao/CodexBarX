@@ -1,4 +1,4 @@
-﻿#include <QtTest/QtTest>
+#include <QtTest/QtTest>
 #include "cli/CLIEntry.h"
 #include "cli/CLIRenderer.h"
 

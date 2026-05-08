@@ -1,4 +1,4 @@
-﻿#include "app/CostUsageService.h"
+#include "app/CostUsageService.h"
 
 #include <QtTest/QtTest>
 

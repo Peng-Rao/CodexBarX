@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "CodexDashboardAuthority.h"
 #include "CodexSystemAccountObserver.h"

@@ -1,4 +1,4 @@
-﻿#include "WindowsCredentialStore.h"
+#include "WindowsCredentialStore.h"
 
 #include <windows.h>
 #include <wincred.h>

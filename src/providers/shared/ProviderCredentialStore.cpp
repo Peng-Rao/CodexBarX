@@ -1,4 +1,4 @@
-﻿#include "ProviderCredentialStore.h"
+#include "ProviderCredentialStore.h"
 
 #ifdef Q_OS_MACOS
 #include "MacOSCredentialStore.h"

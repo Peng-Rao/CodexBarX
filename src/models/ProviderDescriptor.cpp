@@ -1,1 +1,1 @@
-﻿#include "ProviderDescriptor.h"
+#include "ProviderDescriptor.h"

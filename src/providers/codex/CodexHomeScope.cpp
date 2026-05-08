@@ -1,4 +1,4 @@
-﻿#include "CodexHomeScope.h"
+#include "CodexHomeScope.h"
 
 QString CodexHomeScope::ambientHomeURL(const QHash<QString, QString>& env)
 {

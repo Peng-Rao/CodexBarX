@@ -1,4 +1,4 @@
-﻿#include "GenericRuntime.h"
+#include "GenericRuntime.h"
 #include "../providers/ProviderPipeline.h"
 
 GenericRuntime::GenericRuntime(IProvider* provider, QObject* parent)

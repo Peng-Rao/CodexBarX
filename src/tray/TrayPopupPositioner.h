@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <QRect>
 #ifdef Q_OS_WIN

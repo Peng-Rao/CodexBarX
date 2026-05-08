@@ -1,4 +1,4 @@
-﻿#include <QtTest/QtTest>
+#include <QtTest/QtTest>
 #include "../src/providers/opencode/OpenCodeGoProvider.h"
 #include "../src/models/UsageSnapshot.h"
 #include "../src/models/RateWindow.h"

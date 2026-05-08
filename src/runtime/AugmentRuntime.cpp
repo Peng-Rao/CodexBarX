@@ -1,4 +1,4 @@
-﻿#include "AugmentRuntime.h"
+#include "AugmentRuntime.h"
 #include "../providers/ProviderPipeline.h"
 #include "../providers/ProviderRegistry.h"
 #include "../account/TokenAccountStore.h"

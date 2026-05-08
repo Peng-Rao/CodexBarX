@@ -1,4 +1,4 @@
-﻿#include "WindsurfProvider.h"
+#include "WindsurfProvider.h"
 #include "WindsurfDevinSessionImporter.h"
 #include "../../network/NetworkManager.h"
 

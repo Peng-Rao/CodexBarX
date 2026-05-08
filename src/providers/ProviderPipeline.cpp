@@ -1,4 +1,4 @@
-﻿#include "ProviderPipeline.h"
+#include "ProviderPipeline.h"
 #include "IProvider.h"
 #include "../network/NetworkManager.h"
 

@@ -1,4 +1,4 @@
-﻿#include "CodexRuntime.h"
+#include "CodexRuntime.h"
 #include "../providers/ProviderPipeline.h"
 #include "../providers/ProviderRegistry.h"
 #include "../providers/codex/CodexProvider.h"

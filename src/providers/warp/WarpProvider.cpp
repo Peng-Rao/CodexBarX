@@ -1,4 +1,4 @@
-﻿#include "WarpProvider.h"
+#include "WarpProvider.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/ProviderCredentialStore.h"
 

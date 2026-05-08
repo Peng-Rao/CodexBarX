@@ -1,4 +1,4 @@
-﻿#include "OpenRouterUsageSnapshot.h"
+#include "OpenRouterUsageSnapshot.h"
 #include "UsageSnapshot.h"
 
 #include <algorithm>

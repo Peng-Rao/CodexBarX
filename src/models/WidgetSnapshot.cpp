@@ -1,1 +1,1 @@
-﻿#include "WidgetSnapshot.h"
+#include "WidgetSnapshot.h"
