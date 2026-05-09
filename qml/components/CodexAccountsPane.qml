@@ -363,7 +363,7 @@ Rectangle {
                                     : qsTr("Promote")
                                 color: root.isPromoting && root.promotingAccountID === modelData.id
                                     ? AppTheme.textSecondary
-                                    : "#4CAF50"
+                                    : (parent.hovered ? "white" : "#4CAF50")
                                 font.pixelSize: 11
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
@@ -393,7 +393,7 @@ Rectangle {
                                 text: qsTr("Remove")
                                 color: root.isRemoving && root.removingAccountID === modelData.id
                                     ? AppTheme.textSecondary
-                                    : "#ff4444"
+                                    : (parent.hovered ? "white" : "#ff4444")
                                 font.pixelSize: 11
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
