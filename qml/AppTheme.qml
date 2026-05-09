@@ -6,6 +6,7 @@ QtObject {
     // Background colors
     property color bgPrimary: "#1a1a2e"
     property color bgSecondary: "#15152a"
+    property color bgTertiary: "#252540"
     property color bgCard: "#1f1f38"
     property color bgHover: "#2a2a4a"
     property color bgSelected: "#3a3a5c"
