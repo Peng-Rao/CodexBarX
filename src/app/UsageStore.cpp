@@ -1878,6 +1878,8 @@ QVariantList UsageStore::codexAccounts() const
         map["isLive"] = account.isLive;
         map["isActive"] = account.isActive;
         map["storedAccountID"] = account.storedAccountID;
+        map["canReauthenticate"] = account.canReauthenticate;
+        map["canRemove"] = account.canRemove;
         result.append(map);
     }
     return result;

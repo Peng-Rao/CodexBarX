@@ -319,7 +319,7 @@ Rectangle {
                             Layout.preferredHeight: 28
                             width: 46
                             height: 28
-                            visible: !modelData.isLive
+                            visible: modelData.canReauthenticate
                             enabled: !root.isAuthenticating && !root.isRemoving
                             onClicked: root.reauthenticateAccount(modelData.id)
 
@@ -347,7 +347,7 @@ Rectangle {
                             Layout.preferredHeight: 28
                             width: 58
                             height: 28
-                            visible: !modelData.isLive
+                            visible: modelData.canReauthenticate
                             enabled: !root.isAuthenticating && !root.isRemoving && !root.isPromoting
                             onClicked: root.promoteAccount(modelData.id)
 
@@ -381,7 +381,7 @@ Rectangle {
                             Layout.preferredHeight: 28
                             width: 58
                             height: 28
-                            visible: !modelData.isLive
+                            visible: modelData.canRemove
                             enabled: !root.isAuthenticating && !root.isRemoving
                             onClicked: root.removeAccount(modelData.id)
 

@@ -25,6 +25,8 @@ struct CodexVisibleAccount {
     bool isLive;
     bool isActive;
     QString storedAccountID;
+    bool canReauthenticate = true;   // false for live system accounts
+    bool canRemove = true;           // false for live system accounts
 };
 
 class ManagedCodexAccountService : public QObject {

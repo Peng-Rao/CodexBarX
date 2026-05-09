@@ -67,6 +67,8 @@ QVector<CodexVisibleAccount> ManagedCodexAccountService::visibleAccounts() const
         visible.isActive = (stored.id == m_activeAccountID);
         visible.storedAccountID = stored.id;
         visible.displayName = resolveDisplayName(stored);
+        visible.canReauthenticate = true;
+        visible.canRemove = true;
         accounts.append(visible);
     }
 
@@ -89,6 +91,8 @@ QVector<CodexVisibleAccount> ManagedCodexAccountService::visibleAccounts() const
             visible.isActive = (m_activeAccountID.isEmpty() || m_activeAccountID == "live-system");
             visible.storedAccountID = QString();
             visible.displayName = resolveDisplayName(*m_snapshot.liveSystemAccount);
+            visible.canReauthenticate = false;
+            visible.canRemove = false;
             accounts.prepend(visible);
         }
     }
