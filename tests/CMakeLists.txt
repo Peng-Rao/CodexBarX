@@ -163,6 +163,14 @@ target_compile_definitions(tst_ManagedCodexAccountService PRIVATE ${COMMON_DEFIN
 target_link_libraries(tst_ManagedCodexAccountService PRIVATE codexbar_core Qt6::Core Qt6::Test)
 add_wincodexbar_test(tst_ManagedCodexAccountService tst_ManagedCodexAccountService)
 
+add_executable(tst_CodexDisplacedLivePreservation
+    tst_CodexDisplacedLivePreservation.cpp
+)
+target_include_directories(tst_CodexDisplacedLivePreservation PRIVATE ${COMMON_INCLUDE})
+target_compile_definitions(tst_CodexDisplacedLivePreservation PRIVATE ${COMMON_DEFINES})
+target_link_libraries(tst_CodexDisplacedLivePreservation PRIVATE codexbar_core Qt6::Core Qt6::Test)
+add_wincodexbar_test(tst_CodexDisplacedLivePreservation tst_CodexDisplacedLivePreservation)
+
 add_executable(tst_FetchContext
     tst_FetchContext.cpp
 )

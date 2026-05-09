@@ -86,6 +86,7 @@ set(CORE_SOURCES
     src/providers/codex/CodexOpenAIWorkspaceIdentityCache.cpp
     src/providers/codex/ManagedCodexAccountService.cpp
     src/providers/codex/CodexLoginRunner.cpp
+    src/providers/codex/CodexDisplacedLivePreservation.cpp
     src/providers/claude/ClaudeProvider.cpp
     src/providers/cursor/CursorProvider.cpp
     src/providers/kimi/KimiProvider.cpp
