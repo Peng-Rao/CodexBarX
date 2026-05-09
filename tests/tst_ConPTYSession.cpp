@@ -13,6 +13,10 @@ private slots:
     }
 
     void capturesInteractiveOutput() {
+        if (!ConPTYSession::isConPtyAvailable()) {
+            QSKIP("ConPTY is not available on this platform");
+        }
+
         QString cmd = qEnvironmentVariable("ComSpec", "C:/Windows/System32/cmd.exe");
 
         ConPTYSession session;
