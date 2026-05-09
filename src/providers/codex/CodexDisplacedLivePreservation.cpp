@@ -123,14 +123,45 @@ CodexDisplacedLivePreservationPlan CodexDisplacedLivePreservationPlanner::makePl
         return CodexDisplacedLivePreservationPlan::reject(PreservationRejectReason::LiveIsUnreadable);
     }
 
+    // Pre-compute matching account for live account (needed for Case 6b and 7)
+    std::optional<QString> matchingAccountIdOpt = findMatchingAccountId(existingAccountIdentities, liveAccount->identity);
+    QString liveEmail = CodexIdentity::normalizeEmail(liveAccount->email);
+
     // Case 6: API-only credentials (no OAuth tokens)
     if (credentials->accessToken.isEmpty() && credentials->refreshToken.isEmpty()) {
         return CodexDisplacedLivePreservationPlan::reject(PreservationRejectReason::LiveIsApiOnly);
     }
 
+    // Case 6b: Check for conflicting readable managed home
+    // If another managed account (not matching the live account) has a readable auth file
+    // in its home directory, we cannot safely proceed
+    for (auto it = existingAccountHomePaths.constBegin(); it != existingAccountHomePaths.constEnd(); ++it) {
+        QString accountId = it.key();
+        QString homePath = it.value();
+
+        // Skip if this is the target account
+        if (homePath == targetHomePath) {
+            continue;
+        }
+
+        // Skip if this account matches the live account (handled in Case 7)
+        if (matchingAccountIdOpt.has_value() && matchingAccountIdOpt.value() == accountId) {
+            continue;
+        }
+
+        // Check if there's a readable auth file in this home
+        if (!homePath.isEmpty()) {
+            QString authPath = homePath + QStringLiteral("/auth.json");
+            QFile authFile(authPath);
+            if (authFile.exists()) {
+                return CodexDisplacedLivePreservationPlan::reject(
+                    PreservationRejectReason::ConflictingReadableManagedHome
+                );
+            }
+        }
+    }
+
     // Case 7: Check if the live account matches an existing managed account
-    std::optional<QString> matchingAccountIdOpt = findMatchingAccountId(existingAccountIdentities, liveAccount->identity);
-    QString liveEmail = CodexIdentity::normalizeEmail(liveAccount->email);
 
     if (matchingAccountIdOpt.has_value()) {
         QString matchingAccountId = matchingAccountIdOpt.value();

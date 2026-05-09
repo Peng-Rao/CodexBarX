@@ -39,7 +39,7 @@ public:
         const QString& canonicalEmailHashKey = QString()
     );
 
-private:
+protected:
     static QString sha256(const QString& input);
     static const QString PREFIX_CANONICAL;
     static const QString PREFIX_EMAIL_HASH;

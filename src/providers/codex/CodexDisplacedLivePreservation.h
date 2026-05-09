@@ -18,7 +18,8 @@ enum class PreservationNoneReason {
 enum class PreservationRejectReason {
     LiveIsUnreadable,       // System account not readable
     LiveIsApiOnly,          // API Key only authentication
-    LiveHasNoIdentity       // Cannot identify identity
+    LiveHasNoIdentity,      // Cannot identify identity
+    ConflictingReadableManagedHome  // Another managed account already has readable home
 };
 
 struct PreservationImportReason {

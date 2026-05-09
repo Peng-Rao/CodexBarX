@@ -93,6 +93,7 @@ set(CORE_SOURCES
     src/providers/codex/CodexAtomicFileSwap.cpp
     src/providers/codex/CodexPromotionError.cpp
     src/providers/codex/CodexHistoryOwnership.cpp
+    src/providers/codex/CodexOwnershipContext.cpp
     src/providers/claude/ClaudeProvider.cpp
     src/providers/cursor/CursorProvider.cpp
     src/providers/kimi/KimiProvider.cpp
