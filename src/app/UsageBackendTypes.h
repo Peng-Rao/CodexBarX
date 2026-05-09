@@ -131,6 +131,16 @@ struct CodexReconciliationPayload {
     CodexAccountReconciliationSnapshot snapshot;
 };
 
+struct CodexPromotionPayload {
+    QString accountId;
+    bool success = false;
+    int outcome = 0;  // PromotionOutcome
+    int disposition = 0;  // DisplacedLiveDisposition
+    QString displacedAccountId;
+    bool didMutateLiveAuth = false;
+    QString errorMessage;
+};
+
 Q_DECLARE_METATYPE(UsageBackendRequest)
 Q_DECLARE_METATYPE(UsageBackendResult)
 Q_DECLARE_METATYPE(CostUsageSummaryPayload)
@@ -154,3 +164,4 @@ Q_DECLARE_METATYPE(ProviderLoginStartPayload)
 Q_DECLARE_METATYPE(ProviderLoginPollPayload)
 Q_DECLARE_METATYPE(CodexAccountReconciliationSnapshot)
 Q_DECLARE_METATYPE(CodexReconciliationPayload)
+Q_DECLARE_METATYPE(CodexPromotionPayload)

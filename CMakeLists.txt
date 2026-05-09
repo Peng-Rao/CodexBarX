@@ -87,6 +87,8 @@ set(CORE_SOURCES
     src/providers/codex/ManagedCodexAccountService.cpp
     src/providers/codex/CodexLoginRunner.cpp
     src/providers/codex/CodexDisplacedLivePreservation.cpp
+    src/providers/codex/CodexAccountPromotionContext.cpp
+    src/providers/codex/CodexAccountPromotionService.cpp
     src/providers/claude/ClaudeProvider.cpp
     src/providers/cursor/CursorProvider.cpp
     src/providers/kimi/KimiProvider.cpp
