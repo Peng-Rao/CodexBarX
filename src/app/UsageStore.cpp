@@ -1890,8 +1890,10 @@ QVariantMap UsageStore::codexAccountState() const
     state["activeAccountID"] = codexActiveAccountID();
     state["isAuthenticating"] = isCodexAuthenticating();
     state["isRemoving"] = isCodexRemoving();
+    state["isPromoting"] = m_isPromoting;
     state["authenticatingAccountID"] = codexAuthenticatingAccountID();
     state["removingAccountID"] = codexRemovingAccountID();
+    state["promotingAccountID"] = m_promotingAccountID;
     state["hasUnreadableStore"] = hasCodexUnreadableStore();
 
     QString authState = "idle";
@@ -1981,12 +1983,23 @@ bool UsageStore::reauthenticateCodexAccount(const QString& accountID)
 bool UsageStore::promoteCodexAccount(const QString& accountID)
 {
     if (!m_codexAccountService) return false;
+    if (m_isPromoting) return false;
+
+    // Set promoting state
+    m_isPromoting = true;
+    m_promotingAccountID = accountID;
+    emit codexAccountStateChanged();
 
     // Clear state before promotion
     clearCodexOpenAIWebState();
     m_lastCodexRefreshGuard = {};
 
     bool ok = m_codexAccountService->promoteAccount(accountID);
+
+    // Clear promoting state
+    m_isPromoting = false;
+    m_promotingAccountID.clear();
+    emit codexAccountStateChanged();
 
     if (ok) {
         refreshProvider("codex");

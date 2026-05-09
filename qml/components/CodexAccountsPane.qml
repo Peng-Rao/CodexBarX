@@ -13,8 +13,10 @@ Rectangle {
     property string activeAccountID: ""
     property bool isAuthenticating: false
     property bool isRemoving: false
+    property bool isPromoting: false
     property string authenticatingAccountID: ""
     property string removingAccountID: ""
+    property string promotingAccountID: ""
     property bool hasUnreadableStore: false
     property string authState: "idle"
     property string authMessage: ""
@@ -271,6 +273,15 @@ Rectangle {
                             font.pixelSize: 12
                             elide: Text.ElideRight
                         }
+
+                        Label {
+                            Layout.fillWidth: true
+                            visible: modelData.workspaceLabel && modelData.workspaceLabel !== ""
+                            text: modelData.workspaceLabel || ""
+                            color: AppTheme.textTertiary
+                            font.pixelSize: 11
+                            elide: Text.ElideRight
+                        }
                     }
 
                     RowLayout {
@@ -337,23 +348,31 @@ Rectangle {
                             width: 58
                             height: 28
                             visible: !modelData.isLive
-                            enabled: !root.isAuthenticating && !root.isRemoving
+                            enabled: !root.isAuthenticating && !root.isRemoving && !root.isPromoting
                             onClicked: root.promoteAccount(modelData.id)
 
                             background: Rectangle {
-                                color: parent.hovered ? "#4CAF50" : "transparent"
+                                color: root.isPromoting && root.promotingAccountID === modelData.id
+                                    ? AppTheme.bgTertiary
+                                    : (parent.hovered ? "#4CAF50" : "transparent")
                                 radius: 4
                             }
                             contentItem: Text {
-                                text: qsTr("Promote")
-                                color: "#4CAF50"
+                                text: root.isPromoting && root.promotingAccountID === modelData.id
+                                    ? qsTr("...")
+                                    : qsTr("Promote")
+                                color: root.isPromoting && root.promotingAccountID === modelData.id
+                                    ? AppTheme.textSecondary
+                                    : "#4CAF50"
                                 font.pixelSize: 11
                                 horizontalAlignment: Text.AlignHCenter
                                 verticalAlignment: Text.AlignVCenter
                                 elide: Text.ElideRight
                             }
 
-                            ToolTip.text: qsTr("Promote to system account")
+                            ToolTip.text: root.isPromoting && root.promotingAccountID === modelData.id
+                                ? qsTr("Promoting...")
+                                : qsTr("Promote to system account")
                             ToolTip.visible: hovered
                         }
 

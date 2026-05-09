@@ -265,6 +265,8 @@ private:
 
     // Codex multi-account
     class ManagedCodexAccountService* m_codexAccountService = nullptr;
+    bool m_isPromoting = false;
+    QString m_promotingAccountID;
 
     // Credential manager (Phase 1 extraction)
     ProviderCredentialManager* m_credentialManager = nullptr;
