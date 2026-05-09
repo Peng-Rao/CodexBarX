@@ -3,16 +3,14 @@
 #include "CodexHomeScope.h"
 #include "ManagedCodexAccount.h"
 #include "CodexSystemAccountObserver.h"
+#include "CodexAtomicFileSwap.h"
 #include "../../models/CodexUsageResponse.h"
 
 #include <QDir>
 #include <QFile>
 #include <QUuid>
 #include <QStandardPaths>
-
-#ifdef Q_OS_WIN
-#include <windows.h>
-#endif
+#include <QDebug>
 
 CodexAccountPromotionService::CodexAccountPromotionService(QObject* parent)
     : QObject(parent)
@@ -143,23 +141,25 @@ void CodexAccountPromotionService::promoteAsync(const QString& accountId)
                 return QVariant::fromValue(result);
             }
 
-            // Write to live location
-            {
-                QFile targetFile(targetAuthPath);
-                if (targetFile.open(QIODevice::WriteOnly)) {
-                    targetFile.write(managedAuthContent);
-                    targetFile.close();
-                    swapped = true;
-                }
-            }
-
-            if (!swapped) {
+            // Atomically write to live location using staging
+            CodexAtomicFileSwap swapper(targetAuthPath);
+            if (!swapper.stageFile(managedAuthContent)) {
                 CodexAccountPromotionResult result;
                 result.outcome = PromotionOutcome::Failed;
                 result.targetManagedAccountId = capturedAccountId;
-                result.errorMessage = QStringLiteral("Failed to write live auth file");
+                result.errorMessage = QStringLiteral("Failed to stage auth file: %1").arg(swapper.errorMessage());
                 return QVariant::fromValue(result);
             }
+
+            if (!swapper.commit()) {
+                CodexAccountPromotionResult result;
+                result.outcome = PromotionOutcome::Failed;
+                result.targetManagedAccountId = capturedAccountId;
+                result.errorMessage = QStringLiteral("Failed to commit auth file: %1").arg(swapper.errorMessage());
+                return QVariant::fromValue(result);
+            }
+
+            swapped = true;
 
             // Build success result
             CodexAccountPromotionResult result;
@@ -203,7 +203,7 @@ CodexAccountPromotionResult CodexAccountPromotionService::executePromotion(const
         return result;
     }
 
-    // Simplified synchronous promotion
+    // Simplified synchronous promotion with atomic swap
     QString sourceAuthPath = ctx.targetHomePath + QStringLiteral("/auth.json");
     QString targetAuthPath = ctx.liveHomePath + QStringLiteral("/auth.json");
 
@@ -218,14 +218,18 @@ CodexAccountPromotionResult CodexAccountPromotionService::executePromotion(const
         authContent = f.readAll();
     }
 
-    {
-        QFile f(targetAuthPath);
-        if (!f.open(QIODevice::WriteOnly)) {
-            result.outcome = PromotionOutcome::Failed;
-            result.errorMessage = QStringLiteral("Cannot write live auth");
-            return result;
-        }
-        f.write(authContent);
+    // Use atomic file swap
+    CodexAtomicFileSwap swapper(targetAuthPath);
+    if (!swapper.stageFile(authContent)) {
+        result.outcome = PromotionOutcome::Failed;
+        result.errorMessage = QStringLiteral("Cannot stage auth: %1").arg(swapper.errorMessage());
+        return result;
+    }
+
+    if (!swapper.commit()) {
+        result.outcome = PromotionOutcome::Failed;
+        result.errorMessage = QStringLiteral("Cannot commit auth: %1").arg(swapper.errorMessage());
+        return result;
     }
 
     result.outcome = PromotionOutcome::Promoted;

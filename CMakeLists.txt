@@ -89,6 +89,9 @@ set(CORE_SOURCES
     src/providers/codex/CodexDisplacedLivePreservation.cpp
     src/providers/codex/CodexAccountPromotionContext.cpp
     src/providers/codex/CodexAccountPromotionService.cpp
+    src/providers/codex/CodexAccountPromotionCoordinator.cpp
+    src/providers/codex/CodexAtomicFileSwap.cpp
+    src/providers/codex/CodexPromotionError.cpp
     src/providers/codex/CodexHistoryOwnership.cpp
     src/providers/claude/ClaudeProvider.cpp
     src/providers/cursor/CursorProvider.cpp

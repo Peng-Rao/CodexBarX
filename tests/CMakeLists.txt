@@ -195,6 +195,14 @@ target_compile_definitions(tst_CodexHistoryOwnership PRIVATE ${COMMON_DEFINES})
 target_link_libraries(tst_CodexHistoryOwnership PRIVATE codexbar_core Qt6::Core Qt6::Test)
 add_wincodexbar_test(tst_CodexHistoryOwnership tst_CodexHistoryOwnership)
 
+add_executable(tst_CodexAtomicFileSwap
+    tst_CodexAtomicFileSwap.cpp
+)
+target_include_directories(tst_CodexAtomicFileSwap PRIVATE ${COMMON_INCLUDE})
+target_compile_definitions(tst_CodexAtomicFileSwap PRIVATE ${COMMON_DEFINES})
+target_link_libraries(tst_CodexAtomicFileSwap PRIVATE codexbar_core Qt6::Core Qt6::Test)
+add_wincodexbar_test(tst_CodexAtomicFileSwap tst_CodexAtomicFileSwap)
+
 add_executable(tst_FetchContext
     tst_FetchContext.cpp
 )

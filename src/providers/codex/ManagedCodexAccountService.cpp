@@ -1,5 +1,6 @@
 #include "ManagedCodexAccountService.h"
 #include "CodexLoginRunner.h"
+#include "CodexAtomicFileSwap.h"
 #include "../../models/CodexUsageResponse.h"
 #include "CodexHomeScope.h"
 #include "../../app/UsageBackend.h"
@@ -537,10 +538,12 @@ bool ManagedCodexAccountService::promoteAccount(const QString& accountID)
             QString backupHome = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
                 + "/managed-codex-homes/" + QUuid::createUuid().toString(QUuid::WithoutBraces);
             QDir().mkpath(backupHome);
-            QFile backupAuthFile(backupHome + "/auth.json");
-            if (backupAuthFile.open(QIODevice::WriteOnly)) {
-                backupAuthFile.write(liveAuthBackup);
-                backupAuthFile.close();
+
+            // Use atomic file swap for backup
+            QString backupAuthPath = backupHome + "/auth.json";
+            CodexAtomicFileSwap backupSwapper(backupAuthPath);
+            if (!backupSwapper.stageFile(liveAuthBackup) || !backupSwapper.commit()) {
+                qWarning() << "Failed to write backup auth file";
             }
 
             ManagedCodexAccount backupAccount;
@@ -554,10 +557,16 @@ bool ManagedCodexAccountService::promoteAccount(const QString& accountID)
         }
     }
 
-    QFile targetLiveFile(liveAuthPath);
-    if (!targetLiveFile.open(QIODevice::WriteOnly)) return false;
-    targetLiveFile.write(managedAuthContent);
-    targetLiveFile.close();
+    // Use atomic file swap for promotion
+    CodexAtomicFileSwap swapper(liveAuthPath);
+    if (!swapper.stageFile(managedAuthContent)) {
+        qWarning() << "Failed to stage auth file:" << swapper.errorMessage();
+        return false;
+    }
+    if (!swapper.commit()) {
+        qWarning() << "Failed to commit auth file:" << swapper.errorMessage();
+        return false;
+    }
 
     // Remove the promoted account from store (it's now the live system account)
     m_store.removeAccount(accountID);
