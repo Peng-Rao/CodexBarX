@@ -241,6 +241,10 @@ UsageStore::UsageStore(QObject* parent)
             return ProviderRegistry::instance().provider(providerId);
         });
 
+    // Connect auto-refresh timer to refresh
+    QObject::connect(m_refreshCoordinator, &ProviderRefreshCoordinator::autoRefreshTriggered,
+                     this, &UsageStore::refresh);
+
     // Forward coordinator signals
     QObject::connect(m_refreshCoordinator, &ProviderRefreshCoordinator::snapshotChanged,
                      this, [this](const QString& providerId) {

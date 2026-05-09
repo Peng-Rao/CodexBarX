@@ -401,6 +401,11 @@ int main(int argc, char* argv[]) {
         usageStore->requestPreloadCredentials();
     });
 
+    // Initial data refresh
+    QTimer::singleShot(1500, usageStore, [usageStore]() {
+        usageStore->refresh();
+    });
+
     QTimer::singleShot(1500, usageStore, [usageStore]() {
         usageStore->refreshProviderStatuses();
     });

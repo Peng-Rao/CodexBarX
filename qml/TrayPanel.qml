@@ -22,6 +22,8 @@ Rectangle {
     property var providerCostRows: []
     property var expandedCards: ({})
     property int rev: LanguageManager.translationRevision
+    property int refreshStartTime: 0
+    property string refreshDuration: ""
 
     Component.onCompleted: TrayViewModel.requestCostUsageViewData()
     onCostExpandedChanged: refreshProviderCostRows()
@@ -31,7 +33,29 @@ Rectangle {
         function onCostUsageRefreshingChanged() { root.refreshCostSummary() }
         function onCostDataChanged() { root.refreshCostSummary() }
         function onProviderCostRowsChanged() { root.refreshProviderCostRows() }
-        function onIsRefreshingChanged() { root.isRefreshing = TrayViewModel.isRefreshing }
+        function onIsRefreshingChanged() {
+            root.isRefreshing = TrayViewModel.isRefreshing
+            if (root.isRefreshing) {
+                root.refreshStartTime = Date.now()
+                refreshTimer.start()
+            } else {
+                refreshTimer.stop()
+                root.refreshStartTime = 0
+                root.refreshDuration = ""
+            }
+        }
+    }
+
+    Timer {
+        id: refreshTimer
+        interval: 1000
+        repeat: true
+        onTriggered: {
+            if (root.refreshStartTime > 0) {
+                var seconds = Math.floor((Date.now() - root.refreshStartTime) / 1000)
+                root.refreshDuration = seconds + "s"
+            }
+        }
     }
 
     // Drop shadow mimic
@@ -489,12 +513,15 @@ Rectangle {
                     id: mouseArea
                     anchors.fill: parent
                     hoverEnabled: true
-                    cursorShape: root.isRefreshing ? Qt.ArrowCursor : Qt.PointingHandCursor
+                    cursorShape: Qt.PointingHandCursor
                     onClicked: {
+                        // Card expand/collapse always works
+                        var cards = Object.assign({}, root.expandedCards)
+                        cards[cardDelegate.providerId] = !cards[cardDelegate.providerId]
+                        root.expandedCards = cards
+
+                        // Refresh only if not already refreshing
                         if (!root.isRefreshing) {
-                            var cards = root.expandedCards
-                            cards[cardDelegate.providerId] = !cards[cardDelegate.providerId]
-                            root.expandedCards = cards
                             TrayViewModel.refreshProvider(cardDelegate.providerId)
                         }
                     }
@@ -1159,7 +1186,9 @@ Rectangle {
                 spacing: 6
 
                 ActionButton {
-                    text: root.isRefreshing ? qsTr("Refreshing...") : qsTr("Refresh")
+                    text: root.isRefreshing
+                        ? qsTr("Refreshing...") + (root.refreshDuration ? " " + root.refreshDuration : "")
+                        : qsTr("Refresh")
                     enabled: !root.isRefreshing
                     Layout.fillWidth: true
                     Layout.preferredHeight: 28

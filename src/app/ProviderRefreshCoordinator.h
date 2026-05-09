@@ -2,11 +2,14 @@
 
 #include <QHash>
 #include <QObject>
+#include <QPointer>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 #include <QTimer>
 #include <QVariantMap>
 #include <QVector>
+#include <chrono>
 #include <functional>
 
 #include "UsageBackendJobs.h"
@@ -31,6 +34,7 @@ class ProviderRefreshCoordinator : public QObject {
     Q_OBJECT
 public:
     explicit ProviderRefreshCoordinator(QObject* parent = nullptr);
+    ~ProviderRefreshCoordinator();
 
     // Refresh control
     void refresh(const QStringList& providerIds);
@@ -73,6 +77,7 @@ public:
     void setProviderResolver(ProviderResolver resolver);
 
 signals:
+    void autoRefreshTriggered();
     void snapshotChanged(const QString& providerId);
     void revisionChanged();
     void refreshingChanged();
@@ -88,17 +93,19 @@ private:
     void doRefresh(const QStringList& ids);
     void refreshWithBackend(const QString& providerId);
     void completeRefresh();
-    void completeRefreshDispatchWithoutResult();
     void applyResult(const QString& providerId, const ProviderFetchResult& result, bool complete);
     void updateResultMetadata(const QString& providerId, const ProviderFetchResult& result);
     void clearResultMetadata(const QString& providerId);
 
     QTimer m_refreshTimer;
+    QTimer m_refreshTimeoutTimer;
+    static constexpr auto REFRESH_TIMEOUT = std::chrono::seconds(60);
     QHash<QString, UsageSnapshot> m_snapshots;
     QHash<QString, QString> m_errors;
     QHash<QString, QVariantMap> m_dashboardData;
     QHash<QString, QVector<ProviderFetchAttempt>> m_lastFetchAttempts;
     QHash<QString, QString> m_refreshRequestProviderIds;
+    QSet<QString> m_pendingProviderIds;
     bool m_isRefreshing = false;
     int m_pendingRefreshes = 0;
     int m_pendingExternalWork = 0;

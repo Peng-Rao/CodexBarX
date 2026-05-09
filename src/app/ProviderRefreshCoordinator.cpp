@@ -12,8 +12,30 @@ ProviderRefreshCoordinator::ProviderRefreshCoordinator(QObject* parent)
 {
     m_refreshTimer.setSingleShot(false);
     QObject::connect(&m_refreshTimer, &QTimer::timeout, this, [this]() {
+        emit autoRefreshTriggered();
+    });
+
+    // Timeout timer for stuck refresh protection
+    m_refreshTimeoutTimer.setSingleShot(true);
+    QObject::connect(&m_refreshTimeoutTimer, &QTimer::timeout, this, [this]() {
+        if (!m_isRefreshing) {
+            return;  // Already completed, ignore spurious timeout
+        }
+        qWarning() << "[RefreshCoordinator] Refresh timeout, forcing reset";
+        m_pendingRefreshes = 0;
+        m_pendingExternalWork = 0;
+        m_isRefreshing = false;
+        m_refreshRequestProviderIds.clear();
+        m_pendingProviderIds.clear();
+        emit refreshComplete();
         emit refreshingChanged();
     });
+}
+
+ProviderRefreshCoordinator::~ProviderRefreshCoordinator()
+{
+    m_refreshTimeoutTimer.stop();
+    m_refreshTimer.stop();
 }
 
 // ============================================================================
@@ -27,13 +49,22 @@ void ProviderRefreshCoordinator::refresh(const QStringList& providerIds)
 
 void ProviderRefreshCoordinator::refreshProvider(const QString& providerId)
 {
-    // Ensure count is sane when called individually (outside doRefresh).
-    if (m_pendingRefreshes <= 0) {
-        if (!m_isRefreshing) {
-            m_isRefreshing = true;
-            emit refreshingChanged();
+    // If already refreshing, just append the task and extend timeout
+    if (m_isRefreshing) {
+        refreshWithBackend(providerId);
+        // Extend timeout when appending tasks, but only if remaining time is low
+        if (!m_refreshTimeoutTimer.isActive() || m_refreshTimeoutTimer.remainingTime() < 5000) {
+            m_refreshTimeoutTimer.start(REFRESH_TIMEOUT);
         }
+        return;
     }
+
+    m_isRefreshing = true;
+    emit refreshingChanged();
+
+    // Start timeout protection for single provider refresh
+    m_refreshTimeoutTimer.start(REFRESH_TIMEOUT);
+
     refreshWithBackend(providerId);
 }
 
@@ -110,11 +141,11 @@ void ProviderRefreshCoordinator::applyRefreshResult(const QString& providerId,
 void ProviderRefreshCoordinator::applyRefreshFailed(const QString& providerId,
                                                      const QString& errorMessage)
 {
+    m_pendingProviderIds.remove(providerId);
     clearResultMetadata(providerId);
     m_errors[providerId] = errorMessage;
     emit providerRefreshFailed(providerId, errorMessage);
     emit errorOccurred(providerId, errorMessage);
-    emit snapshotChanged(providerId);
     completeRefresh();
 }
 
@@ -169,11 +200,11 @@ void ProviderRefreshCoordinator::incrementPendingExternalWork()
 
 void ProviderRefreshCoordinator::decrementPendingExternalWork()
 {
-    m_pendingExternalWork--;
-    Q_ASSERT(m_pendingExternalWork >= 0);
-    if (m_pendingExternalWork < 0) {
-        m_pendingExternalWork = 0;
+    if (m_pendingExternalWork <= 0) {
+        qWarning() << "[RefreshCoordinator] decrementPendingExternalWork called with zero pending";
+        return;
     }
+    m_pendingExternalWork--;
 }
 
 void ProviderRefreshCoordinator::setPendingExternalWork(int count)
@@ -187,17 +218,20 @@ void ProviderRefreshCoordinator::setPendingExternalWork(int count)
 
 void ProviderRefreshCoordinator::doRefresh(const QStringList& ids)
 {
-    if (m_isRefreshing) return;
+    if (m_isRefreshing) {
+        qDebug() << "[RefreshCoordinator] Skipping doRefresh, already refreshing";
+        return;
+    }
+    if (ids.isEmpty()) {
+        emit refreshComplete();
+        return;
+    }
     m_isRefreshing = true;
     emit refreshingChanged();
     emit refreshStarted(ids);
 
-    if (ids.isEmpty()) {
-        m_isRefreshing = false;
-        emit refreshComplete();
-        emit refreshingChanged();
-        return;
-    }
+    // Start timeout protection
+    m_refreshTimeoutTimer.start(REFRESH_TIMEOUT);
 
     for (const auto& id : ids) {
         refreshWithBackend(id);
@@ -206,16 +240,22 @@ void ProviderRefreshCoordinator::doRefresh(const QStringList& ids)
 
 void ProviderRefreshCoordinator::refreshWithBackend(const QString& providerId)
 {
+    if (m_pendingProviderIds.contains(providerId)) {
+        return;
+    }
+    m_pendingProviderIds.insert(providerId);
     m_pendingRefreshes++;
 
     if (!m_backend) {
-        completeRefreshDispatchWithoutResult();
+        qWarning() << "[RefreshCoordinator] Backend is null for provider:" << providerId;
+        applyRefreshFailed(providerId, QStringLiteral("Internal error: backend not available"));
         return;
     }
 
     IProvider* provider = m_providerResolver ? m_providerResolver(providerId) : nullptr;
     if (!provider) {
-        completeRefreshDispatchWithoutResult();
+        qWarning() << "[RefreshCoordinator] Provider not found:" << providerId;
+        applyRefreshFailed(providerId, QStringLiteral("Unknown provider"));
         return;
     }
 
@@ -224,9 +264,13 @@ void ProviderRefreshCoordinator::refreshWithBackend(const QString& providerId)
         input = m_fetchCommandInputBuilder(providerId);
     }
 
+    QPointer<IProvider> safeProvider = provider;
     const UsageBackendRequest request = m_backend->dispatchValueJob(
-        QStringLiteral("providerRefresh"), 0, [provider, input]() {
-        return QVariant::fromValue(UsageBackendJobs::refreshProvider(provider, input));
+        QStringLiteral("providerRefresh"), 0, [safeProvider, input]() -> QVariant {
+        if (!safeProvider) {
+            return QVariant();
+        }
+        return QVariant::fromValue(UsageBackendJobs::refreshProvider(safeProvider.data(), input));
     });
 
     m_refreshRequestProviderIds.insert(request.requestId, providerId);
@@ -234,18 +278,13 @@ void ProviderRefreshCoordinator::refreshWithBackend(const QString& providerId)
 
 void ProviderRefreshCoordinator::completeRefresh()
 {
-    m_pendingRefreshes--;
-    if (m_pendingRefreshes <= 0 && m_pendingExternalWork <= 0) {
-        m_isRefreshing = false;
-        emit refreshComplete();
-        emit refreshingChanged();
+    if (m_pendingRefreshes > 0) {
+        m_pendingRefreshes--;
+    } else {
+        qWarning() << "[RefreshCoordinator] completeRefresh called with zero pending";
     }
-}
-
-void ProviderRefreshCoordinator::completeRefreshDispatchWithoutResult()
-{
-    m_pendingRefreshes--;
-    if (m_pendingRefreshes <= 0) {
+    if (m_isRefreshing && m_pendingRefreshes <= 0 && m_pendingExternalWork <= 0) {
+        m_refreshTimeoutTimer.stop();
         m_isRefreshing = false;
         emit refreshComplete();
         emit refreshingChanged();
@@ -273,6 +312,7 @@ void ProviderRefreshCoordinator::applyResult(const QString& providerId,
     }
 
     if (complete) {
+        m_pendingProviderIds.remove(providerId);
         completeRefresh();
     }
 }
