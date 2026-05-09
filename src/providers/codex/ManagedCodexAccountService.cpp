@@ -559,6 +559,9 @@ bool ManagedCodexAccountService::promoteAccount(const QString& accountID)
     targetLiveFile.write(managedAuthContent);
     targetLiveFile.close();
 
+    // Remove the promoted account from store (it's now the live system account)
+    m_store.removeAccount(accountID);
+
     m_activeAccountID = "live-system";
 
     refresh();
