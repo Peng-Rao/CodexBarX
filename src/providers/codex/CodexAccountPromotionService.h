@@ -2,6 +2,7 @@
 
 #include "CodexAccountPromotionContext.h"
 #include "CodexDisplacedLivePreservation.h"
+#include "CodexActiveSource.h"
 
 #include <QObject>
 #include <QString>
@@ -30,6 +31,7 @@ struct CodexAccountPromotionResult {
     QString displacedManagedAccountId;          // If imported
     bool didMutateLiveAuth = false;
     QString errorMessage;
+    CodexActiveSource resultingActiveSource = CodexActiveSource::LiveSystem;
 };
 
 class CodexAccountPromotionService : public QObject {

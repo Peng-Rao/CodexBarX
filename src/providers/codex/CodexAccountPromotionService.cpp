@@ -166,6 +166,7 @@ void CodexAccountPromotionService::promoteAsync(const QString& accountId)
             result.outcome = PromotionOutcome::Promoted;
             result.targetManagedAccountId = capturedAccountId;
             result.didMutateLiveAuth = true;
+            result.resultingActiveSource = CodexActiveSource::LiveSystem;
 
             // Set displaced disposition based on preservation result
             if (preservationPlan.kind() == CodexDisplacedLivePreservationPlan::Kind::None) {
@@ -234,5 +235,6 @@ CodexAccountPromotionResult CodexAccountPromotionService::executePromotion(const
 
     result.outcome = PromotionOutcome::Promoted;
     result.didMutateLiveAuth = true;
+    result.resultingActiveSource = CodexActiveSource::LiveSystem;
     return result;
 }

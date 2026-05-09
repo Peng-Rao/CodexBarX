@@ -7,6 +7,7 @@
 #include "UsageBackend.h"
 #include "UsageBackendJobs.h"
 #include "UsageBackendTypes.h"
+#include "../providers/codex/CodexActiveSource.h"
 #include "../providers/ProviderRegistry.h"
 #include "../providers/ProviderPipeline.h"
 #include "../providers/ProviderFetchContext.h"
@@ -1880,6 +1881,7 @@ QVariantList UsageStore::codexAccounts() const
         map["storedAccountID"] = account.storedAccountID;
         map["canReauthenticate"] = account.canReauthenticate;
         map["canRemove"] = account.canRemove;
+        map["selectionSource"] = CodexActiveSourceUtil::toString(account.selectionSource);
         result.append(map);
     }
     return result;

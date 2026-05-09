@@ -69,6 +69,7 @@ QVector<CodexVisibleAccount> ManagedCodexAccountService::visibleAccounts() const
         visible.displayName = resolveDisplayName(stored);
         visible.canReauthenticate = true;
         visible.canRemove = true;
+        visible.selectionSource = CodexActiveSource::ManagedAccount;
         accounts.append(visible);
     }
 
@@ -93,6 +94,7 @@ QVector<CodexVisibleAccount> ManagedCodexAccountService::visibleAccounts() const
             visible.displayName = resolveDisplayName(*m_snapshot.liveSystemAccount);
             visible.canReauthenticate = false;
             visible.canRemove = false;
+            visible.selectionSource = CodexActiveSource::LiveSystem;
             accounts.prepend(visible);
         }
     }

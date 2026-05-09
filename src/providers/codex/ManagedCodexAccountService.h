@@ -15,6 +15,8 @@
 #include <QFuture>
 #include <optional>
 
+#include "CodexActiveSource.h"
+
 class UsageBackend;
 
 struct CodexVisibleAccount {
@@ -27,6 +29,7 @@ struct CodexVisibleAccount {
     QString storedAccountID;
     bool canReauthenticate = true;   // false for live system accounts
     bool canRemove = true;           // false for live system accounts
+    CodexActiveSource selectionSource = CodexActiveSource::ManagedAccount;
 };
 
 class ManagedCodexAccountService : public QObject {
