@@ -5,6 +5,7 @@
 #else
 #include <QStandardPaths>
 #include <QDir>
+#include <QRegularExpression>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/file.h>

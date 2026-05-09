@@ -772,7 +772,7 @@ UsageSnapshot CodexWebDashboardStrategy::parseDashboardHTML(const QString& html)
 
     // Try JSON embedded in script tags first
     static QRegularExpression jsonDataRe(
-        "window\.__INITIAL_STATE__\s*=\s*(\\{.*?\\});",
+        "window\\.__INITIAL_STATE__\\s*=\\s*(\\{.*?\\});",
         QRegularExpression::DotMatchesEverythingOption
     );
     
