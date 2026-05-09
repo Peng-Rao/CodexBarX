@@ -15,6 +15,8 @@
 #include <QFuture>
 #include <optional>
 
+class UsageBackend;
+
 struct CodexVisibleAccount {
     QString id;
     QString displayName;
@@ -49,6 +51,7 @@ public:
     // State
     bool isAuthenticating() const;
     bool isRemoving() const;
+    bool isLoadingSnapshot() const { return m_isLoadingSnapshot; }
     QString authenticatingAccountID() const;
     QString removingAccountID() const;
     bool hasUnreadableStore() const;
@@ -60,7 +63,12 @@ public:
 
     // Reconciliation
     void refresh();
+    void refreshAsync();
     CodexAccountReconciliationSnapshot currentSnapshot() const;
+    void applySnapshot(const CodexAccountReconciliationSnapshot& snapshot);
+
+    // Dependencies
+    void setBackend(UsageBackend* backend);
 
 signals:
     void accountsChanged();
@@ -70,6 +78,7 @@ signals:
     void authenticationStateChanged();
     void removalStarted(const QString& accountID);
     void removalFinished(const QString& accountID, bool success);
+    void snapshotLoaded();
 
 private slots:
     void onLoginFinished(const CodexLoginRunner::Result& result);
@@ -83,6 +92,8 @@ private:
     QString m_activeAccountID;
     bool m_isAuthenticating;
     bool m_isRemoving;
+    bool m_isLoadingSnapshot = false;
+    int m_snapshotLoadGeneration = 0;
     QString m_authenticatingAccountID;
     QString m_removingAccountID;
     QString m_authMessage;
@@ -90,6 +101,7 @@ private:
     QString m_authVerificationUri;
     QString m_authUserCode;
 
+    UsageBackend* m_backend = nullptr;
     CodexLoginRunner* m_loginRunner = nullptr;
     QString m_pendingHomePath;
 

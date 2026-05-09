@@ -19,7 +19,7 @@ CodexIdentity CodexIdentity::providerAccount(const QString& id)
 
 CodexIdentity CodexIdentity::emailOnly(const QString& normalizedEmail)
 {
-    return CodexIdentity(CodexIdentityType::EmailOnly, QString(), normalizedEmail);
+    return CodexIdentity(CodexIdentityType::EmailOnly, QString(), normalizeEmail(normalizedEmail));
 }
 
 CodexIdentity CodexIdentity::unresolved()

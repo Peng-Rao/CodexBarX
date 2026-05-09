@@ -124,6 +124,7 @@ UsageStore::UsageStore(QObject* parent)
 
     // Initialize Codex multi-account service
     m_codexAccountService = new ManagedCodexAccountService(cachedSystemEnv(), this);
+    m_codexAccountService->setBackend(m_backend);
     QObject::connect(m_codexAccountService, &ManagedCodexAccountService::accountsChanged,
                      this, &UsageStore::codexAccountsChanged);
     QObject::connect(m_codexAccountService, &ManagedCodexAccountService::accountsChanged,
@@ -1176,6 +1177,18 @@ void UsageStore::handleBackendResult(const UsageBackendResult& result)
         resetCostUsageDerivedCaches(false);
         emit costUsageRefreshingChanged();
         emit costUsageChanged();
+        return;
+    }
+
+    if (result.kind == QLatin1String("codexAccountReconciliation")) {
+        if (!result.success) {
+            qWarning() << "Codex account reconciliation backend job failed:" << result.message;
+            return;
+        }
+        const auto payload = result.payload.value<CodexReconciliationPayload>();
+        if (m_codexAccountService) {
+            m_codexAccountService->applySnapshot(payload.snapshot);
+        }
         return;
     }
 

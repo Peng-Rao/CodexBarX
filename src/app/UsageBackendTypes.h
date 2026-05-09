@@ -3,6 +3,7 @@
 #include "../models/CostUsageReport.h"
 #include "../models/UsageSnapshot.h"
 #include "../providers/codex/CodexCreditsFetcher.h"
+#include "../providers/codex/CodexAccountReconciliation.h"
 #include "../providers/ProviderFetchResult.h"
 
 #include <QHash>
@@ -126,6 +127,10 @@ struct ProviderLoginPollPayload {
     bool triggerConnectionTest = false;
 };
 
+struct CodexReconciliationPayload {
+    CodexAccountReconciliationSnapshot snapshot;
+};
+
 Q_DECLARE_METATYPE(UsageBackendRequest)
 Q_DECLARE_METATYPE(UsageBackendResult)
 Q_DECLARE_METATYPE(CostUsageSummaryPayload)
@@ -147,3 +152,5 @@ Q_DECLARE_METATYPE(CredentialPreloadPayload)
 Q_DECLARE_METATYPE(ProviderSecretResultPayload)
 Q_DECLARE_METATYPE(ProviderLoginStartPayload)
 Q_DECLARE_METATYPE(ProviderLoginPollPayload)
+Q_DECLARE_METATYPE(CodexAccountReconciliationSnapshot)
+Q_DECLARE_METATYPE(CodexReconciliationPayload)

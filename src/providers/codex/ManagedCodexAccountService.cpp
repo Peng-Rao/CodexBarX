@@ -2,6 +2,8 @@
 #include "CodexLoginRunner.h"
 #include "../../models/CodexUsageResponse.h"
 #include "CodexHomeScope.h"
+#include "../../app/UsageBackend.h"
+#include "../../app/UsageBackendTypes.h"
 
 #include <QDebug>
 #include <QDir>
@@ -626,13 +628,50 @@ QString ManagedCodexAccountService::activeManagedHomePath() const
 void ManagedCodexAccountService::refresh()
 {
     CodexAccountReconciliation reconciliation(m_env);
-    m_snapshot = reconciliation.loadSnapshot();
-    
+    applySnapshot(reconciliation.loadSnapshot());
+}
+
+void ManagedCodexAccountService::refreshAsync()
+{
+    if (!m_backend) {
+        // Fallback to synchronous if no backend
+        refresh();
+        return;
+    }
+
+    if (m_isLoadingSnapshot) {
+        return;
+    }
+
+    m_isLoadingSnapshot = true;
+    const int generation = ++m_snapshotLoadGeneration;
+
+    // Capture env by value for thread safety
+    QHash<QString, QString> env = m_env;
+
+    m_backend->dispatchValueJob(QStringLiteral("codexAccountReconciliation"), generation,
+        [env]() -> QVariant {
+            // All file I/O happens in background thread
+            CodexAccountReconciliation reconciliation(env);
+            CodexAccountReconciliationSnapshot snapshot = reconciliation.loadSnapshot();
+            return QVariant::fromValue(CodexReconciliationPayload{snapshot});
+        });
+}
+
+void ManagedCodexAccountService::setBackend(UsageBackend* backend)
+{
+    m_backend = backend;
+}
+
+void ManagedCodexAccountService::applySnapshot(const CodexAccountReconciliationSnapshot& snapshot)
+{
+    m_snapshot = snapshot;
+
     // If no active account set, default to live system
     if (m_activeAccountID.isEmpty()) {
         m_activeAccountID = "live-system";
     }
-    
+
     // If active managed account no longer exists, fall back to live system
     if (m_activeAccountID != "live-system") {
         bool activeAccountStillExists = false;
@@ -649,8 +688,10 @@ void ManagedCodexAccountService::refresh()
             emit activeAccountChanged(m_activeAccountID);
         }
     }
-    
+
+    m_isLoadingSnapshot = false;
     emit accountsChanged();
+    emit snapshotLoaded();
 }
 
 CodexAccountReconciliationSnapshot ManagedCodexAccountService::currentSnapshot() const
