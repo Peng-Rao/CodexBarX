@@ -9,7 +9,12 @@
 #include <QStandardPaths>
 #include <QDebug>
 
-static constexpr int CACHE_SCHEMA_VERSION = 1;
+// Schema version for cache file format
+static constexpr int CACHE_SCHEMA_VERSION = 2;
+
+// Pricing version - increment when pricing constants change to invalidate cache
+// This ensures cached costs are recalculated when pricing is updated
+static constexpr int PRICING_VERSION = 1;
 
 CostUsageCache& CostUsageCache::instance() {
     static CostUsageCache inst;
@@ -71,6 +76,15 @@ bool CostUsageCache::load() {
         return false;
     }
 
+    int pricing = root["pricingVersion"].toInt(0);
+    if (pricing != PRICING_VERSION) {
+        qWarning() << "CostUsageCache: pricing version" << pricing << "!=" << PRICING_VERSION << ", clearing.";
+        m_entries.clear();
+        m_loaded = true;
+        m_dirty = false;
+        return false;
+    }
+
     QJsonObject entriesObj = root["entries"].toObject();
     for (auto it = entriesObj.begin(); it != entriesObj.end(); ++it) {
         QJsonObject e = it.value().toObject();
@@ -89,10 +103,10 @@ bool CostUsageCache::load() {
                 QJsonObject m = v.toObject();
                 CostUsageModelBreakdown mb;
                 mb.modelName = m["model"].toString();
-                mb.inputTokens = m["input"].toInt(0);
-                mb.cacheReadTokens = m["cacheRead"].toInt(0);
-                mb.cacheCreationTokens = m["cacheCreate"].toInt(0);
-                mb.outputTokens = m["output"].toInt(0);
+                mb.inputTokens = static_cast<qint64>(m["input"].toDouble(0));
+                mb.cacheReadTokens = static_cast<qint64>(m["cacheRead"].toDouble(0));
+                mb.cacheCreationTokens = static_cast<qint64>(m["cacheCreate"].toDouble(0));
+                mb.outputTokens = static_cast<qint64>(m["output"].toDouble(0));
                 mb.costUSD = m["cost"].toDouble(0.0);
                 vec.append(mb);
             }
@@ -120,6 +134,7 @@ bool CostUsageCache::save() {
 
     QJsonObject root;
     root["schemaVersion"] = CACHE_SCHEMA_VERSION;
+    root["pricingVersion"] = PRICING_VERSION;
     root["createdAt"] = QDateTime::currentDateTime().toString(Qt::ISODate);
 
     QJsonObject entriesObj;
@@ -137,10 +152,10 @@ bool CostUsageCache::save() {
             for (const auto& mb : dit.value()) {
                 QJsonObject m;
                 m["model"] = mb.modelName;
-                m["input"] = mb.inputTokens;
-                m["cacheRead"] = mb.cacheReadTokens;
-                m["cacheCreate"] = mb.cacheCreationTokens;
-                m["output"] = mb.outputTokens;
+                m["input"] = static_cast<double>(mb.inputTokens);
+                m["cacheRead"] = static_cast<double>(mb.cacheReadTokens);
+                m["cacheCreate"] = static_cast<double>(mb.cacheCreationTokens);
+                m["output"] = static_cast<double>(mb.outputTokens);
                 m["cost"] = mb.costUSD;
                 arr.append(m);
             }

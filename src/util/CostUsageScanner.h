@@ -6,6 +6,7 @@
 #include <QSet>
 #include <QVector>
 #include <QRegularExpression>
+#include <QtGlobal>
 #include <optional>
 #include "../models/CostUsageReport.h"
 
@@ -48,9 +49,9 @@ public:
 
     static Pricing priceForModel(const QString& modelName);
 
-    static double tieredCost(int tokens, double basePerM, const std::optional<double>& abovePerM, const std::optional<int>& threshold);
-    static double costForClaudeModel(const Pricing& p, int inputTokens, int cacheReadTokens, int cacheCreationTokens, int outputTokens);
-    static double costForCodexModel(const Pricing& p, int inputTokens, int cacheReadTokens, int outputTokens);
+    static double tieredCost(qint64 tokens, double basePerM, const std::optional<double>& abovePerM, const std::optional<int>& threshold);
+    static double costForClaudeModel(const Pricing& p, qint64 inputTokens, qint64 cacheReadTokens, qint64 cacheCreationTokens, qint64 outputTokens);
+    static double costForCodexModel(const Pricing& p, qint64 inputTokens, qint64 cacheReadTokens, qint64 outputTokens);
 
     static QString normalizeCodexModel(const QString& raw);
     static QString normalizeClaudeModel(const QString& raw);

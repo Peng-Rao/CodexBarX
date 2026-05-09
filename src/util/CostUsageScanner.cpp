@@ -36,6 +36,40 @@ bool providerAllowedForScan(const QString& rawProviderId, const QSet<QString>& a
         || allowedProviderIds.contains(canonicalOpenCodeProviderId(rawProviderId));
 }
 
+// Maximum reasonable token count per single entry (100 billion tokens is clearly corrupted data)
+static constexpr qint64 MAX_REASONABLE_TOKENS = 100'000'000'000LL;
+
+// Validate token value: must be non-negative and within reasonable bounds
+// Returns the validated value, or 0 if invalid
+qint64 validateTokens(qint64 value)
+{
+    if (value < 0) {
+        qWarning() << "CostUsageScanner: negative token count" << value << ", treating as 0";
+        return 0;
+    }
+    if (value > MAX_REASONABLE_TOKENS) {
+        qWarning() << "CostUsageScanner: token count" << value << "exceeds reasonable maximum, treating as 0";
+        return 0;
+    }
+    return value;
+}
+
+// Validate cost value: must be non-negative and within reasonable bounds
+static constexpr double MAX_REASONABLE_COST_USD = 1'000'000.0; // $1M per entry is clearly corrupted
+
+double validateCost(double value)
+{
+    if (value < 0.0) {
+        qWarning() << "CostUsageScanner: negative cost" << value << ", treating as 0";
+        return 0.0;
+    }
+    if (value > MAX_REASONABLE_COST_USD) {
+        qWarning() << "CostUsageScanner: cost" << value << "exceeds reasonable maximum, treating as 0";
+        return 0.0;
+    }
+    return value;
+}
+
 } // namespace
 
 void CostUsageScanner::setShuttingDown(bool shuttingDown)
@@ -181,27 +215,27 @@ QString CostUsageScanner::normalizeClaudeModel(const QString& raw) {
     return trimmed;
 }
 
-double CostUsageScanner::tieredCost(int tokens, double basePerM, const std::optional<double>& abovePerM, const std::optional<int>& threshold) {
+double CostUsageScanner::tieredCost(qint64 tokens, double basePerM, const std::optional<double>& abovePerM, const std::optional<int>& threshold) {
     if (!threshold.has_value() || !abovePerM.has_value())
         return tokens / 1e6 * basePerM;
-    int below = std::min(tokens, *threshold);
-    int over = std::max(tokens - *threshold, 0);
+    qint64 below = std::min(tokens, static_cast<qint64>(*threshold));
+    qint64 over = std::max(tokens - static_cast<qint64>(*threshold), static_cast<qint64>(0));
     return below / 1e6 * basePerM + over / 1e6 * *abovePerM;
 }
 
-double CostUsageScanner::costForClaudeModel(const Pricing& p, int inputTokens, int cacheReadTokens, int cacheCreationTokens, int outputTokens) {
-    return tieredCost(std::max(0, inputTokens),        p.inputPerM,  p.inputPerMAboveThreshold,  p.thresholdTokens)
-         + tieredCost(std::max(0, cacheReadTokens),     p.cacheReadPerM,  p.cacheReadPerMAboveThreshold,  p.thresholdTokens)
-         + tieredCost(std::max(0, cacheCreationTokens), p.cacheWritePerM, p.cacheWritePerMAboveThreshold, p.thresholdTokens)
-         + tieredCost(std::max(0, outputTokens),        p.outputPerM, p.outputPerMAboveThreshold, p.thresholdTokens);
+double CostUsageScanner::costForClaudeModel(const Pricing& p, qint64 inputTokens, qint64 cacheReadTokens, qint64 cacheCreationTokens, qint64 outputTokens) {
+    return tieredCost(std::max(static_cast<qint64>(0), inputTokens),        p.inputPerM,  p.inputPerMAboveThreshold,  p.thresholdTokens)
+         + tieredCost(std::max(static_cast<qint64>(0), cacheReadTokens),     p.cacheReadPerM,  p.cacheReadPerMAboveThreshold,  p.thresholdTokens)
+         + tieredCost(std::max(static_cast<qint64>(0), cacheCreationTokens), p.cacheWritePerM, p.cacheWritePerMAboveThreshold, p.thresholdTokens)
+         + tieredCost(std::max(static_cast<qint64>(0), outputTokens),        p.outputPerM, p.outputPerMAboveThreshold, p.thresholdTokens);
 }
 
-double CostUsageScanner::costForCodexModel(const Pricing& p, int inputTokens, int cacheReadTokens, int outputTokens) {
-    int nonCached = std::max(0, inputTokens - cacheReadTokens);
-    int cached = std::max(0, std::min(cacheReadTokens, inputTokens));
+double CostUsageScanner::costForCodexModel(const Pricing& p, qint64 inputTokens, qint64 cacheReadTokens, qint64 outputTokens) {
+    qint64 nonCached = std::max(static_cast<qint64>(0), inputTokens - cacheReadTokens);
+    qint64 cached = std::max(static_cast<qint64>(0), std::min(cacheReadTokens, inputTokens));
     return nonCached / 1e6 * p.inputPerM
          + cached / 1e6 * p.cacheReadPerM
-         + std::max(0, outputTokens) / 1e6 * p.outputPerM;
+         + std::max(static_cast<qint64>(0), outputTokens) / 1e6 * p.outputPerM;
 }
 
 CostUsageScanner::Pricing CostUsageScanner::priceForModel(const QString& modelName) {
@@ -225,14 +259,31 @@ CostUsageScanner::Pricing CostUsageScanner::priceForModel(const QString& modelNa
         if (modelName.contains(mit.key(), Qt::CaseInsensitive)) return mit.value();
     }
 
-    if (modelName.contains("gpt", Qt::CaseInsensitive) || modelName.contains("codex", Qt::CaseInsensitive))
+    // Fallback pricing with more precise model name matching
+    // Use word-boundary-like checks to avoid false matches (e.g., "agpt-xxx" should not match "gpt")
+    QString lower = modelName.toLower();
+
+    // GPT/Codex: match "gpt-" prefix, "-gpt-" infix, or "codex-" prefix
+    if (lower.startsWith("gpt-") || lower.contains("-gpt-") || lower.startsWith("codex-") || lower.contains("-codex-"))
         return { 1.25, 0.125, 0, 10.0 };
-    if (modelName.contains("opus", Qt::CaseInsensitive))
+
+    // Claude model families: match "claude-" + model type
+    if (lower.contains("claude-opus") || lower.contains("claude_opus"))
         return { 15.0, 1.5, 18.75, 75.0 };
-    if (modelName.contains("sonnet", Qt::CaseInsensitive))
+    if (lower.contains("claude-sonnet") || lower.contains("claude_sonnet"))
         return { 3.0, 0.3, 3.75, 15.0 };
-    if (modelName.contains("haiku", Qt::CaseInsensitive))
+    if (lower.contains("claude-haiku") || lower.contains("claude_haiku"))
         return { 1.0, 0.1, 1.25, 5.0 };
+
+    // Generic fallbacks (without "claude-" prefix, less common)
+    if (lower.contains("-opus") || lower.startsWith("opus-"))
+        return { 15.0, 1.5, 18.75, 75.0 };
+    if (lower.contains("-sonnet") || lower.startsWith("sonnet-"))
+        return { 3.0, 0.3, 3.75, 15.0 };
+    if (lower.contains("-haiku") || lower.startsWith("haiku-"))
+        return { 1.0, 0.1, 1.25, 5.0 };
+
+    // Default fallback (sonnet-like pricing)
     return { 3.0, 0.3, 3.75, 15.0 };
 }
 
@@ -412,7 +463,7 @@ CostUsageSnapshot CostUsageScanner::scanClaude(const QString& configDir, const Q
 
             struct ClaudeRow {
                 QString dateKey, model;
-                int input = 0, cacheRead = 0, cacheCreate = 0, output = 0;
+                qint64 input = 0, cacheRead = 0, cacheCreate = 0, output = 0;
                 QString msgId, reqId, sessionId;
             };
             QHash<QString, ClaudeRow> keyedRows;
@@ -454,10 +505,10 @@ CostUsageSnapshot CostUsageScanner::scanClaude(const QString& configDir, const Q
                 ClaudeRow row;
                 row.dateKey = dateKey;
                 row.model = model;
-                row.input = usage["input_tokens"].toInt(0);
-                row.cacheRead = usage["cache_read_input_tokens"].toInt(0);
-                row.cacheCreate = usage["cache_creation_input_tokens"].toInt(0);
-                row.output = usage["output_tokens"].toInt(0);
+                row.input = validateTokens(usage["input_tokens"].toInt(0));
+                row.cacheRead = validateTokens(usage["cache_read_input_tokens"].toInt(0));
+                row.cacheCreate = validateTokens(usage["cache_creation_input_tokens"].toInt(0));
+                row.output = validateTokens(usage["output_tokens"].toInt(0));
                 row.msgId = msgId;
                 row.reqId = reqId;
                 row.sessionId = sessionId;
@@ -511,7 +562,7 @@ CostUsageSnapshot CostUsageScanner::scanClaude(const QString& configDir, const Q
     }
 
     QString today = QDate::currentDate().toString("yyyy-MM-dd");
-    int total30 = 0;
+    qint64 total30 = 0;
     double cost30 = 0;
 
     for (auto cit = dayMap.constBegin(); cit != dayMap.constEnd(); ++cit) {
@@ -577,7 +628,7 @@ CostUsageSnapshot CostUsageScanner::scanCodex(const QString& sessionsDir, const 
             QFile file(path);
             if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) continue;
 
-            struct CodexTotals { int input = 0, cached = 0, output = 0; };
+            struct CodexTotals { qint64 input = 0, cached = 0, output = 0; };
             CodexTotals prevTotals;
             QString currentModel;         // P0: track model from turn_context
             bool isForked = false;        // P1: fork session detection
@@ -646,10 +697,10 @@ CostUsageSnapshot CostUsageScanner::scanCodex(const QString& sessionsDir, const 
                 QJsonObject lastUsage = info["last_token_usage"].toObject();
 
                 if (!totalUsage.isEmpty()) {
-                    int input = totalUsage["input_tokens"].toInt(0);
-                    int cached = totalUsage["cached_input_tokens"].toInt(0);
-                    int cacheRead = totalUsage["cache_read_input_tokens"].toInt(cached);
-                    int output = totalUsage["output_tokens"].toInt(0);
+                    qint64 input = validateTokens(totalUsage["input_tokens"].toInt(0));
+                    qint64 cached = validateTokens(totalUsage["cached_input_tokens"].toInt(0));
+                    qint64 cacheRead = validateTokens(totalUsage["cache_read_input_tokens"].toInt(cached));
+                    qint64 output = validateTokens(totalUsage["output_tokens"].toInt(0));
 
                     // P1: For forked sessions, use first total as baseline to avoid
                     // double-counting inherited parent tokens
@@ -660,9 +711,9 @@ CostUsageSnapshot CostUsageScanner::scanCodex(const QString& sessionsDir, const 
                     }
                     seenFirstTotal = true;
 
-                    int dInput = qMax(0, input - prevTotals.input);
-                    int dCached = qMax(0, cacheRead - prevTotals.cached);
-                    int dOutput = qMax(0, output - prevTotals.output);
+                    qint64 dInput = qMax(0LL, input - prevTotals.input);
+                    qint64 dCached = qMax(0LL, cacheRead - prevTotals.cached);
+                    qint64 dOutput = qMax(0LL, output - prevTotals.output);
                     prevTotals = { input, cacheRead, output };
 
                     auto& mb = fileDayModels[dateKey][model];
@@ -673,10 +724,10 @@ CostUsageSnapshot CostUsageScanner::scanCodex(const QString& sessionsDir, const 
                 }
                 // P2: Handle last_token_usage as incremental delta
                 else if (!lastUsage.isEmpty()) {
-                    int dInput = lastUsage["input_tokens"].toInt(0);
-                    int dCached = lastUsage["cached_input_tokens"].toInt(0);
-                    if (dCached == 0) dCached = lastUsage["cache_read_input_tokens"].toInt(0);
-                    int dOutput = lastUsage["output_tokens"].toInt(0);
+                    qint64 dInput = validateTokens(lastUsage["input_tokens"].toInt(0));
+                    qint64 dCached = validateTokens(lastUsage["cached_input_tokens"].toInt(0));
+                    if (dCached == 0) dCached = validateTokens(lastUsage["cache_read_input_tokens"].toInt(0));
+                    qint64 dOutput = validateTokens(lastUsage["output_tokens"].toInt(0));
 
                     prevTotals.input += dInput;
                     prevTotals.cached += dCached;
@@ -719,7 +770,7 @@ CostUsageSnapshot CostUsageScanner::scanCodex(const QString& sessionsDir, const 
     }
 
     QString today = QDate::currentDate().toString("yyyy-MM-dd");
-    int total30 = 0;
+    qint64 total30 = 0;
     double cost30 = 0;
     for (auto cit = dayMap.constBegin(); cit != dayMap.constEnd(); ++cit) {
         auto& entry = cit.value();
@@ -853,20 +904,20 @@ CostUsageScanner::PiScanResult CostUsageScanner::scanPi(const QDate& since, cons
                 QJsonObject usage = msg["usage"].toObject();
                 if (usage.isEmpty()) continue;
 
-                auto readInt = [&](const QJsonObject& u, const QStringList& keys) -> int {
+                auto readInt = [&](const QJsonObject& u, const QStringList& keys) -> qint64 {
                     for (auto& k : keys) {
-                        if (u.contains(k)) return u[k].toInt(0);
+                        if (u.contains(k)) return validateTokens(u[k].toInt(0));
                     }
                     return 0;
                 };
 
-                int input = readInt(usage, {"input", "inputTokens", "input_tokens", "promptTokens", "prompt_tokens"});
-                int cacheRead = readInt(usage, {"cacheRead", "cacheReadTokens", "cache_read", "cache_read_tokens",
+                qint64 input = readInt(usage, {"input", "inputTokens", "input_tokens", "promptTokens", "prompt_tokens"});
+                qint64 cacheRead = readInt(usage, {"cacheRead", "cacheReadTokens", "cache_read", "cache_read_tokens",
                                                 "cacheReadInputTokens", "cache_read_input_tokens"});
-                int cacheWrite = readInt(usage, {"cacheWrite", "cacheWriteTokens", "cache_write", "cache_write_tokens",
+                qint64 cacheWrite = readInt(usage, {"cacheWrite", "cacheWriteTokens", "cache_write", "cache_write_tokens",
                                                  "cacheCreationTokens", "cache_creation_tokens",
                                                  "cacheCreationInputTokens", "cache_creation_input_tokens"});
-                int output = readInt(usage, {"output", "outputTokens", "output_tokens",
+                qint64 output = readInt(usage, {"output", "outputTokens", "output_tokens",
                                              "completionTokens", "completion_tokens"});
 
                 if (input == 0 && cacheRead == 0 && cacheWrite == 0 && output == 0) continue;
@@ -911,7 +962,7 @@ CostUsageScanner::PiScanResult CostUsageScanner::scanPi(const QDate& since, cons
         }
 
         QString today = QDate::currentDate().toString("yyyy-MM-dd");
-        int total30 = 0;
+        qint64 total30 = 0;
         double cost30 = 0;
         for (auto cit = dayMap.constBegin(); cit != dayMap.constEnd(); ++cit) {
             auto& entry = cit.value();
@@ -1076,15 +1127,15 @@ QHash<QString, CostUsageSnapshot> CostUsageScanner::scanOpenCodeDB(const QDate& 
                     .date()
                     .toString(Qt::ISODate);
                 const QString model = providerId + "/" + modelIt->model;
-                const int inputTokens = tokens["input"].toInt();
-                const int outputTokens = tokens["output"].toInt();
-                const int cacheRead = tokens["cache"].toObject()["read"].toInt();
+                const qint64 inputTokens = validateTokens(tokens["input"].toInt());
+                const qint64 outputTokens = validateTokens(tokens["output"].toInt());
+                const qint64 cacheRead = validateTokens(tokens["cache"].toObject()["read"].toInt());
 
                 auto& mb = providerData[providerId].dayModels[day][model];
                 mb.modelName = model;
-                mb.inputTokens += qMax(0, inputTokens);
-                mb.outputTokens += qMax(0, outputTokens);
-                mb.cacheReadTokens += qMax(0, cacheRead);
+                mb.inputTokens += qMax(0LL, inputTokens);
+                mb.outputTokens += qMax(0LL, outputTokens);
+                mb.cacheReadTokens += qMax(0LL, cacheRead);
             }
         } // QSqlQuery destroyed here
 
@@ -1123,7 +1174,7 @@ QHash<QString, CostUsageSnapshot> CostUsageScanner::scanOpenCodeDB(const QDate& 
         }
 
         QString today = QDate::currentDate().toString("yyyy-MM-dd");
-        int total30 = 0;
+        qint64 total30 = 0;
         double cost30 = 0;
         for (auto cit = dayMap.constBegin(); cit != dayMap.constEnd(); ++cit) {
             auto& entry = cit.value();
