@@ -187,6 +187,14 @@ target_compile_definitions(tst_CodexOpenAIWorkspaceResolver PRIVATE ${COMMON_DEF
 target_link_libraries(tst_CodexOpenAIWorkspaceResolver PRIVATE codexbar_core Qt6::Core Qt6::Test)
 add_wincodexbar_test(tst_CodexOpenAIWorkspaceResolver tst_CodexOpenAIWorkspaceResolver)
 
+add_executable(tst_CodexHistoryOwnership
+    tst_CodexHistoryOwnership.cpp
+)
+target_include_directories(tst_CodexHistoryOwnership PRIVATE ${COMMON_INCLUDE})
+target_compile_definitions(tst_CodexHistoryOwnership PRIVATE ${COMMON_DEFINES})
+target_link_libraries(tst_CodexHistoryOwnership PRIVATE codexbar_core Qt6::Core Qt6::Test)
+add_wincodexbar_test(tst_CodexHistoryOwnership tst_CodexHistoryOwnership)
+
 add_executable(tst_FetchContext
     tst_FetchContext.cpp
 )
