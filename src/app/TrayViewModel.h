@@ -67,6 +67,7 @@ private:
     void syncCostUsageEnabled();
     void syncCostUsageRefreshing();
     void syncCostData();
+    void bumpProviderDataRevision();
 
     QPointer<UsageStore> m_store;
     TrayProviderListModel m_providers;
