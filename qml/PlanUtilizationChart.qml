@@ -19,6 +19,7 @@ Rectangle {
     color: "#1c1c32"
     radius: 8
     height: 130
+    implicitHeight: 130
 
     function seriesModel() {
         var items = [

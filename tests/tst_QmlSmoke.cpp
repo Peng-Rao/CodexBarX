@@ -236,6 +236,7 @@ public:
     }
     Q_INVOKABLE QString codexActiveAccountID() const { return "live-system"; }
     Q_INVOKABLE QVariantList codexAccounts() const { return {}; }
+    Q_INVOKABLE void setCodexActiveAccount(const QString&) { }
     Q_INVOKABLE QVariantMap codexAccountState() const { return {}; }
     Q_INVOKABLE QVariantList codexFetchAttempts() const { return {}; }
     Q_INVOKABLE QVariantList utilizationChartData(const QString&, const QString&) const { return {}; }
@@ -924,6 +925,10 @@ class MockTrayViewModel : public QObject {
     Q_PROPERTY(bool costUsageEnabled READ costUsageEnabled NOTIFY costUsageEnabledChanged)
     Q_PROPERTY(bool costUsageRefreshing READ costUsageRefreshing NOTIFY costUsageRefreshingChanged)
     Q_PROPERTY(QVariantMap costData READ costData NOTIFY costDataChanged)
+    Q_PROPERTY(QString selectedProviderID READ selectedProviderID NOTIFY selectedProviderIDChanged)
+    Q_PROPERTY(bool providerSwitching READ providerSwitching NOTIFY providerSwitchingChanged)
+    Q_PROPERTY(QVariantList providerSwitcherList READ providerSwitcherList NOTIFY providerSwitcherListChanged)
+    Q_PROPERTY(QVariantMap codexAccountState READ codexAccountState NOTIFY codexAccountStateChanged)
 public:
     void setUsageStore(MockUsageStore* usage) { mockUsage = usage; }
 
@@ -939,6 +944,10 @@ public:
     bool costUsageEnabled() const { return mockUsage ? mockUsage->costUsageEnabledValue : false; }
     bool costUsageRefreshing() const { return false; }
     QVariantMap costData() const { return mockUsage ? mockUsage->costUsageDataValue : QVariantMap(); }
+    QString selectedProviderID() const { return m_selectedProviderID; }
+    bool providerSwitching() const { return m_providerSwitching; }
+    QVariantList providerSwitcherList() const { return {}; }
+    QVariantMap codexAccountState() const { return mockUsage ? mockUsage->codexAccountState() : QVariantMap(); }
 
     Q_INVOKABLE void refresh() { ++refreshCalls; }
     Q_INVOKABLE void refreshProvider(const QString& providerId) {
@@ -964,6 +973,44 @@ public:
         lastTokenAccountId = accountId;
         return mockUsage ? mockUsage->requestSetDefaultTokenAccount(providerId, accountId) : QString();
     }
+    Q_INVOKABLE void selectProvider(const QString& providerId) {
+        if (m_selectedProviderID == providerId) return;
+        m_selectedProviderID = providerId;
+        emit selectedProviderIDChanged();
+    }
+    Q_INVOKABLE void setCodexActiveAccount(const QString& accountID) {
+        ++setCodexActiveAccountCalls;
+        lastCodexAccountId = accountID;
+        if (mockUsage) mockUsage->setCodexActiveAccount(accountID);
+    }
+    Q_INVOKABLE QVariantMap providerData(const QString& providerId) const {
+        QVariantMap result;
+        if (!mockUsage || providerId.isEmpty()) return result;
+        result["providerId"] = providerId;
+        result["snap"] = mockUsage->snapshotData(providerId);
+        result["tokenAccounts"] = mockUsage->tokenAccountsForProvider(providerId);
+        result["defaultTokenAccountId"] = mockUsage->defaultTokenAccount(providerId);
+        QVariantList options;
+        QVariantMap providerDefault;
+        providerDefault["value"] = QString();
+        providerDefault["label"] = QStringLiteral("Provider default");
+        options.append(providerDefault);
+        const QVariantList accounts = mockUsage->tokenAccountsForProvider(providerId);
+        for (const QVariant& item : accounts) {
+            const QVariantMap account = item.toMap();
+            if (account.value("visibility").toString() == QLatin1String("archived")) continue;
+            const QString accountId = account.value("accountId").toString();
+            QVariantMap option;
+            option["value"] = accountId;
+            option["label"] = account.value("displayName").toString().isEmpty()
+                ? accountId : account.value("displayName").toString();
+            options.append(option);
+        }
+        result["accountOptions"] = options;
+        result["statusUrl"] = QString();
+        result["dashboard"] = QVariantMap();
+        return result;
+    }
 
     void resetCounters() {
         refreshCalls = 0;
@@ -972,9 +1019,13 @@ public:
         requestCostUsageViewDataCalls = 0;
         providerCostUsageListCalls = 0;
         requestSetDefaultTokenAccountCalls = 0;
+        setCodexActiveAccountCalls = 0;
         lastRefreshProvider.clear();
         lastTokenProvider.clear();
         lastTokenAccountId.clear();
+        lastCodexAccountId.clear();
+        m_selectedProviderID.clear();
+        m_providerSwitching = false;
     }
 
 signals:
@@ -983,6 +1034,10 @@ signals:
     void costUsageRefreshingChanged();
     void costDataChanged();
     void providerCostRowsChanged();
+    void selectedProviderIDChanged();
+    void providerSwitchingChanged();
+    void providerSwitcherListChanged();
+    void codexAccountStateChanged();
 
 private:
     void rebuildProviders() {
@@ -1001,9 +1056,13 @@ public:
     int requestCostUsageViewDataCalls = 0;
     mutable int providerCostUsageListCalls = 0;
     int requestSetDefaultTokenAccountCalls = 0;
+    int setCodexActiveAccountCalls = 0;
     QString lastRefreshProvider;
     QString lastTokenProvider;
     QString lastTokenAccountId;
+    QString lastCodexAccountId;
+    QString m_selectedProviderID;
+    bool m_providerSwitching = false;
 };
 
 class MockUsageDetailsViewModel : public QObject {

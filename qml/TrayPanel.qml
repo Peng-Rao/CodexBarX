@@ -25,6 +25,12 @@ Rectangle {
     property int refreshStartTime: 0
     property string refreshDuration: ""
 
+    // Phase 2: Provider selection state
+    property string selectedProviderID: TrayViewModel.selectedProviderID
+
+    // Phase 3: Codex account state
+    property var codexAccountState: TrayViewModel.codexAccountState || ({})
+
     Component.onCompleted: TrayViewModel.requestCostUsageViewData()
     onCostExpandedChanged: refreshProviderCostRows()
 

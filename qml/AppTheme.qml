@@ -45,6 +45,7 @@ QtObject {
     property int radiusLg: 12
 
     // Font sizes
+    property int fontSizeXs: 10
     property int fontSizeSm: 11
     property int fontSizeMd: 13
     property int fontSizeLg: 16
