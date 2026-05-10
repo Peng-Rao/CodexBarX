@@ -479,6 +479,10 @@ void QmlArchitectureTest::costHistoryChartUsesSharedHoverDetail()
              "ChartHoverDetail must expose primary text for chart detail rows.");
     QVERIFY2(hoverContents.contains(QStringLiteral("property string secondaryText")),
              "ChartHoverDetail must expose secondary text for chart detail rows.");
+    QVERIFY2(hoverContents.contains(QStringLiteral("Rectangle {")),
+             "ChartHoverDetail must render a visible tooltip/panel container, not just loose text rows.");
+    QVERIFY2(hoverContents.contains(QStringLiteral("property bool floating")),
+             "ChartHoverDetail must support floating overlay usage inside charts.");
 
     QFile chart(QStringLiteral(PROJECT_SOURCE_DIR "/qml/components/CostHistoryChart.qml"));
     QVERIFY2(chart.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(chart.errorString()));
@@ -487,6 +491,20 @@ void QmlArchitectureTest::costHistoryChartUsesSharedHoverDetail()
              "CostHistoryChart must render hover/detail text through the shared ChartHoverDetail component.");
     QVERIFY2(!chartContents.contains(QStringLiteral("id: detailArea")),
              "CostHistoryChart must not keep a duplicate inline detailArea implementation.");
+    QVERIFY2(chartContents.contains(QStringLiteral("floating: true")),
+             "CostHistoryChart must use ChartHoverDetail as a floating hover panel instead of a fixed footer row.");
+    QVERIFY2(chartContents.contains(QStringLiteral("visible: hoveredIndex >= 0")),
+             "CostHistoryChart hover detail must appear only while hovering a chart point.");
+    QVERIFY2(chartContents.contains(QStringLiteral("width: implicitWidth")),
+             "Floating ChartHoverDetail must bind width to implicitWidth because it is outside a Layout.");
+    QVERIFY2(chartContents.contains(QStringLiteral("height: implicitHeight")),
+             "Floating ChartHoverDetail must bind height to implicitHeight because it is outside a Layout.");
+    QVERIFY2(chartContents.contains(QStringLiteral("property real hoverX")),
+             "CostHistoryChart must track the hover X coordinate to position the floating detail panel.");
+    QVERIFY2(chartContents.contains(QStringLiteral("property real hoverY")),
+             "CostHistoryChart must track the hover Y coordinate to position the floating detail panel.");
+    QVERIFY2(!chartContents.contains(QStringLiteral("hoverDetail.implicitHeight")),
+             "CostHistoryChart must not reserve bottom layout height for the hover detail panel.");
 }
 
 void QmlArchitectureTest::usageStoreLegacyApisAreNotQmlInvokable()

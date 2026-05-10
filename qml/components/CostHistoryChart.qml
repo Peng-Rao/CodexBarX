@@ -17,7 +17,7 @@ Rectangle {
     color: "#1c1c32"
     radius: 8
     implicitWidth: 276
-    implicitHeight: hasData ? 130 + hoverDetail.implicitHeight + 16 : 40
+    implicitHeight: hasData ? 130 : 40
     clip: true
 
     function brandColorFor(pid) {
@@ -169,9 +169,17 @@ Rectangle {
                 anchors.fill: parent
                 hoverEnabled: true
                 property int hoveredIndex: -1
+                property real hoverX: 0
+                property real hoverY: 0
 
                 onPositionChanged: {
-                    if (points.length === 0) return
+                    hoverX = mouseX
+                    hoverY = mouseY
+                    if (points.length === 0) {
+                        hoveredIndex = -1
+                        canvas.requestPaint()
+                        return
+                    }
                     var plotW = canvas.width - 20
                     var barGap = 2
                     var barW = Math.max(2, (plotW - barGap * (points.length - 1)) / points.length)
@@ -189,15 +197,25 @@ Rectangle {
                 }
                 cursorShape: Qt.PointingHandCursor
             }
-        }
 
-        ChartHoverDetail {
-            id: hoverDetail
-            property int activeIdx: hoveredIndex >= 0 ? hoveredIndex : (points.length > 0 ? points.length - 1 : -1)
-            property var activePoint: activeIdx >= 0 && activeIdx < points.length ? points[activeIdx] : null
+            ChartHoverDetail {
+                id: hoverDetail
+                floating: true
+                accentColor: root.barColor
+                visible: hoveredIndex >= 0 && activePoint !== null
+                width: implicitWidth
+                height: implicitHeight
+                property var activePoint: hoveredIndex >= 0 && hoveredIndex < points.length ? points[hoveredIndex] : null
 
-            primaryText: activePoint ? root.formatDetailDate(activePoint.date || "") + ": $" + (activePoint.costUSD || 0).toFixed(2) : ""
-            secondaryText: root.modelCostSummary(activePoint)
+                x: Math.max(4, Math.min(chartHover.hoverX + 10, canvas.width - width - 4))
+                y: {
+                    var above = chartHover.hoverY - height - 10
+                    if (above >= 4) return above
+                    return Math.max(4, Math.min(chartHover.hoverY + 12, canvas.height - height - 4))
+                }
+                primaryText: activePoint ? root.formatDetailDate(activePoint.date || "") + ": $" + (activePoint.costUSD || 0).toFixed(2) : ""
+                secondaryText: root.modelCostSummary(activePoint)
+            }
         }
     }
 
