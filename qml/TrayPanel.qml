@@ -20,6 +20,7 @@ Rectangle {
     property bool isRefreshing: TrayViewModel.isRefreshing
     property bool costExpanded: false
     property var providerCostRows: []
+    property var allProviderCostRows: []
     property var expandedCards: ({})
     property int rev: LanguageManager.translationRevision
     property int refreshStartTime: 0
@@ -36,6 +37,7 @@ Rectangle {
 
     Component.onCompleted: TrayViewModel.requestCostUsageViewData()
     onCostExpandedChanged: refreshProviderCostRows()
+    onSelectedProviderIDChanged: refreshProviderCostRows()
 
     Connections {
         target: TrayViewModel
@@ -401,7 +403,7 @@ Rectangle {
 
                     // Per-provider breakdown
                     Repeater {
-                        model: root.providerCostRows
+                        model: root.providerCostRows  // 已按 selectedProviderID 过滤
                         delegate: ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 2
@@ -1227,7 +1229,12 @@ Rectangle {
             }
 
             Component.onCompleted: refreshDetailData()
-            onVisibleChanged: if (visible) refreshDetailData()
+            Connections {
+                target: root
+                function onSelectedProviderIDChanged() {
+                    detailFlickable.refreshDetailData()
+                }
+            }
 
             Column {
                 id: detailColumn
@@ -1334,10 +1341,23 @@ Rectangle {
     }
 
     function refreshProviderCostRows() {
+        var all = []
         if (root.costExpanded && root.costData && root.costData.hasData) {
-            root.providerCostRows = TrayViewModel.providerCostUsageList()
+            all = TrayViewModel.providerCostUsageList()
+        }
+        root.allProviderCostRows = all
+
+        // 根据 selectedProviderID 过滤：overview(空)显示所有，选中则只显示当前 provider
+        if (!root.selectedProviderID || root.selectedProviderID === "") {
+            root.providerCostRows = all
         } else {
-            root.providerCostRows = []
+            var filtered = []
+            for (var i = 0; i < all.length; i++) {
+                if (all[i].providerId === root.selectedProviderID) {
+                    filtered.push(all[i])
+                }
+            }
+            root.providerCostRows = filtered
         }
     }
 
