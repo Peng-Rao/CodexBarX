@@ -505,11 +505,12 @@ Rectangle {
             }
         }
 
-        // === Provider List ===
+        // === Provider List (Overview) ===
         ListView {
             id: providerList
             Layout.fillWidth: true
             Layout.fillHeight: true
+            visible: root.selectedProviderID === ""
             clip: true
             spacing: 6
             topMargin: 2
@@ -1197,6 +1198,54 @@ Rectangle {
                                     }
                                 }
                     }
+                }
+            }
+        }
+
+        // === Provider Detail (Phase 2) ===
+        Flickable {
+            id: detailFlickable
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            visible: root.selectedProviderID !== ""
+            contentWidth: width
+            contentHeight: detailColumn.implicitHeight
+            clip: true
+
+            property var detailData: TrayViewModel.providerData(root.selectedProviderID) || ({})
+
+            Column {
+                id: detailColumn
+                width: parent.width
+                spacing: 4
+
+                // Token Account Switcher (Phase 3)
+                Components.TokenAccountSwitcher {
+                    id: tokenAccountSwitcher
+                    width: parent.width - 24
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    visible: root.selectedProviderID !== "" && root.selectedProviderID !== "codex"
+                        && (detailFlickable.detailData.tokenAccounts || []).length > 1
+                    accounts: detailFlickable.detailData.tokenAccounts || []
+                    selectedAccountID: detailFlickable.detailData.defaultTokenAccountId || ""
+                    isSwitching: false
+                    onSelectAccount: function(accountID) {
+                        TrayViewModel.requestSetDefaultTokenAccount(root.selectedProviderID, accountID)
+                    }
+                }
+
+                Components.ProviderDetailCard {
+                    id: detailCard
+                    width: parent.width
+                    embedded: true
+                    providerId: root.selectedProviderID
+                    snap: detailFlickable.detailData.snap || ({})
+                    tokenAccounts: detailFlickable.detailData.tokenAccounts || []
+                    defaultTokenAccountId: detailFlickable.detailData.defaultTokenAccountId || ""
+                    accountOptions: detailFlickable.detailData.accountOptions || []
+                    statusUrl: detailFlickable.detailData.statusUrl || ""
+                    dashboard: detailFlickable.detailData.dashboard || ({})
+                    isRefreshing: root.isRefreshing
                 }
             }
         }
