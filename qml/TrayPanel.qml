@@ -135,6 +135,38 @@ Rectangle {
             }
         }
 
+        // === Provider Switcher (Phase 2) ===
+        Components.ProviderSwitcher {
+            id: providerSwitcher
+            Layout.fillWidth: true
+            Layout.leftMargin: 12
+            Layout.rightMargin: 12
+            Layout.topMargin: 8
+            providerList: TrayViewModel.providerSwitcherList
+            selectedProviderID: root.selectedProviderID
+            isSwitching: TrayViewModel.providerSwitching
+            onSelectProvider: function(providerId) {
+                TrayViewModel.selectProvider(providerId)
+            }
+        }
+
+        // === Codex Account Switcher (Phase 3) ===
+        property var codexAccounts: root.codexAccountState && root.codexAccountState.accounts ? root.codexAccountState.accounts : []
+        Components.CodexAccountSwitcher {
+            id: codexAccountSwitcher
+            Layout.fillWidth: true
+            Layout.leftMargin: 12
+            Layout.rightMargin: 12
+            Layout.topMargin: 4
+            visible: root.selectedProviderID === "codex" && codexAccounts.length > 1
+            accounts: codexAccounts
+            selectedAccountID: root.codexAccountState ? (root.codexAccountState.activeAccountID || "") : ""
+            isSwitching: root.codexAccountState ? (root.codexAccountState.isAuthenticating === true) : false
+            onSelectAccount: function(accountID) {
+                TrayViewModel.setCodexActiveAccount(accountID)
+            }
+        }
+
         // === Token Usage Card ===
         Rectangle {
             Layout.fillWidth: true
