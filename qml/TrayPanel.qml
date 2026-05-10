@@ -40,6 +40,13 @@ Rectangle {
     onSelectedProviderIDChanged: refreshProviderCostRows()
 
     Connections {
+        target: AppController
+        function onCopyFeedbackTriggered(text) {
+            toast.show(text, toast.typeSuccess)
+        }
+    }
+
+    Connections {
         target: TrayViewModel
         function onCostUsageRefreshingChanged() { root.refreshCostSummary() }
         function onCostDataChanged() { root.refreshCostSummary() }
@@ -1269,17 +1276,16 @@ Rectangle {
                     dashboard: detailFlickable.detailData.dashboard || ({})
                     isRefreshing: root.isRefreshing
                 }
-            }
-        }
 
-        // === TrayMenuActions (Phase 4) ===
-        Components.TrayMenuActions {
-            id: trayMenuActions
-            currentProviderID: root.selectedProviderID
-            currentSnapshot: detailFlickable.detailData.snap || ({})
-            currentError: detailFlickable.detailData.snap ? (detailFlickable.detailData.snap.error || "") : ""
-            dashboardURL: detailFlickable.detailData.dashboard ? (detailFlickable.detailData.dashboard.purchaseURL || "") : ""
-            visible: root.selectedProviderID !== ""
+                // TrayMenuActions inside Flickable, right below card
+                Components.TrayMenuActions {
+                    id: trayMenuActions
+                    currentProviderID: root.selectedProviderID
+                    currentSnapshot: detailFlickable.detailData.snap || ({})
+                    currentError: detailFlickable.detailData.snap ? (detailFlickable.detailData.snap.error || "") : ""
+                    dashboardURL: detailFlickable.detailData.dashboard ? (detailFlickable.detailData.dashboard.purchaseURL || "") : ""
+                }
+            }
         }
 
         // === Footer ===
@@ -1494,4 +1500,6 @@ Rectangle {
             onClicked: parent.clicked()
         }
     }
+
+    Components.TrayToast { id: toast }
 }

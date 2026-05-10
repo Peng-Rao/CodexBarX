@@ -10,7 +10,6 @@ ColumnLayout {
     property var currentSnapshot: ({})
     property string currentError: ""
     property string dashboardURL: ""
-    property bool hasCodexAccounts: false
 
     signal actionTriggered(int actionType, var payload)
 
@@ -18,18 +17,15 @@ ColumnLayout {
     readonly property int actionDashboard: 1
     readonly property int actionStatusPage: 2
     readonly property int actionCopyError: 3
-    readonly property int actionSettings: 4
-    readonly property int actionAbout: 5
-    readonly property int actionQuit: 6
 
-    Layout.fillWidth: true
-    Layout.leftMargin: 12
-    Layout.rightMargin: 12
+    width: parent ? parent.width : 276
     spacing: 4
 
     // Group 1: Provider context
     RowLayout {
         Layout.fillWidth: true
+        Layout.leftMargin: 12
+        Layout.rightMargin: 12
         spacing: 4
         visible: {
             var url = ""
@@ -61,6 +57,7 @@ ColumnLayout {
             text: qsTr("Copy Error")
             visible: root.currentError !== ""
             textColor: "#e06060"
+            hoverColor: "#4a3030"
             onClicked: AppController.copyWithFeedback(root.currentError)
         }
     }
@@ -68,6 +65,8 @@ ColumnLayout {
     // Separator
     Rectangle {
         Layout.fillWidth: true
+        Layout.leftMargin: 12
+        Layout.rightMargin: 12
         Layout.preferredHeight: 1
         color: AppTheme.borderColor
         visible: {
@@ -81,6 +80,8 @@ ColumnLayout {
     // Group 2: Tools
     RowLayout {
         Layout.fillWidth: true
+        Layout.leftMargin: 12
+        Layout.rightMargin: 12
         spacing: 4
         visible: root.currentProviderID === "kilo" || root.currentProviderID === "ollama"
 
@@ -96,6 +97,8 @@ ColumnLayout {
 
     Rectangle {
         Layout.fillWidth: true
+        Layout.leftMargin: 12
+        Layout.rightMargin: 12
         Layout.preferredHeight: 1
         color: AppTheme.borderColor
         visible: root.currentProviderID === "kilo" || root.currentProviderID === "ollama"
@@ -105,13 +108,14 @@ ColumnLayout {
     component TrayMenuButton: Rectangle {
         property string text: ""
         property color textColor: AppTheme.textSecondary
+        property color hoverColor: AppTheme.bgHover
 
         signal clicked()
 
         Layout.preferredWidth: btnText.implicitWidth + 20
         Layout.preferredHeight: 26
         radius: 6
-        color: btnMouse.hovered ? AppTheme.bgHover : "transparent"
+        color: btnMouse.hovered ? hoverColor : "transparent"
 
         Behavior on color { ColorAnimation { duration: 80 } }
 

@@ -55,7 +55,7 @@ Rectangle {
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
         onClicked: {
-            AppController.copyText(root.copyText);
+            AppController.copyWithFeedback(root.copyText);
             root.didCopy = true;
             copyResetTimer.start();
         }

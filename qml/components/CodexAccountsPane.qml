@@ -383,7 +383,12 @@ Rectangle {
                             height: 28
                             visible: modelData.canRemove
                             enabled: !root.isAuthenticating && !root.isRemoving
-                            onClicked: root.removeAccount(modelData.id)
+                            onClicked: {
+                                removeDialog.accountEmail = modelData.email || modelData.displayName || ""
+                                removeDialog.accountWorkspace = modelData.workspaceLabel || ""
+                                removeDialog.pendingAccountID = modelData.id
+                                removeDialog.open()
+                            }
 
                             background: Rectangle {
                                 color: parent.hovered ? "#ff4444" : "transparent"
@@ -418,6 +423,29 @@ Rectangle {
             font.pixelSize: AppTheme.fontSizeSm
             wrapMode: Text.WordWrap
             horizontalAlignment: Text.AlignHCenter
+        }
+    }
+
+    DeleteConfirmationDialog {
+        id: removeDialog
+        property string pendingAccountID: ""
+        property string accountEmail: ""
+        property string accountWorkspace: ""
+
+        title: qsTr("Remove Account?")
+        description: qsTr("This will remove the account from CodexBarX. Your data on the server will not be affected.")
+        itemLabel: accountEmail
+        itemSublabel: accountWorkspace
+
+        onConfirmed: {
+            if (pendingAccountID !== "") {
+                root.removeAccount(pendingAccountID)
+            }
+            close()
+        }
+        onCancelled: {
+            pendingAccountID = ""
+            close()
         }
     }
 }
