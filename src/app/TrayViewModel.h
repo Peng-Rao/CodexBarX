@@ -17,6 +17,7 @@ class TrayViewModel : public QObject {
     Q_PROPERTY(bool costUsageEnabled READ costUsageEnabled NOTIFY costUsageEnabledChanged)
     Q_PROPERTY(bool costUsageRefreshing READ costUsageRefreshing NOTIFY costUsageRefreshingChanged)
     Q_PROPERTY(QVariantMap costData READ costData NOTIFY costDataChanged)
+    Q_PROPERTY(QVariantMap displayCostData READ displayCostData NOTIFY displayCostDataChanged)
     Q_PROPERTY(QString selectedProviderID READ selectedProviderID WRITE setSelectedProviderID NOTIFY selectedProviderIDChanged)
     Q_PROPERTY(bool providerSwitching READ providerSwitching NOTIFY providerSwitchingChanged)
     Q_PROPERTY(QVariantList providerSwitcherList READ providerSwitcherList NOTIFY providerSwitcherListChanged)
@@ -32,6 +33,7 @@ public:
     bool costUsageEnabled() const { return m_costUsageEnabled; }
     bool costUsageRefreshing() const { return m_costUsageRefreshing; }
     QVariantMap costData() const { return m_costData; }
+    QVariantMap displayCostData() const { return m_displayCostData; }
     QString selectedProviderID() const { return m_selectedProviderID; }
     void setSelectedProviderID(const QString& id);
     bool providerSwitching() const { return m_providerSwitching; }
@@ -44,6 +46,8 @@ public:
     Q_INVOKABLE void ensureCostUsageEnabled();
     Q_INVOKABLE void requestCostUsageViewData();
     Q_INVOKABLE QVariantList providerCostUsageList();
+    Q_INVOKABLE QVariantList providerCostUsageForProvider(const QString& providerId);
+    Q_INVOKABLE QVariantMap costUsageDataForProvider(const QString& providerId);
     Q_INVOKABLE QString requestSetDefaultTokenAccount(const QString& providerId, const QString& accountId);
     Q_INVOKABLE void selectProvider(const QString& providerId);
     Q_INVOKABLE QVariantMap providerData(const QString& providerId) const;
@@ -55,6 +59,7 @@ signals:
     void costUsageEnabledChanged();
     void costUsageRefreshingChanged();
     void costDataChanged();
+    void displayCostDataChanged();
     void providerCostRowsChanged();
     void selectedProviderIDChanged();
     void providerSwitchingChanged();
@@ -75,6 +80,7 @@ private:
     bool m_costUsageEnabled = false;
     bool m_costUsageRefreshing = false;
     QVariantMap m_costData;
+    QVariantMap m_displayCostData;
     QVariantList m_providerCostRows;
     QString m_selectedProviderID;
     bool m_providerSwitching = false;

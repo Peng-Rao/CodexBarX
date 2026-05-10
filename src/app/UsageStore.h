@@ -92,6 +92,7 @@ public:
     Q_INVOKABLE void requestCostUsageDetailsRows() const;
     Q_INVOKABLE void releaseCostUsageViewCaches() const;
     Q_INVOKABLE QVariantMap costUsageData() const;
+    QVariantMap costUsageDataForProvider(const QString& providerId) const;
     Q_INVOKABLE QVariantList providerCostUsageList() const;
     QVariantList costUsageDetailsRows() const;
     int costUsageTokenProviderCount() const;
@@ -236,6 +237,8 @@ private:
                                                                 const QString& key) const;
     void rebuildProviderCatalogSnapshot();
     QSet<QString> costUsageSubscribedProviderIDs() const;
+    QVector<ProviderCostUsageSnapshot> enabledCostUsageProviders() const;
+    void invalidateCostUsageForProviderConfigurationChanged();
     void setProviderLoginState(const QString& providerId, const QVariantMap& state);
     void setProviderConnectionTest(const QString& providerId, const QVariantMap& state);
     void setProviderStatus(const QString& providerId, const QVariantMap& status);
@@ -265,6 +268,8 @@ private:
 
     bool m_costUsageEnabled = false;
     bool m_costUsageRefreshing = false;
+    bool m_costUsageRefreshQueued = false;
+    bool m_costUsageDataAvailable = false;
     CostUsageSnapshot m_costUsage;
     QHash<QString, CostUsageSnapshot> m_perProviderCostUsage;
     QVector<ProviderCostUsageSnapshot> m_allProviderCostUsage;
@@ -339,15 +344,16 @@ private:
 
     // Chart data caches (Phase A)
     mutable QHash<QString, QVariantList> m_costHistoryChartCache;
+    mutable QSet<QString> m_costHistoryCachedProviderIds;
+    mutable QSet<QString> m_costHistoryQueuedProviderIds;
+    mutable QHash<QString, int> m_costHistoryBuildGenerations;
+    mutable QHash<QString, QString> m_costHistoryRequestProviders;
     mutable QVariantList m_creditsHistoryCache;
     mutable QHash<QString, QVariantList> m_usageBreakdownCache;
-    mutable bool m_costHistoryCacheValid = false;
     mutable bool m_creditsHistoryCacheValid = false;
     mutable bool m_usageBreakdownCacheValid = false;
-    mutable int m_costHistoryBuildGeneration = 0;
     mutable int m_creditsHistoryBuildGeneration = 0;
     mutable int m_usageBreakdownBuildGeneration = 0;
-    mutable bool m_costHistoryBuildQueued = false;
     mutable bool m_creditsHistoryBuildQueued = false;
     mutable bool m_usageBreakdownBuildQueued = false;
 

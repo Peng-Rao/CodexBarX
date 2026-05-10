@@ -26,6 +26,9 @@ public:
                                            const QSet<QString>& subscribedProviderIds);
     static CostUsageRefreshPayload refresh(const CostUsageScanPlan& plan);
     static QVariantMap summaryData(const CostUsageSnapshot& snapshot);
+    static QVariantMap summaryDataForProvider(const QString& providerId,
+                                              const CostUsageSnapshot& combined,
+                                              const QVector<ProviderCostUsageSnapshot>& providers);
     static QVariantList providerRows(const QVector<ProviderCostUsageSnapshot>& providers);
     static CostUsageDetailsRowsPayload detailsRows(const QVector<ProviderCostUsageSnapshot>& tokenProviders,
                                                    const QVariantList& appProviders);

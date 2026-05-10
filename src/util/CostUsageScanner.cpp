@@ -1054,10 +1054,16 @@ QHash<QString, CostUsageSnapshot> CostUsageScanner::scanOpenCodeDB(const QDate& 
         const qint64 sinceMs = QDateTime(since, QTime(0, 0), Qt::UTC).toMSecsSinceEpoch();
         const qint64 untilMs = QDateTime(until.addDays(1), QTime(0, 0), Qt::UTC).toMSecsSinceEpoch() - 1;
         QString sql = R"(
-            SELECT session_id, time_created, data
-            FROM message
-            WHERE time_created <= :untilMs
-            ORDER BY time_created ASC
+            WITH recent_sessions AS (
+                SELECT DISTINCT session_id
+                FROM message
+                WHERE time_created BETWEEN :sinceMs AND :untilMs
+            )
+            SELECT m.session_id, m.time_created, m.data
+            FROM message m
+            JOIN recent_sessions rs ON rs.session_id = m.session_id
+            WHERE m.time_created <= :untilMs
+            ORDER BY m.time_created ASC
         )";
 
         {
@@ -1070,6 +1076,7 @@ QHash<QString, CostUsageSnapshot> CostUsageScanner::scanOpenCodeDB(const QDate& 
             QSqlQuery query(db);
             query.setForwardOnly(true); // reduces memory overhead for large result sets
             query.prepare(sql);
+            query.bindValue(":sinceMs", sinceMs);
             query.bindValue(":untilMs", untilMs);
             if (!query.exec() || g_shuttingDown) {
                 // query destroyed at end of scope, then db destroyed, then removeDatabase is safe

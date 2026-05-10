@@ -16,9 +16,15 @@ private slots:
     void settingsProvidersUsesSettingsProvidersModel();
     void usageDetailsRowsArePreparedByBackend();
     void costUsageViewDataIsLayered();
+    void trayTokenUsageUsesScopedSummaryData();
+    void costHistoryChartRefreshesAfterBackendDataArrives();
+    void costHistoryRequestsAreProviderScopedAndCacheEmptyResults();
+    void costHistoryDoesNotDependOnManualTokenUsageExpansion();
+    void costHistoryChartUsesSharedHoverDetail();
     void usageStoreLegacyApisAreNotQmlInvokable();
     void providerUiBuildersUseCatalogSnapshot();
     void costUsageScanUsesCostUsageService();
+    void openCodeCostScanScopesSqlToRecentSessions();
 };
 
 void QmlArchitectureTest::trayPanelDoesNotUseSynchronousUsageStoreGetters()
@@ -349,6 +355,140 @@ void QmlArchitectureTest::costUsageViewDataIsLayered()
              "CostUsageService must own Usage details row view-data construction.");
 }
 
+void QmlArchitectureTest::trayTokenUsageUsesScopedSummaryData()
+{
+    QFile tray(QStringLiteral(PROJECT_SOURCE_DIR "/qml/TrayPanel.qml"));
+    QVERIFY2(tray.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(tray.errorString()));
+    const QString trayContents = QString::fromUtf8(tray.readAll());
+
+    QVERIFY2(trayContents.contains(QStringLiteral("displayCostData")),
+             "TrayPanel must bind Token Usage summary/daily chart through selected-provider scoped displayCostData.");
+    QVERIFY2(trayContents.contains(QStringLiteral("TrayViewModel.displayCostData")),
+             "TrayPanel displayCostData must come from TrayViewModel, not directly from the overview costData.");
+    QVERIFY2(!trayContents.contains(QStringLiteral("title: qsTr(\"Today\")\n                                value: \"$\" + formatCost(costData.sessionCostUSD)")),
+             "TrayPanel selected-provider Token Usage summary must not read overview costData directly.");
+    QVERIFY2(!trayContents.contains(QStringLiteral("model: root.costExpanded && costData.daily")),
+             "TrayPanel selected-provider Token Usage daily bars must not read overview costData directly.");
+
+    QFile trayViewModel(QStringLiteral(PROJECT_SOURCE_DIR "/src/app/TrayViewModel.cpp"));
+    QVERIFY2(trayViewModel.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(trayViewModel.errorString()));
+    const QString vmContents = QString::fromUtf8(trayViewModel.readAll());
+    QVERIFY2(vmContents.contains(QStringLiteral("costUsageDataForProvider")),
+             "TrayViewModel must expose selected-provider scoped Token Usage summary data.");
+}
+
+void QmlArchitectureTest::costHistoryChartRefreshesAfterBackendDataArrives()
+{
+    QFile chart(QStringLiteral(PROJECT_SOURCE_DIR "/qml/components/CostHistoryChart.qml"));
+    QVERIFY2(chart.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(chart.errorString()));
+    const QString chartContents = QString::fromUtf8(chart.readAll());
+
+    QVERIFY2(chartContents.contains(QStringLiteral("function refreshPoints()")),
+             "CostHistoryChart must own a refreshPoints() path that can re-read backend-prepared data.");
+    QVERIFY2(chartContents.contains(QStringLiteral("UsageStore.costHistoryChartData(root.providerId)")),
+             "CostHistoryChart must request scoped cost history points for its provider.");
+    QVERIFY2(chartContents.contains(QStringLiteral("function onCostHistoryChanged")),
+             "CostHistoryChart must listen for async cost history completion.");
+    QVERIFY2(chartContents.contains(QStringLiteral("function onCostUsageChanged")),
+             "CostHistoryChart must re-request points when token usage refresh invalidates chart caches.");
+    QVERIFY2(chartContents.contains(QStringLiteral("root.refreshPoints()")),
+             "CostHistoryChart must re-read points when UsageStore emits costHistoryChanged().");
+
+    QFile card(QStringLiteral(PROJECT_SOURCE_DIR "/qml/components/ProviderDetailCard.qml"));
+    QVERIFY2(card.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(card.errorString()));
+    const QString cardContents = QString::fromUtf8(card.readAll());
+    QVERIFY2(!cardContents.contains(QStringLiteral("points: UsageStore.costHistoryChartData(root.providerId)")),
+             "ProviderDetailCard must not one-shot bind cost history points; the chart must refresh after backend completion.");
+}
+
+void QmlArchitectureTest::costHistoryRequestsAreProviderScopedAndCacheEmptyResults()
+{
+    QFile header(QStringLiteral(PROJECT_SOURCE_DIR "/src/app/UsageStore.h"));
+    QVERIFY2(header.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(header.errorString()));
+    const QString headerContents = QString::fromUtf8(header.readAll());
+    QVERIFY2(headerContents.contains(QStringLiteral("m_costHistoryCachedProviderIds")),
+             "Cost history must track cache validity per provider, including empty point lists.");
+    QVERIFY2(headerContents.contains(QStringLiteral("m_costHistoryQueuedProviderIds")),
+             "Cost history builds must queue per provider instead of using one global in-flight flag.");
+    QVERIFY2(!headerContents.contains(QStringLiteral("mutable bool m_costHistoryBuildQueued")),
+             "A single global cost history build flag drops simultaneous provider requests.");
+
+    QFile source(QStringLiteral(PROJECT_SOURCE_DIR "/src/app/UsageStore.cpp"));
+    QVERIFY2(source.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(source.errorString()));
+    const QString sourceContents = QString::fromUtf8(source.readAll());
+    const QString getterStart = QStringLiteral("QVariantList UsageStore::costHistoryChartData(const QString& providerId) const");
+    const QString getterEnd = QStringLiteral("QVariantList UsageStore::creditsHistoryData() const");
+    const int getterStartIndex = sourceContents.indexOf(getterStart);
+    QVERIFY2(getterStartIndex >= 0, "Missing UsageStore::costHistoryChartData().");
+    const int getterEndIndex = sourceContents.indexOf(getterEnd, getterStartIndex + getterStart.size());
+    QVERIFY2(getterEndIndex > getterStartIndex, "Missing method after costHistoryChartData().");
+    const QString getterBody = sourceContents.mid(getterStartIndex, getterEndIndex - getterStartIndex);
+    QVERIFY2(getterBody.contains(QStringLiteral("m_costHistoryCachedProviderIds.contains")),
+             "costHistoryChartData() must treat an empty cached list as a valid cached result.");
+    QVERIFY2(!getterBody.contains(QStringLiteral("!it->isEmpty()")),
+             "costHistoryChartData() must not keep re-queueing providers whose valid result is empty.");
+}
+
+void QmlArchitectureTest::costHistoryDoesNotDependOnManualTokenUsageExpansion()
+{
+    QFile header(QStringLiteral(PROJECT_SOURCE_DIR "/src/app/UsageStore.h"));
+    QVERIFY2(header.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(header.errorString()));
+    const QString headerContents = QString::fromUtf8(header.readAll());
+    QVERIFY2(headerContents.contains(QStringLiteral("m_costUsageDataAvailable")),
+             "UsageStore must distinguish an unknown token-usage baseline from a valid empty cost-history result.");
+
+    QFile source(QStringLiteral(PROJECT_SOURCE_DIR "/src/app/UsageStore.cpp"));
+    QVERIFY2(source.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(source.errorString()));
+    const QString sourceContents = QString::fromUtf8(source.readAll());
+
+    const QString requestStart = QStringLiteral("void UsageStore::requestCostHistory(const QString& providerId)");
+    const QString requestEnd = QStringLiteral("void UsageStore::requestCreditsHistory()");
+    const int requestStartIndex = sourceContents.indexOf(requestStart);
+    QVERIFY2(requestStartIndex >= 0, "Missing UsageStore::requestCostHistory().");
+    const int requestEndIndex = sourceContents.indexOf(requestEnd, requestStartIndex + requestStart.size());
+    QVERIFY2(requestEndIndex > requestStartIndex, "Missing method after requestCostHistory().");
+    const QString requestBody = sourceContents.mid(requestStartIndex, requestEndIndex - requestStartIndex);
+    QVERIFY2(requestBody.contains(QStringLiteral("!m_costUsageDataAvailable")),
+             "requestCostHistory() must not build/cache empty chart data before token usage scan has produced a baseline.");
+    QVERIFY2(requestBody.contains(QStringLiteral("ensureCostUsageEnabled()")),
+             "CostHistoryChart must be able to trigger token usage scanning without relying on the Token Usage card.");
+
+    const QString refreshStart = QStringLiteral("void UsageStore::refreshCostUsage()");
+    const QString refreshEnd = QStringLiteral("QVariantMap UsageStore::costUsageData() const");
+    const int refreshStartIndex = sourceContents.indexOf(refreshStart);
+    QVERIFY2(refreshStartIndex >= 0, "Missing UsageStore::refreshCostUsage().");
+    const int refreshEndIndex = sourceContents.indexOf(refreshEnd, refreshStartIndex + refreshStart.size());
+    QVERIFY2(refreshEndIndex > refreshStartIndex, "Missing method after refreshCostUsage().");
+    const QString refreshBody = sourceContents.mid(refreshStartIndex, refreshEndIndex - refreshStartIndex);
+    QVERIFY2(refreshBody.contains(QStringLiteral("m_costUsageDataAvailable = true")),
+             "refreshCostUsage() must mark when token usage has a known baseline, even if that baseline is empty.");
+}
+
+void QmlArchitectureTest::costHistoryChartUsesSharedHoverDetail()
+{
+    QFile qrc(QStringLiteral(PROJECT_SOURCE_DIR "/resources/qml.qrc"));
+    QVERIFY2(qrc.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(qrc.errorString()));
+    const QString qrcContents = QString::fromUtf8(qrc.readAll());
+    QVERIFY2(qrcContents.contains(QStringLiteral("qml/components/ChartHoverDetail.qml")),
+             "ChartHoverDetail must be packaged with the QML resources.");
+
+    QFile hoverDetail(QStringLiteral(PROJECT_SOURCE_DIR "/qml/components/ChartHoverDetail.qml"));
+    QVERIFY2(hoverDetail.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(hoverDetail.errorString()));
+    const QString hoverContents = QString::fromUtf8(hoverDetail.readAll());
+    QVERIFY2(hoverContents.contains(QStringLiteral("property string primaryText")),
+             "ChartHoverDetail must expose primary text for chart detail rows.");
+    QVERIFY2(hoverContents.contains(QStringLiteral("property string secondaryText")),
+             "ChartHoverDetail must expose secondary text for chart detail rows.");
+
+    QFile chart(QStringLiteral(PROJECT_SOURCE_DIR "/qml/components/CostHistoryChart.qml"));
+    QVERIFY2(chart.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(chart.errorString()));
+    const QString chartContents = QString::fromUtf8(chart.readAll());
+    QVERIFY2(chartContents.contains(QStringLiteral("ChartHoverDetail {")),
+             "CostHistoryChart must render hover/detail text through the shared ChartHoverDetail component.");
+    QVERIFY2(!chartContents.contains(QStringLiteral("id: detailArea")),
+             "CostHistoryChart must not keep a duplicate inline detailArea implementation.");
+}
+
 void QmlArchitectureTest::usageStoreLegacyApisAreNotQmlInvokable()
 {
     QFile usageStoreHeader(QStringLiteral(PROJECT_SOURCE_DIR "/src/app/UsageStore.h"));
@@ -549,6 +689,20 @@ void QmlArchitectureTest::costUsageScanUsesCostUsageService()
 
     QVERIFY2(serviceContents.contains(QStringLiteral("scanOpenCodeDB(since, today, plan.openCodeDBProviderIds)")),
              "CostUsageService must pass an enabled+subscribed provider allow-list into OpenCode DB scans.");
+}
+
+void QmlArchitectureTest::openCodeCostScanScopesSqlToRecentSessions()
+{
+    QFile scanner(QStringLiteral(PROJECT_SOURCE_DIR "/src/util/CostUsageScanner.cpp"));
+    QVERIFY2(scanner.open(QIODevice::ReadOnly | QIODevice::Text), qPrintable(scanner.errorString()));
+    const QString contents = QString::fromUtf8(scanner.readAll());
+
+    QVERIFY2(contents.contains(QStringLiteral("recent_sessions")),
+             "OpenCode DB cost scan must first scope work to sessions active in the requested date range.");
+    QVERIFY2(contents.contains(QStringLiteral("time_created BETWEEN :sinceMs AND :untilMs")),
+             "OpenCode DB cost scan must use sinceMs in SQL instead of reading every historical message.");
+    QVERIFY2(contents.contains(QStringLiteral("query.bindValue(\":sinceMs\", sinceMs)")),
+             "OpenCode DB cost scan must bind sinceMs for the recent session scope.");
 }
 
 QTEST_MAIN(QmlArchitectureTest)

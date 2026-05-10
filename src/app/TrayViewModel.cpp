@@ -46,6 +46,8 @@ TrayViewModel::TrayViewModel(UsageStore* store, QObject* parent)
     });
     connect(m_store, &UsageStore::snapshotChanged,
             this, &TrayViewModel::providerSwitcherListChanged);
+    connect(m_store, &UsageStore::snapshotChanged,
+            this, &TrayViewModel::providerCostRowsChanged);
     connect(m_store, &UsageStore::snapshotRevisionChanged,
             this, &TrayViewModel::providerSwitcherListChanged);
     connect(m_store, &UsageStore::snapshotRevisionChanged,
@@ -104,6 +106,34 @@ QVariantList TrayViewModel::providerCostUsageList()
     return m_providerCostRows;
 }
 
+QVariantList TrayViewModel::providerCostUsageForProvider(const QString& providerId)
+{
+    QVariantList all;
+    if (m_store) {
+        all = m_store->providerCostUsageList();
+    }
+
+    // overview: return all
+    if (providerId.isEmpty()) {
+        return all;
+    }
+
+    // filter to specific provider
+    QVariantList filtered;
+    for (const QVariant& item : all) {
+        const QVariantMap row = item.toMap();
+        if (row.value(QStringLiteral("providerId")).toString() == providerId) {
+            filtered.append(item);
+        }
+    }
+    return filtered;
+}
+
+QVariantMap TrayViewModel::costUsageDataForProvider(const QString& providerId)
+{
+    return m_store ? m_store->costUsageDataForProvider(providerId) : QVariantMap();
+}
+
 QString TrayViewModel::requestSetDefaultTokenAccount(const QString& providerId, const QString& accountId)
 {
     return m_store ? m_store->requestSetDefaultTokenAccount(providerId, accountId) : QString();
@@ -159,6 +189,12 @@ void TrayViewModel::syncCostData()
         m_costData = nextCostData;
         emit costDataChanged();
     }
+
+    const QVariantMap nextDisplayCostData = m_store->costUsageDataForProvider(m_selectedProviderID);
+    if (m_displayCostData != nextDisplayCostData) {
+        m_displayCostData = nextDisplayCostData;
+        emit displayCostDataChanged();
+    }
     emit providerCostRowsChanged();
 }
 
@@ -169,6 +205,7 @@ void TrayViewModel::setSelectedProviderID(const QString& id)
     }
     m_selectedProviderID = id;
     emit selectedProviderIDChanged();
+    syncCostData();
 }
 
 QVariantList TrayViewModel::providerSwitcherList() const
@@ -223,6 +260,12 @@ void TrayViewModel::selectProvider(const QString& providerId)
 
     m_selectedProviderID = providerId;
     emit selectedProviderIDChanged();
+    syncCostData();
+
+    // Trigger data refresh for the selected provider
+    if (!providerId.isEmpty() && m_store) {
+        m_store->refreshProvider(providerId);
+    }
 
     QTimer::singleShot(50, this, [this]() {
         m_providerSwitching = false;

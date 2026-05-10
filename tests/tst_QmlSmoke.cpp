@@ -240,6 +240,11 @@ public:
     Q_INVOKABLE QVariantMap codexAccountState() const { return {}; }
     Q_INVOKABLE QVariantList codexFetchAttempts() const { return {}; }
     Q_INVOKABLE QVariantList utilizationChartData(const QString&, const QString&) const { return {}; }
+    Q_INVOKABLE QVariantList costHistoryChartData(const QString& providerId) const {
+        ++costHistoryChartDataCalls;
+        lastCostHistoryProvider = providerId;
+        return costHistoryChartDataValue;
+    }
     Q_INVOKABLE QVariantMap costUsageData() const {
         ++costUsageDataCalls;
         return costUsageDataValue;
@@ -344,6 +349,7 @@ public:
     int requestProviderDescriptorCalls = 0;
     mutable int costUsageDataCalls = 0;
     mutable int providerCostUsageListCalls = 0;
+    mutable int costHistoryChartDataCalls = 0;
     int refreshCostUsageCalls = 0;
     int requestCostUsageViewDataCalls = 0;
     int releaseCostUsageViewCachesCalls = 0;
@@ -371,6 +377,7 @@ public:
     QString defaultTokenAccountValue;
     QVariantMap costUsageDataValue;
     QVariantList providerCostUsageListValue;
+    QVariantList costHistoryChartDataValue;
     QString lastSettingKey;
     QVariant lastSettingValue;
     QString lastSecretKey;
@@ -380,6 +387,7 @@ public:
     QString lastTokenAccountId;
     QString lastTokenApiKey;
     QString lastRefreshProvider;
+    mutable QString lastCostHistoryProvider;
     QString lastRequestedProviderDescriptor;
     int lastTokenSourceMode = -1;
     int lastTokenVisibility = -1;
@@ -391,6 +399,7 @@ signals:
     void costUsageEnabledChanged();
     void costUsageRefreshingChanged();
     void costUsageChanged();
+    void costHistoryChanged();
     void snapshotRevisionChanged();
     void providerConnectionTestChanged(const QString&);
     void providerLoginStateChanged(const QString&);
@@ -925,10 +934,12 @@ class MockTrayViewModel : public QObject {
     Q_PROPERTY(bool costUsageEnabled READ costUsageEnabled NOTIFY costUsageEnabledChanged)
     Q_PROPERTY(bool costUsageRefreshing READ costUsageRefreshing NOTIFY costUsageRefreshingChanged)
     Q_PROPERTY(QVariantMap costData READ costData NOTIFY costDataChanged)
+    Q_PROPERTY(QVariantMap displayCostData READ displayCostData NOTIFY displayCostDataChanged)
     Q_PROPERTY(QString selectedProviderID READ selectedProviderID NOTIFY selectedProviderIDChanged)
     Q_PROPERTY(bool providerSwitching READ providerSwitching NOTIFY providerSwitchingChanged)
     Q_PROPERTY(QVariantList providerSwitcherList READ providerSwitcherList NOTIFY providerSwitcherListChanged)
     Q_PROPERTY(QVariantMap codexAccountState READ codexAccountState NOTIFY codexAccountStateChanged)
+    Q_PROPERTY(int providerDataRevision READ providerDataRevision NOTIFY providerDataChanged)
 public:
     void setUsageStore(MockUsageStore* usage) { mockUsage = usage; }
 
@@ -944,10 +955,12 @@ public:
     bool costUsageEnabled() const { return mockUsage ? mockUsage->costUsageEnabledValue : false; }
     bool costUsageRefreshing() const { return false; }
     QVariantMap costData() const { return mockUsage ? mockUsage->costUsageDataValue : QVariantMap(); }
+    QVariantMap displayCostData() const { return costData(); }
     QString selectedProviderID() const { return m_selectedProviderID; }
     bool providerSwitching() const { return m_providerSwitching; }
     QVariantList providerSwitcherList() const { return {}; }
     QVariantMap codexAccountState() const { return mockUsage ? mockUsage->codexAccountState() : QVariantMap(); }
+    int providerDataRevision() const { return 0; }
 
     Q_INVOKABLE void refresh() { ++refreshCalls; }
     Q_INVOKABLE void refreshProvider(const QString& providerId) {
@@ -966,6 +979,22 @@ public:
     Q_INVOKABLE QVariantList providerCostUsageList() const {
         ++providerCostUsageListCalls;
         return mockUsage ? mockUsage->providerCostUsageListValue : QVariantList();
+    }
+    Q_INVOKABLE QVariantList providerCostUsageForProvider(const QString& providerId) const {
+        const QVariantList all = providerCostUsageList();
+        if (providerId.isEmpty()) return all;
+
+        QVariantList filtered;
+        for (const QVariant& item : all) {
+            const QVariantMap row = item.toMap();
+            if (row.value(QStringLiteral("providerId")).toString() == providerId) {
+                filtered.append(item);
+            }
+        }
+        return filtered;
+    }
+    Q_INVOKABLE QVariantMap costUsageDataForProvider(const QString&) const {
+        return displayCostData();
     }
     Q_INVOKABLE QString requestSetDefaultTokenAccount(const QString& providerId, const QString& accountId) {
         ++requestSetDefaultTokenAccountCalls;
@@ -1033,11 +1062,13 @@ signals:
     void costUsageEnabledChanged();
     void costUsageRefreshingChanged();
     void costDataChanged();
+    void displayCostDataChanged();
     void providerCostRowsChanged();
     void selectedProviderIDChanged();
     void providerSwitchingChanged();
     void providerSwitcherListChanged();
     void codexAccountStateChanged();
+    void providerDataChanged();
 
 private:
     void rebuildProviders() {

@@ -11,6 +11,7 @@ private slots:
     void scanPlanScopesOpenCodeDatabase();
     void scanPlanIncludesLocalUsageProvidersWithoutAccounts();
     void scanPlanStillFiltersAccountScopedProviders();
+    void summaryDataScopesToSelectedProvider();
 };
 
 void CostUsageServiceTest::scanPlanIgnoresNonTokenProviders()
@@ -129,6 +130,46 @@ void CostUsageServiceTest::scanPlanStillFiltersAccountScopedProviders()
     QVERIFY(plan.scanPi);
     QVERIFY(plan.scanOpenCodeGo);
     QVERIFY(plan.scanOpenCodeDB);
+}
+
+void CostUsageServiceTest::summaryDataScopesToSelectedProvider()
+{
+    CostUsageSnapshot combined;
+    combined.sessionTokens = 600;
+    combined.sessionCostUSD = 0.60;
+    combined.last30DaysTokens = 6000;
+    combined.last30DaysCostUSD = 6.0;
+
+    ProviderCostUsageSnapshot codex;
+    codex.providerId = QStringLiteral("codex");
+    codex.snapshot.sessionTokens = 100;
+    codex.snapshot.sessionCostUSD = 0.10;
+    codex.snapshot.last30DaysTokens = 1000;
+    codex.snapshot.last30DaysCostUSD = 1.0;
+
+    ProviderCostUsageSnapshot claude;
+    claude.providerId = QStringLiteral("claude");
+    claude.snapshot.sessionTokens = 500;
+    claude.snapshot.sessionCostUSD = 0.50;
+    claude.snapshot.last30DaysTokens = 5000;
+    claude.snapshot.last30DaysCostUSD = 5.0;
+
+    const QVector<ProviderCostUsageSnapshot> providers = {codex, claude};
+
+    const QVariantMap overview = CostUsageService::summaryDataForProvider({}, combined, providers);
+    QCOMPARE(overview.value(QStringLiteral("sessionTokens")).toLongLong(), 600);
+    QCOMPARE(overview.value(QStringLiteral("last30DaysTokens")).toLongLong(), 6000);
+
+    const QVariantMap selected = CostUsageService::summaryDataForProvider(
+        QStringLiteral("codex"), combined, providers);
+    QCOMPARE(selected.value(QStringLiteral("sessionTokens")).toLongLong(), 100);
+    QCOMPARE(selected.value(QStringLiteral("last30DaysTokens")).toLongLong(), 1000);
+
+    const QVariantMap missing = CostUsageService::summaryDataForProvider(
+        QStringLiteral("missing"), combined, providers);
+    QCOMPARE(missing.value(QStringLiteral("sessionTokens")).toLongLong(), 0);
+    QCOMPARE(missing.value(QStringLiteral("last30DaysTokens")).toLongLong(), 0);
+    QCOMPARE(missing.value(QStringLiteral("hasData")).toBool(), false);
 }
 
 QTEST_MAIN(CostUsageServiceTest)

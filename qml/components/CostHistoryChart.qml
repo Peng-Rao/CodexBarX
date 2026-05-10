@@ -9,6 +9,7 @@ Rectangle {
     property string providerId: ""
     property var points: []
     property color barColor: brandColorFor(providerId)
+    property bool ready: false
 
     readonly property int hoveredIndex: chartHover.hoveredIndex
     readonly property bool hasData: points.length > 0
@@ -16,7 +17,7 @@ Rectangle {
     color: "#1c1c32"
     radius: 8
     implicitWidth: 276
-    implicitHeight: hasData ? 130 + detailArea.implicitHeight + 16 : 40
+    implicitHeight: hasData ? 130 + hoverDetail.implicitHeight + 16 : 40
     clip: true
 
     function brandColorFor(pid) {
@@ -33,6 +34,38 @@ Rectangle {
             "opencodego": "#3B82F6"
         }
         return colors[pid] || "#4A90D9"
+    }
+
+    function formatDetailDate(dateStr) {
+        if (!dateStr) return ""
+        var parts = dateStr.split("-")
+        if (parts.length < 3) return dateStr
+        var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+        var m = parseInt(parts[1]) - 1
+        var d = parseInt(parts[2])
+        return (m >= 0 && m < 12) ? months[m] + " " + d : dateStr
+    }
+
+    function modelCostSummary(point) {
+        if (!point) return ""
+        var models = point.models || []
+        var lines = []
+        for (var i = 0; i < Math.min(4, models.length); i++)
+            lines.push(models[i].name + " $" + (models[i].costUSD || 0).toFixed(2))
+        return lines.join("  ")
+    }
+
+    function refreshPoints() {
+        if (!root.ready) {
+            return
+        }
+        if (!root.providerId) {
+            root.points = []
+            return
+        }
+
+        root.points = UsageStore.costHistoryChartData(root.providerId)
+        canvas.requestPaint()
     }
 
     // No data state
@@ -158,47 +191,29 @@ Rectangle {
             }
         }
 
-        // Detail panel
-        ColumnLayout {
-            id: detailArea
-            Layout.fillWidth: true
-            spacing: 2
-
+        ChartHoverDetail {
+            id: hoverDetail
             property int activeIdx: hoveredIndex >= 0 ? hoveredIndex : (points.length > 0 ? points.length - 1 : -1)
             property var activePoint: activeIdx >= 0 && activeIdx < points.length ? points[activeIdx] : null
 
-            Text {
-                Layout.fillWidth: true
-                text: {
-                    if (!detailArea.activePoint) return ""
-                    var ds = detailArea.activePoint.date || ""
-                    var dateParts = ds.split("-")
-                    var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
-                    var m = parseInt(dateParts[1]) - 1
-                    var d = parseInt(dateParts[2])
-                    var label = (m >= 0 && m < 12) ? months[m] + " " + d : ds
-                    return label + ": $" + (detailArea.activePoint.costUSD || 0).toFixed(2)
-                }
-                color: "#aaa"
-                font.pixelSize: 11
-                elide: Text.ElideRight
-            }
+            primaryText: activePoint ? root.formatDetailDate(activePoint.date || "") + ": $" + (activePoint.costUSD || 0).toFixed(2) : ""
+            secondaryText: root.modelCostSummary(activePoint)
+        }
+    }
 
-            Text {
-                Layout.fillWidth: true
-                text: {
-                    if (!detailArea.activePoint) return ""
-                    var models = detailArea.activePoint.models || []
-                    var lines = []
-                    for (var i = 0; i < Math.min(4, models.length); i++)
-                        lines.push(models[i].name + " $" + (models[i].costUSD || 0).toFixed(2))
-                    return lines.join("  ")
-                }
-                color: "#888"
-                font.pixelSize: 10
-                visible: text !== ""
-                elide: Text.ElideRight
-            }
+    Component.onCompleted: {
+        root.ready = true
+        root.refreshPoints()
+    }
+    onProviderIdChanged: root.refreshPoints()
+
+    Connections {
+        target: UsageStore
+        function onCostUsageChanged() {
+            root.refreshPoints()
+        }
+        function onCostHistoryChanged() {
+            root.refreshPoints()
         }
     }
 }

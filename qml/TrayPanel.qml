@@ -17,10 +17,10 @@ Rectangle {
     border.width: 1
 
     property var costData: TrayViewModel.costData
+    property var displayCostData: TrayViewModel.displayCostData
     property bool isRefreshing: TrayViewModel.isRefreshing
     property bool costExpanded: false
     property var providerCostRows: []
-    property var allProviderCostRows: []
     property var expandedCards: ({})
     property int rev: LanguageManager.translationRevision
     property int refreshStartTime: 0
@@ -50,6 +50,7 @@ Rectangle {
         target: TrayViewModel
         function onCostUsageRefreshingChanged() { root.refreshCostSummary() }
         function onCostDataChanged() { root.refreshCostSummary() }
+        function onDisplayCostDataChanged() { root.refreshCostSummary() }
         function onProviderCostRowsChanged() { root.refreshProviderCostRows() }
         function onCodexAccountStateChanged() {
             root.codexAccountState = TrayViewModel.codexAccountState || ({})
@@ -219,7 +220,7 @@ Rectangle {
                         onClicked: {
                             if (!TrayViewModel.costUsageEnabled) {
                                 TrayViewModel.ensureCostUsageEnabled()
-                            } else if (costData.hasData) {
+                            } else if (displayCostData.hasData) {
                                 root.costExpanded = !root.costExpanded
                             }
                         }
@@ -233,7 +234,7 @@ Rectangle {
 
                         Text {
                             Layout.preferredWidth: 12
-                            text: root.costExpanded && costData.hasData ? "▾" : "▸"
+                            text: root.costExpanded && displayCostData.hasData ? "▾" : "▸"
                             color: "#888"
                             font.pixelSize: 11
                             horizontalAlignment: Text.AlignHCenter
@@ -252,7 +253,7 @@ Rectangle {
                             Layout.alignment: Qt.AlignVCenter
                             radius: 4
                             color: TrayViewModel.costUsageRefreshing ? "#FFC107"
-                                 : costData.hasData ? "#4CAF50" : "#555"
+                                 : displayCostData.hasData ? "#4CAF50" : "#555"
 
                             SequentialAnimation on opacity {
                                 running: TrayViewModel.costUsageRefreshing
@@ -279,8 +280,8 @@ Rectangle {
                         }
                         Text {
                             Layout.maximumWidth: 86
-                            text: costData.hasData
-                                ? "$" + costData.sessionCostUSD.toFixed(2) + " " + qsTr("today")
+                            text: displayCostData.hasData
+                                ? "$" + displayCostData.sessionCostUSD.toFixed(2) + " " + qsTr("today")
                                 : TrayViewModel.costUsageRefreshing ? qsTr("scanning...") : qsTr("no data")
                             color: "#888"
                             font.pixelSize: 10
@@ -293,7 +294,7 @@ Rectangle {
                 ColumnLayout {
                     id: costBody
                     Layout.fillWidth: true
-                    visible: root.costExpanded && costData.hasData
+                    visible: root.costExpanded && displayCostData.hasData
                     spacing: 8
                     Layout.topMargin: 8
 
@@ -317,8 +318,8 @@ Rectangle {
                                 Layout.minimumWidth: 0
                                 Layout.preferredWidth: 1
                                 title: qsTr("Today")
-                                value: "$" + formatCost(costData.sessionCostUSD)
-                                detail: fmtNum(costData.sessionTokens) + " " + qsTr("tokens")
+                                value: "$" + formatCost(displayCostData.sessionCostUSD)
+                                detail: fmtNum(displayCostData.sessionTokens) + " " + qsTr("tokens")
                                 valueColor: "#4CAF50"
                             }
 
@@ -333,8 +334,8 @@ Rectangle {
                                 Layout.minimumWidth: 0
                                 Layout.preferredWidth: 1
                                 title: qsTr("30 days")
-                                value: "$" + formatCost(costData.last30DaysCostUSD)
-                                detail: fmtNum(costData.last30DaysTokens) + " " + qsTr("tokens")
+                                value: "$" + formatCost(displayCostData.last30DaysCostUSD)
+                                detail: fmtNum(displayCostData.last30DaysTokens) + " " + qsTr("tokens")
                                 valueColor: "#2196F3"
                             }
                         }
@@ -356,15 +357,15 @@ Rectangle {
                             layoutDirection: Qt.RightToLeft
                             property double dailyMaxCost: {
                                 var maxCost = 0
-                                if (root.costExpanded && costData.daily) {
-                                    for (var i = 0; i < costData.daily.length; i++)
-                                        maxCost = Math.max(maxCost, costData.daily[i].costUSD)
+                                if (root.costExpanded && displayCostData.daily) {
+                                    for (var i = 0; i < displayCostData.daily.length; i++)
+                                        maxCost = Math.max(maxCost, displayCostData.daily[i].costUSD)
                                 }
                                 return maxCost
                             }
 
                             Repeater {
-                                model: root.costExpanded && costData.daily ? costData.daily.slice(-21) : []
+                                model: root.costExpanded && displayCostData.daily ? displayCostData.daily.slice(-21) : []
                                 delegate: Rectangle {
                                     width: Math.max(2, parent.width / 21 - 2)
                                     height: {
@@ -1359,27 +1360,15 @@ Rectangle {
 
     function refreshCostSummary() {
         root.costData = TrayViewModel.costData
+        root.displayCostData = TrayViewModel.displayCostData
         root.refreshProviderCostRows()
     }
 
     function refreshProviderCostRows() {
-        var all = []
-        if (root.costExpanded && root.costData && root.costData.hasData) {
-            all = TrayViewModel.providerCostUsageList()
-        }
-        root.allProviderCostRows = all
-
-        // 根据 selectedProviderID 过滤：overview(空)显示所有，选中则只显示当前 provider
-        if (!root.selectedProviderID || root.selectedProviderID === "") {
-            root.providerCostRows = all
+        if (root.costExpanded && root.displayCostData && root.displayCostData.hasData) {
+            root.providerCostRows = TrayViewModel.providerCostUsageForProvider(root.selectedProviderID)
         } else {
-            var filtered = []
-            for (var i = 0; i < all.length; i++) {
-                if (all[i].providerId === root.selectedProviderID) {
-                    filtered.push(all[i])
-                }
-            }
-            root.providerCostRows = filtered
+            root.providerCostRows = []
         }
     }
 

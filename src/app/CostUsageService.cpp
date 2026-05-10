@@ -494,6 +494,32 @@ QVariantMap CostUsageService::summaryData(const CostUsageSnapshot& snapshot)
     return m;
 }
 
+QVariantMap CostUsageService::summaryDataForProvider(
+    const QString& providerId,
+    const CostUsageSnapshot& combined,
+    const QVector<ProviderCostUsageSnapshot>& providers)
+{
+    if (providerId.trimmed().isEmpty()) {
+        if (!providers.isEmpty()) {
+            QVector<CostUsageSnapshot> snapshots;
+            snapshots.reserve(providers.size());
+            for (const auto& provider : providers) {
+                snapshots.append(provider.snapshot);
+            }
+            return summaryData(mergeCostUsageSnapshots(snapshots));
+        }
+        return summaryData(combined);
+    }
+
+    for (const auto& provider : providers) {
+        if (provider.providerId == providerId) {
+            return summaryData(provider.snapshot);
+        }
+    }
+
+    return summaryData(CostUsageSnapshot{});
+}
+
 QVariantList CostUsageService::providerRows(const QVector<ProviderCostUsageSnapshot>& providers)
 {
     QVariantList result;

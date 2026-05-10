@@ -543,7 +543,6 @@ Rectangle {
                 active: root.providerId === "codex" || root.providerId === "claude"
                 sourceComponent: CostHistoryChart {
                     providerId: root.providerId
-                    points: UsageStore.costHistoryChartData(root.providerId)
                 }
             }
 

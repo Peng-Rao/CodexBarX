@@ -300,12 +300,14 @@ UsageStore::UsageStore(QObject* parent)
         m_uiService->invalidateProviderListCache();
         m_uiService->invalidateDescriptorCache(providerId);
         emit tokenAccountsChanged(providerId);
+        invalidateCostUsageForProviderConfigurationChanged();
     });
     QObject::connect(tokenStore, &TokenAccountStore::defaultAccountChanged,
                      this, [this](const QString& providerId, const QString&) {
         m_uiService->invalidateProviderListCache();
         m_uiService->invalidateDescriptorCache(providerId);
         emit tokenAccountsChanged(providerId);
+        invalidateCostUsageForProviderConfigurationChanged();
     });
     QObject::connect(this, &UsageStore::providerSecretChanged,
                      this, [this](const QString& providerId, const QString&) {
@@ -362,6 +364,7 @@ bool UsageStore::isProviderEnabled(const QString& id) const {
 }
 
 void UsageStore::setProviderEnabled(const QString& id, bool enabled) {
+    const bool wasEnabled = isProviderEnabled(id);
     ProviderRegistry::instance().setProviderEnabled(id, enabled);
     ProviderRuntimeManager::instance()->setProviderRuntimeEnabled(id, enabled);
     if (m_settingsStore) {
@@ -370,6 +373,9 @@ void UsageStore::setProviderEnabled(const QString& id, bool enabled) {
     m_uiService->invalidateDescriptorCache(id);
     updateProviderIDs();
     emit providerDescriptorChanged(id);
+    if (wasEnabled != enabled) {
+        invalidateCostUsageForProviderConfigurationChanged();
+    }
 }
 
 QString UsageStore::providerDisplayName(const QString& id) const {
@@ -739,15 +745,18 @@ void UsageStore::resetCostUsageDerivedCaches(bool clearBuiltData)
 
     // Invalidate chart caches
     m_costHistoryChartCache.clear();
+    m_costHistoryCachedProviderIds.clear();
+    m_costHistoryQueuedProviderIds.clear();
+    for (auto it = m_costHistoryBuildGenerations.begin(); it != m_costHistoryBuildGenerations.end(); ++it) {
+        ++it.value();
+    }
+    m_costHistoryRequestProviders.clear();
     m_creditsHistoryCache.clear();
     m_usageBreakdownCache.clear();
-    m_costHistoryCacheValid = false;
     m_creditsHistoryCacheValid = false;
     m_usageBreakdownCacheValid = false;
-    m_costHistoryBuildQueued = false;
     m_creditsHistoryBuildQueued = false;
     m_usageBreakdownBuildQueued = false;
-    ++m_costHistoryBuildGeneration;
     ++m_creditsHistoryBuildGeneration;
     ++m_usageBreakdownBuildGeneration;
 }
@@ -766,12 +775,16 @@ void UsageStore::requestCostUsageSummary() const
     m_costUsageSummaryBuildQueued = true;
     const int generation = ++m_costUsageSummaryBuildGeneration;
     const CostUsageSnapshot costUsage = m_costUsage;
+    const QVector<ProviderCostUsageSnapshot> enabledProviders = enabledCostUsageProviders();
+    const bool hadProviderData = !m_allProviderCostUsage.isEmpty();
 
     m_backend->dispatchValueJob(QStringLiteral("costUsageSummary"), generation,
-                                [costUsage]() -> QVariant {
+                                [costUsage, enabledProviders, hadProviderData]() -> QVariant {
         PERF_PROBE("costUsageSummary_worker", 5000);
         CostUsageSummaryPayload payload;
-        payload.costData = CostUsageService::summaryData(costUsage);
+        payload.costData = hadProviderData && enabledProviders.isEmpty()
+            ? CostUsageService::summaryData(CostUsageSnapshot{})
+            : CostUsageService::summaryDataForProvider(QString(), costUsage, enabledProviders);
         return QVariant::fromValue(payload);
     });
 }
@@ -784,13 +797,13 @@ void UsageStore::requestCostUsageProviderRows() const
 
     m_costUsageProviderRowsBuildQueued = true;
     const int generation = ++m_costUsageProviderRowsBuildGeneration;
-    const QVector<ProviderCostUsageSnapshot> allProviders = m_allProviderCostUsage;
+    const QVector<ProviderCostUsageSnapshot> enabledProviders = enabledCostUsageProviders();
 
     m_backend->dispatchValueJob(QStringLiteral("costUsageProviderRows"), generation,
-                                [allProviders]() -> QVariant {
+                                [enabledProviders]() -> QVariant {
         PERF_PROBE("costUsageProviderRows_worker", 5000);
         CostUsageProviderRowsPayload payload;
-        payload.providerList = CostUsageService::providerRows(allProviders);
+        payload.providerList = CostUsageService::providerRows(enabledProviders);
         return QVariant::fromValue(payload);
     });
 }
@@ -810,13 +823,13 @@ void UsageStore::requestCostUsageDetailsRows() const
 
     m_costUsageDetailsRowsBuildQueued = true;
     const int generation = ++m_costUsageDetailsRowsBuildGeneration;
-    const QVector<ProviderCostUsageSnapshot> allProviders = m_allProviderCostUsage;
+    const QVector<ProviderCostUsageSnapshot> enabledProviders = enabledCostUsageProviders();
     const QVariantList appProviders = m_uiService->cachedProviderList();
 
     m_backend->dispatchValueJob(QStringLiteral("costUsageDetailsRows"), generation,
-                                [allProviders, appProviders]() -> QVariant {
+                                [enabledProviders, appProviders]() -> QVariant {
         PERF_PROBE("costUsageDetailsRows_worker", 5000);
-        return QVariant::fromValue(CostUsageService::detailsRows(allProviders, appProviders));
+        return QVariant::fromValue(CostUsageService::detailsRows(enabledProviders, appProviders));
     });
 }
 
@@ -834,12 +847,40 @@ QSet<QString> UsageStore::costUsageSubscribedProviderIDs() const
     return providerIds;
 }
 
+QVector<ProviderCostUsageSnapshot> UsageStore::enabledCostUsageProviders() const
+{
+    QVector<ProviderCostUsageSnapshot> providers;
+    providers.reserve(m_allProviderCostUsage.size());
+    for (const auto& provider : m_allProviderCostUsage) {
+        if (!provider.providerId.isEmpty() && isProviderEnabled(provider.providerId)) {
+            providers.append(provider);
+        }
+    }
+    return providers;
+}
+
+void UsageStore::invalidateCostUsageForProviderConfigurationChanged()
+{
+    m_costUsageDataAvailable = false;
+    resetCostUsageDerivedCaches(false);
+    emit costUsageChanged();
+    if (m_costUsageEnabled) {
+        refreshCostUsage();
+    }
+}
+
 void UsageStore::refreshCostUsage() {
-    if (!m_costUsageEnabled || m_costUsageRefreshing) return;
+    if (!m_costUsageEnabled) return;
+    if (m_costUsageRefreshing) {
+        m_costUsageRefreshQueued = true;
+        return;
+    }
+    m_costUsageRefreshQueued = false;
 
     const CostUsageScanPlan plan = CostUsageService::buildScanPlan(
         m_providerCatalog.enabledProviderIDs(), costUsageSubscribedProviderIDs());
     if (!plan.hasWork()) {
+        const bool availabilityChanged = !m_costUsageDataAvailable;
         const bool hadData = m_costUsage.last30DaysTokens > 0
             || !m_perProviderCostUsage.isEmpty()
             || !m_allProviderCostUsage.isEmpty()
@@ -850,8 +891,9 @@ void UsageStore::refreshCostUsage() {
         m_costUsage = CostUsageSnapshot{};
         m_perProviderCostUsage.clear();
         m_allProviderCostUsage.clear();
+        m_costUsageDataAvailable = true;
         resetCostUsageDerivedCaches(true);
-        if (hadData) {
+        if (hadData || availabilityChanged) {
             emit costUsageChanged();
         }
         return;
@@ -877,6 +919,22 @@ QVariantMap UsageStore::costUsageData() const {
                               &UsageStore::requestCostUsageSummary,
                               Qt::QueuedConnection);
     return m_costUsageDataCache;
+}
+
+QVariantMap UsageStore::costUsageDataForProvider(const QString& providerId) const
+{
+    PERF_PROBE("costUsageDataForProvider", 1000);
+    const QString scopedProviderId = providerId.trimmed();
+    if (scopedProviderId.isEmpty()) {
+        return costUsageData();
+    }
+
+    if (!isProviderEnabled(scopedProviderId)) {
+        return CostUsageService::summaryData(CostUsageSnapshot{});
+    }
+
+    return CostUsageService::summaryDataForProvider(
+        scopedProviderId, m_costUsage, enabledCostUsageProviders());
 }
 
 QVariantList UsageStore::providerCostUsageList() const {
@@ -915,6 +973,7 @@ QVariantMap UsageStore::costUsageProviderDetail(const QString& providerId) const
 void UsageStore::requestCostUsageProviderDetail(const QString& providerId) const
 {
     if (providerId.isEmpty()
+        || !isProviderEnabled(providerId)
         || m_costUsageProviderDetailCache.contains(providerId)
         || m_costUsageProviderDetailQueued.contains(providerId)) {
         return;
@@ -922,12 +981,12 @@ void UsageStore::requestCostUsageProviderDetail(const QString& providerId) const
 
     m_costUsageProviderDetailQueued.insert(providerId);
     const int generation = m_costUsageProviderDetailBuildGeneration;
-    const QVector<ProviderCostUsageSnapshot> allProviders = m_allProviderCostUsage;
+    const QVector<ProviderCostUsageSnapshot> enabledProviders = enabledCostUsageProviders();
 
     m_backend->dispatchValueJob(QStringLiteral("costUsageProviderDetail"), generation,
-                                [providerId, allProviders]() -> QVariant {
+                                [providerId, enabledProviders]() -> QVariant {
         PERF_PROBE("costUsageProviderDetail_worker", 5000);
-        return QVariant::fromValue(CostUsageService::providerDetail(providerId, allProviders));
+        return QVariant::fromValue(CostUsageService::providerDetail(providerId, enabledProviders));
     });
 }
 
@@ -1181,6 +1240,10 @@ void UsageStore::handleBackendResult(const UsageBackendResult& result)
             qWarning() << "Cost usage refresh backend job failed:" << result.message;
             m_costUsageRefreshing = false;
             emit costUsageRefreshingChanged();
+            if (m_costUsageRefreshQueued) {
+                m_costUsageRefreshQueued = false;
+                QMetaObject::invokeMethod(this, &UsageStore::refreshCostUsage, Qt::QueuedConnection);
+            }
             return;
         }
 
@@ -1189,25 +1252,40 @@ void UsageStore::handleBackendResult(const UsageBackendResult& result)
         m_costUsage = payload.combined;
         m_perProviderCostUsage = payload.perProvider;
         m_allProviderCostUsage = payload.allProviders;
+        m_costUsageDataAvailable = true;
         m_costUsageRefreshing = false;
+        const bool refreshQueued = m_costUsageRefreshQueued;
+        m_costUsageRefreshQueued = false;
         resetCostUsageDerivedCaches(false);
         emit costUsageRefreshingChanged();
         emit costUsageChanged();
+        if (refreshQueued) {
+            QMetaObject::invokeMethod(this, &UsageStore::refreshCostUsage, Qt::QueuedConnection);
+        }
         return;
     }
 
     // Chart data handlers (Phase A)
     if (result.kind == QLatin1String("costHistory")) {
-        m_costHistoryBuildQueued = false;
-        if (result.generation != m_costHistoryBuildGeneration) return;
+        const QVariantMap wrapper = result.payload.toMap();
+        QString pid = wrapper.value("providerId").toString();
+        if (pid.isEmpty()) {
+            pid = m_costHistoryRequestProviders.value(result.requestId);
+        }
+        m_costHistoryRequestProviders.remove(result.requestId);
+        if (!pid.isEmpty()) {
+            m_costHistoryQueuedProviderIds.remove(pid);
+        }
+        if (!pid.isEmpty() && result.generation != m_costHistoryBuildGenerations.value(pid)) {
+            return;
+        }
         if (!result.success) {
             qWarning() << "Cost history build failed:" << result.message;
             return;
         }
-        const QVariantMap wrapper = result.payload.toMap();
-        const QString pid = wrapper.value("providerId").toString();
         const QVariantList points = wrapper.value("points").toList();
         m_costHistoryChartCache.insert(pid, points);
+        m_costHistoryCachedProviderIds.insert(pid);
         emit costHistoryChanged();
         return;
     }
@@ -1522,13 +1600,16 @@ QVariantList UsageStore::utilizationChartData(const QString& providerId, const Q
 
 QVariantList UsageStore::costHistoryChartData(const QString& providerId) const
 {
-    auto it = m_costHistoryChartCache.find(providerId);
-    if (it != m_costHistoryChartCache.end() && !it->isEmpty()) {
-        return *it;
+    const QString scopedProviderId = providerId.trimmed();
+    if (scopedProviderId.isEmpty()) {
+        return {};
+    }
+    if (m_costHistoryCachedProviderIds.contains(scopedProviderId)) {
+        return m_costHistoryChartCache.value(scopedProviderId);
     }
     auto self = const_cast<UsageStore*>(this);
-    QMetaObject::invokeMethod(self, [self, providerId]() {
-        self->requestCostHistory(providerId);
+    QMetaObject::invokeMethod(self, [self, scopedProviderId]() {
+        self->requestCostHistory(scopedProviderId);
     }, Qt::QueuedConnection);
     return {};
 }
@@ -1560,20 +1641,35 @@ QVariantList UsageStore::usageBreakdownData(const QString& providerId) const
 
 void UsageStore::requestCostHistory(const QString& providerId)
 {
-    if (m_costHistoryBuildQueued) return;
-    // Always rebuild for the requested provider
-    m_costHistoryBuildQueued = true;
-    const int generation = ++m_costHistoryBuildGeneration;
-    const QVector<ProviderCostUsageSnapshot> allProviders = m_allProviderCostUsage;
+    const QString scopedProviderId = providerId.trimmed();
+    if (scopedProviderId.isEmpty()
+        || m_costHistoryCachedProviderIds.contains(scopedProviderId)
+        || m_costHistoryQueuedProviderIds.contains(scopedProviderId)) {
+        return;
+    }
 
-    m_backend->dispatchValueJob("costHistory", generation,
-        [allProviders, providerId]() -> QVariant {
-            QVariantList points = ChartDataProvider::buildCostHistory(allProviders, providerId);
+    if (!m_costUsageDataAvailable) {
+        ensureCostUsageEnabled();
+        if (m_costUsageEnabled && !m_costUsageRefreshing) {
+            refreshCostUsage();
+        }
+        return;
+    }
+
+    m_costHistoryQueuedProviderIds.insert(scopedProviderId);
+    const int generation = m_costHistoryBuildGenerations.value(scopedProviderId) + 1;
+    m_costHistoryBuildGenerations.insert(scopedProviderId, generation);
+    const QVector<ProviderCostUsageSnapshot> providers = enabledCostUsageProviders();
+
+    const auto request = m_backend->dispatchValueJob(QStringLiteral("costHistory"), generation,
+        [providers, scopedProviderId]() -> QVariant {
+            QVariantList points = ChartDataProvider::buildCostHistory(providers, scopedProviderId);
             QVariantMap wrapper;
-            wrapper["providerId"] = providerId;
+            wrapper["providerId"] = scopedProviderId;
             wrapper["points"] = points;
             return wrapper;
         });
+    m_costHistoryRequestProviders.insert(request.requestId, scopedProviderId);
 }
 
 void UsageStore::requestCreditsHistory()
@@ -1668,6 +1764,7 @@ void UsageStore::setProviderSetting(const QString& providerId, const QString& ke
         rebuildProviderCatalogSnapshot();
         m_uiService->invalidateProviderListCache();
         emit providerIDsChanged();
+        invalidateCostUsageForProviderConfigurationChanged();
     }
     emit providerDescriptorChanged(providerId);
 }
@@ -2490,7 +2587,12 @@ void UsageStore::clearCodexOpenAIWebState()
     m_usageBreakdownCache.clear();
     m_usageBreakdownCacheValid = false;
     m_costHistoryChartCache.clear();
-    m_costHistoryCacheValid = false;
+    m_costHistoryCachedProviderIds.clear();
+    m_costHistoryQueuedProviderIds.clear();
+    for (auto it = m_costHistoryBuildGenerations.begin(); it != m_costHistoryBuildGenerations.end(); ++it) {
+        ++it.value();
+    }
+    m_costHistoryRequestProviders.clear();
     emit snapshotRevisionChanged();
     emit codexCreditsChanged();
     emit codexFetchAttemptsChanged();
