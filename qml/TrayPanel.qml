@@ -1272,16 +1272,6 @@ Rectangle {
             }
         }
 
-        // === TrayMenuActions (Phase 4) ===
-        Components.TrayMenuActions {
-            id: trayMenuActions
-            currentProviderID: root.selectedProviderID
-            currentSnapshot: detailFlickable.detailData.snap || ({})
-            currentError: detailFlickable.detailData.snap ? (detailFlickable.detailData.snap.error || "") : ""
-            dashboardURL: detailFlickable.detailData.dashboard ? (detailFlickable.detailData.dashboard.purchaseURL || "") : ""
-            visible: root.selectedProviderID !== ""
-        }
-
         // === Footer ===
         Rectangle {
             Layout.fillWidth: true
@@ -1318,12 +1308,6 @@ Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 28
                     onClicked: AppController.toggleSettings()
-                }
-                ActionButton {
-                    text: qsTr("About")
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 28
-                    onClicked: AppController.showAbout()
                 }
                 ActionButton {
                     text: qsTr("Quit")
