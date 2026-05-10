@@ -88,6 +88,14 @@ target_compile_definitions(tst_AppTheme PRIVATE ${COMMON_DEFINES})
 target_link_libraries(tst_AppTheme PRIVATE codexbar_core Qt6::Core Qt6::Gui Qt6::Test)
 add_wincodexbar_test(tst_AppTheme tst_AppTheme)
 
+add_executable(tst_ChartDataProvider
+    tst_ChartDataProvider.cpp
+)
+target_include_directories(tst_ChartDataProvider PRIVATE ${COMMON_INCLUDE})
+target_compile_definitions(tst_ChartDataProvider PRIVATE ${COMMON_DEFINES})
+target_link_libraries(tst_ChartDataProvider PRIVATE codexbar_core Qt6::Core Qt6::Test)
+add_wincodexbar_test(tst_ChartDataProvider tst_ChartDataProvider)
+
 add_executable(tst_TextParser
     tst_TextParser.cpp
     tst_TextParser.h

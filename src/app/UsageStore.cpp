@@ -1,5 +1,6 @@
 #include "UsageStore.h"
 #include "BatchUpdateController.h"
+#include "ChartDataProvider.h"
 #include "CostUsageService.h"
 #include "Localization.h"
 #include "PlanUtilizationHistoryStore.h"
@@ -735,6 +736,20 @@ void UsageStore::resetCostUsageDerivedCaches(bool clearBuiltData)
     ++m_costUsageProviderRowsBuildGeneration;
     ++m_costUsageDetailsRowsBuildGeneration;
     ++m_costUsageProviderDetailBuildGeneration;
+
+    // Invalidate chart caches
+    m_costHistoryChartCache.clear();
+    m_creditsHistoryCache.clear();
+    m_usageBreakdownCache.clear();
+    m_costHistoryCacheValid = false;
+    m_creditsHistoryCacheValid = false;
+    m_usageBreakdownCacheValid = false;
+    m_costHistoryBuildQueued = false;
+    m_creditsHistoryBuildQueued = false;
+    m_usageBreakdownBuildQueued = false;
+    ++m_costHistoryBuildGeneration;
+    ++m_creditsHistoryBuildGeneration;
+    ++m_usageBreakdownBuildGeneration;
 }
 
 void UsageStore::requestCostUsageViewData()
@@ -1181,6 +1196,50 @@ void UsageStore::handleBackendResult(const UsageBackendResult& result)
         return;
     }
 
+    // Chart data handlers (Phase A)
+    if (result.kind == QLatin1String("costHistory")) {
+        m_costHistoryBuildQueued = false;
+        if (result.generation != m_costHistoryBuildGeneration) return;
+        if (!result.success) {
+            qWarning() << "Cost history build failed:" << result.message;
+            return;
+        }
+        const QVariantMap wrapper = result.payload.toMap();
+        const QString pid = wrapper.value("providerId").toString();
+        const QVariantList points = wrapper.value("points").toList();
+        m_costHistoryChartCache.insert(pid, points);
+        emit costHistoryChanged();
+        return;
+    }
+
+    if (result.kind == QLatin1String("creditsHistory")) {
+        m_creditsHistoryBuildQueued = false;
+        if (result.generation != m_creditsHistoryBuildGeneration) return;
+        if (!result.success) {
+            qWarning() << "Credits history build failed:" << result.message;
+            return;
+        }
+        m_creditsHistoryCache = result.payload.value<QVariantList>();
+        m_creditsHistoryCacheValid = true;
+        emit creditsHistoryChanged();
+        return;
+    }
+
+    if (result.kind == QLatin1String("usageBreakdown")) {
+        m_usageBreakdownBuildQueued = false;
+        if (result.generation != m_usageBreakdownBuildGeneration) return;
+        if (!result.success) {
+            qWarning() << "Usage breakdown build failed:" << result.message;
+            return;
+        }
+        const QVariantMap wrapper = result.payload.toMap();
+        const QString pid = wrapper.value("providerId").toString();
+        const QVariantList points = wrapper.value("points").toList();
+        m_usageBreakdownCache.insert(pid, points);
+        emit usageBreakdownChanged();
+        return;
+    }
+
     if (result.kind == QLatin1String("codexAccountReconciliation")) {
         if (!result.success) {
             qWarning() << "Codex account reconciliation backend job failed:" << result.message;
@@ -1457,6 +1516,99 @@ QStringList UsageStore::allProviderIDs() const {
 QVariantList UsageStore::utilizationChartData(const QString& providerId, const QString& seriesName) const {
     if (!m_historyStore) return {};
     return m_historyStore->chartData(providerId, seriesName);
+}
+
+// --- Chart data (Phase A) ---
+
+QVariantList UsageStore::costHistoryChartData(const QString& providerId) const
+{
+    auto it = m_costHistoryChartCache.find(providerId);
+    if (it != m_costHistoryChartCache.end() && !it->isEmpty()) {
+        return *it;
+    }
+    auto self = const_cast<UsageStore*>(this);
+    QMetaObject::invokeMethod(self, [self, providerId]() {
+        self->requestCostHistory(providerId);
+    }, Qt::QueuedConnection);
+    return {};
+}
+
+QVariantList UsageStore::creditsHistoryData() const
+{
+    if (m_creditsHistoryCacheValid && !m_creditsHistoryCache.isEmpty()) {
+        return m_creditsHistoryCache;
+    }
+    auto self = const_cast<UsageStore*>(this);
+    QMetaObject::invokeMethod(self, [self]() {
+        self->requestCreditsHistory();
+    }, Qt::QueuedConnection);
+    return {};
+}
+
+QVariantList UsageStore::usageBreakdownData(const QString& providerId) const
+{
+    auto it = m_usageBreakdownCache.find(providerId);
+    if (it != m_usageBreakdownCache.end() && !it->isEmpty()) {
+        return *it;
+    }
+    auto self = const_cast<UsageStore*>(this);
+    QMetaObject::invokeMethod(self, [self, providerId]() {
+        self->requestUsageBreakdown(providerId);
+    }, Qt::QueuedConnection);
+    return {};
+}
+
+void UsageStore::requestCostHistory(const QString& providerId)
+{
+    if (m_costHistoryBuildQueued) return;
+    // Always rebuild for the requested provider
+    m_costHistoryBuildQueued = true;
+    const int generation = ++m_costHistoryBuildGeneration;
+    const QVector<ProviderCostUsageSnapshot> allProviders = m_allProviderCostUsage;
+
+    m_backend->dispatchValueJob("costHistory", generation,
+        [allProviders, providerId]() -> QVariant {
+            QVariantList points = ChartDataProvider::buildCostHistory(allProviders, providerId);
+            QVariantMap wrapper;
+            wrapper["providerId"] = providerId;
+            wrapper["points"] = points;
+            return wrapper;
+        });
+}
+
+void UsageStore::requestCreditsHistory()
+{
+    if (m_creditsHistoryCacheValid || m_creditsHistoryBuildQueued) return;
+
+    m_creditsHistoryBuildQueued = true;
+    const int generation = ++m_creditsHistoryBuildGeneration;
+    const std::optional<CreditsSnapshot> credits = cachedCodexCredits();
+    const QVector<CostUsageDailyEntry> daily = m_costUsage.daily;
+
+    m_backend->dispatchValueJob("creditsHistory", generation,
+        [credits, daily]() -> QVariant {
+            return QVariant::fromValue(
+                ChartDataProvider::buildCreditsHistory(credits, daily));
+        });
+}
+
+void UsageStore::requestUsageBreakdown(const QString& providerId)
+{
+    if (m_usageBreakdownBuildQueued) return;
+
+    m_usageBreakdownBuildQueued = true;
+    const int generation = ++m_usageBreakdownBuildGeneration;
+    const QVariantMap dashboard = m_refreshCoordinator
+        ? m_refreshCoordinator->dashboardData(providerId) : QVariantMap();
+
+    m_backend->dispatchValueJob("usageBreakdown", generation,
+        [dashboard, providerId]() -> QVariant {
+            QVariantList points = ChartDataProvider::buildUsageBreakdown(dashboard);
+            QVariantMap wrapper;
+            wrapper["providerId"] = providerId;
+            wrapper["points"] = points;
+            return wrapper;
+        });
 }
 
 QVariantList UsageStore::providerList() const {
@@ -2331,6 +2483,14 @@ void UsageStore::clearCodexOpenAIWebState()
 
     emit snapshotChanged("codex");
     m_uiService->invalidateSnapshotDataCache(QStringLiteral("codex"));
+
+    // Invalidate codex-dependent chart caches
+    m_creditsHistoryCache.clear();
+    m_creditsHistoryCacheValid = false;
+    m_usageBreakdownCache.clear();
+    m_usageBreakdownCacheValid = false;
+    m_costHistoryChartCache.clear();
+    m_costHistoryCacheValid = false;
     emit snapshotRevisionChanged();
     emit codexCreditsChanged();
     emit codexFetchAttemptsChanged();

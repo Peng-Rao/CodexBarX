@@ -101,6 +101,14 @@ public:
     Q_INVOKABLE QVariantList utilizationChartData(const QString& providerId, const QString& seriesName) const;
     Q_INVOKABLE QVariantList codexFetchAttempts() const;
     Q_INVOKABLE QVariantMap providerDashboardData(const QString& providerId) const;
+
+    // Chart data (Phase A - async, from cache)
+    Q_INVOKABLE QVariantList costHistoryChartData(const QString& providerId) const;
+    Q_INVOKABLE QVariantList creditsHistoryData() const;
+    Q_INVOKABLE QVariantList usageBreakdownData(const QString& providerId) const;
+    void requestCostHistory(const QString& providerId);
+    void requestCreditsHistory();
+    void requestUsageBreakdown(const QString& providerId);
     QVariantMap codexConsumerProjectionData() const;
     QString lastKnownSessionWindowSource() const;
 
@@ -201,6 +209,11 @@ signals:
     void codexCreditsChanged();
     void codexFetchAttemptsChanged();
     void lastKnownSessionWindowSourceChanged();
+
+    // Chart data signals
+    void costHistoryChanged();
+    void creditsHistoryChanged();
+    void usageBreakdownChanged();
 
 private:
     struct CodexAccountRefreshGuard {
@@ -323,6 +336,20 @@ private:
     QHash<QString, QString> m_connectionTestRequestProviderIds;
     QHash<QString, CodexAccountRefreshGuard> m_backendCodexCreditGuards;
     QHash<QString, QByteArray> m_backendSecretValues;
+
+    // Chart data caches (Phase A)
+    mutable QHash<QString, QVariantList> m_costHistoryChartCache;
+    mutable QVariantList m_creditsHistoryCache;
+    mutable QHash<QString, QVariantList> m_usageBreakdownCache;
+    mutable bool m_costHistoryCacheValid = false;
+    mutable bool m_creditsHistoryCacheValid = false;
+    mutable bool m_usageBreakdownCacheValid = false;
+    mutable int m_costHistoryBuildGeneration = 0;
+    mutable int m_creditsHistoryBuildGeneration = 0;
+    mutable int m_usageBreakdownBuildGeneration = 0;
+    mutable bool m_costHistoryBuildQueued = false;
+    mutable bool m_creditsHistoryBuildQueued = false;
+    mutable bool m_usageBreakdownBuildQueued = false;
 
     // Codex credits cache
     struct CodexCreditsCache {
