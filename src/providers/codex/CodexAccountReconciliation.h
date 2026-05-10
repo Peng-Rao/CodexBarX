@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CodexActiveSource.h"
 #include "CodexIdentity.h"
 #include "ManagedCodexAccount.h"
 #include "CodexSystemAccountObserver.h"
@@ -7,11 +8,6 @@
 #include <QVector>
 #include <QHash>
 #include <optional>
-
-enum class CodexActiveSource {
-    LiveSystem,
-    ManagedAccount
-};
 
 struct CodexResolvedActiveSource {
     CodexActiveSource persistedSource;
