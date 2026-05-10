@@ -28,18 +28,28 @@ TrayViewModel::TrayViewModel(UsageStore* store, QObject* parent)
     connect(m_store, &UsageStore::costUsageChanged,
             this, &TrayViewModel::syncCostData);
     connect(m_store, &UsageStore::providerIDsChanged,
-            this, &TrayViewModel::providerSwitcherListChanged);
+            this, [this]() {
+        emit providerSwitcherListChanged();
+        bumpProviderDataRevision();
+        if (!m_selectedProviderID.isEmpty() && !m_store->isProviderEnabled(m_selectedProviderID)) {
+            setSelectedProviderID(QString());
+        }
+    });
     connect(m_store, &UsageStore::providerDescriptorChanged,
-            this, &TrayViewModel::providerSwitcherListChanged);
+            this, [this](const QString& id) {
+        emit providerSwitcherListChanged();
+        bumpProviderDataRevision();
+        if (!m_selectedProviderID.isEmpty() && !m_store->isProviderEnabled(m_selectedProviderID)) {
+            setSelectedProviderID(QString());
+        }
+        Q_UNUSED(id)
+    });
     connect(m_store, &UsageStore::snapshotChanged,
             this, &TrayViewModel::providerSwitcherListChanged);
     connect(m_store, &UsageStore::snapshotRevisionChanged,
             this, &TrayViewModel::providerSwitcherListChanged);
     connect(m_store, &UsageStore::snapshotRevisionChanged,
-            this, [this]() {
-        ++m_providerDataRevision;
-        emit providerDataChanged();
-    });
+            this, &TrayViewModel::bumpProviderDataRevision);
     connect(m_store, &UsageStore::codexAccountStateChanged,
             this, [this]() {
         emit codexAccountStateChanged();
@@ -49,6 +59,12 @@ TrayViewModel::TrayViewModel(UsageStore* store, QObject* parent)
     });
 
     syncCostData();
+}
+
+void TrayViewModel::bumpProviderDataRevision()
+{
+    ++m_providerDataRevision;
+    emit providerDataChanged();
 }
 
 void TrayViewModel::refresh()

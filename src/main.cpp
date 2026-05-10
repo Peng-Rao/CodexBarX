@@ -5,6 +5,7 @@
 #include <QDebug>
 #include <QFile>
 #include <QMessageBox>
+#include <QProcess>
 #include <QQuickItem>
 #include <QQuickView>
 #include <QScreen>
@@ -231,6 +232,24 @@ public:
         emit forceQuitRequested();
     }
 
+    Q_INVOKABLE void showAbout() {
+        emit aboutRequested();
+    }
+
+    Q_INVOKABLE void openTerminal(const QString& command) {
+#ifdef Q_OS_WIN
+        QString cmd = QString("start cmd /k \"%1\"").arg(command);
+        QProcess::startDetached("cmd", {"/c", QString("start cmd /k %1").arg(command)});
+#else
+        QProcess::startDetached("x-terminal-emulator", {"-e", command});
+#endif
+    }
+
+    Q_INVOKABLE void copyWithFeedback(const QString& text) {
+        copyText(text);
+        emit copyFeedbackTriggered(text);
+    }
+
     Q_INVOKABLE void openExternalUrl(const QString& url) {
         QDesktopServices::openUrl(QUrl(url));
     }
@@ -258,6 +277,8 @@ signals:
     void settingsMaximizedChanged();
     void usageVisibleChanged();
     void forceQuitRequested();
+    void aboutRequested();
+    void copyFeedbackTriggered(const QString& text);
 };
 
 static void dumpQuickItemTree(QQuickItem* item, int depth = 0) {
@@ -602,7 +623,7 @@ int main(int argc, char* argv[]) {
     QObject::connect(&trayCtrl, &StatusItemController::settingsRequested, appController,
                      &AppController::toggleSettings);
 
-    QObject::connect(&trayCtrl, &StatusItemController::aboutRequested, &app, [&app]() {
+    auto showAboutDialog = [&app]() {
         const QString body = QString("%1\n\n%2\n\n%3\n%4")
             .arg(QCoreApplication::translate("App", "CodexBarX v0.1.0"),
                  QCoreApplication::translate(
@@ -613,7 +634,10 @@ int main(int argc, char* argv[]) {
         QMessageBox::about(nullptr,
                 QCoreApplication::translate("App", "About CodexBarX"),
             body);
-    });
+    };
+
+    QObject::connect(&trayCtrl, &StatusItemController::aboutRequested, &app, showAboutDialog);
+    QObject::connect(appController, &AppController::aboutRequested, &app, showAboutDialog);
 
     QObject::connect(&SessionQuotaNotifier::instance(), &SessionQuotaNotifier::notificationRequested,
                      &trayCtrl, [&trayCtrl](const QString& title, const QString& body) {

@@ -26,6 +26,7 @@
         <file alias="qml/components/ProviderDetailCard.qml">../qml/components/ProviderDetailCard.qml</file>
         <file alias="qml/components/CodexAccountSwitcher.qml">../qml/components/CodexAccountSwitcher.qml</file>
         <file alias="qml/components/TokenAccountSwitcher.qml">../qml/components/TokenAccountSwitcher.qml</file>
+        <file alias="qml/components/TrayMenuActions.qml">../qml/components/TrayMenuActions.qml</file>
         <file alias="qml/components/CodexAccountsPane.qml">../qml/components/CodexAccountsPane.qml</file>
         <file alias="qml/components/TokenAccountsPane.qml">../qml/components/TokenAccountsPane.qml</file>
         <file alias="qml/panes/GeneralPane.qml">../qml/panes/GeneralPane.qml</file>
