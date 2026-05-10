@@ -536,6 +536,17 @@ Rectangle {
                 }
             }
 
+            // Cost History Chart (Phase B)
+            Loader {
+                Layout.fillWidth: true
+                Layout.preferredHeight: active ? item.implicitHeight : 0
+                active: root.providerId === "codex" || root.providerId === "claude"
+                sourceComponent: CostHistoryChart {
+                    providerId: root.providerId
+                    points: UsageStore.costHistoryChartData(root.providerId)
+                }
+            }
+
             // Codex Dashboard Details
             ColumnLayout {
                 Layout.fillWidth: true
