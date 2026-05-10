@@ -21,6 +21,7 @@ class TrayViewModel : public QObject {
     Q_PROPERTY(bool providerSwitching READ providerSwitching NOTIFY providerSwitchingChanged)
     Q_PROPERTY(QVariantList providerSwitcherList READ providerSwitcherList NOTIFY providerSwitcherListChanged)
     Q_PROPERTY(QVariantMap codexAccountState READ codexAccountState NOTIFY codexAccountStateChanged)
+    Q_PROPERTY(int providerDataRevision READ providerDataRevision NOTIFY providerDataChanged)
 
 public:
     explicit TrayViewModel(UsageStore* store, QObject* parent = nullptr);
@@ -36,6 +37,7 @@ public:
     bool providerSwitching() const { return m_providerSwitching; }
     QVariantList providerSwitcherList() const;
     QVariantMap codexAccountState() const;
+    int providerDataRevision() const { return m_providerDataRevision; }
 
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void refreshProvider(const QString& providerId);
@@ -58,6 +60,7 @@ signals:
     void providerSwitchingChanged();
     void providerSwitcherListChanged();
     void codexAccountStateChanged();
+    void providerDataChanged();
 
 private:
     void syncRefreshing();
@@ -74,4 +77,5 @@ private:
     QVariantList m_providerCostRows;
     QString m_selectedProviderID;
     bool m_providerSwitching = false;
+    int m_providerDataRevision = 0;
 };

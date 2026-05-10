@@ -12,12 +12,19 @@ QString BinaryLocator::resolve(const QString& name) {
         return envPath;
     }
 
-    QStringList searchPaths = {
-        QStandardPaths::writableLocation(QStandardPaths::HomeLocation) + "/.local/bin/" + name + ".exe",
-        "C:/Program Files/" + name + "/" + name + ".exe",
-        QStandardPaths::writableLocation(QStandardPaths::HomeLocation) + "/." + name + "/bin/" + name + ".exe",
-        QStandardPaths::writableLocation(QStandardPaths::HomeLocation) + "/.homebrew/bin/" + name + ".exe",
-    };
+    // Codex desktop app paths (Windows)
+    QString localAppData = qEnvironmentVariable("LOCALAPPDATA");
+    QStringList searchPaths;
+    if (name == "codex" && !localAppData.isEmpty()) {
+        searchPaths.append(localAppData + "/OpenAI/Codex/bin/codex.exe");
+        searchPaths.append(localAppData + "/Programs/codex/codex.exe");
+    }
+
+    // Generic search paths
+    searchPaths.append(QStandardPaths::writableLocation(QStandardPaths::HomeLocation) + "/.local/bin/" + name + ".exe");
+    searchPaths.append("C:/Program Files/" + name + "/" + name + ".exe");
+    searchPaths.append(QStandardPaths::writableLocation(QStandardPaths::HomeLocation) + "/." + name + "/bin/" + name + ".exe");
+    searchPaths.append(QStandardPaths::writableLocation(QStandardPaths::HomeLocation) + "/.homebrew/bin/" + name + ".exe");
 
     for (const auto& path : searchPaths) {
         if (QFileInfo::exists(path)) {

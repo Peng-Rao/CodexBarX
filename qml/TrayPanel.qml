@@ -31,6 +31,9 @@ Rectangle {
     // Phase 3: Codex account state
     property var codexAccountState: TrayViewModel.codexAccountState || ({})
 
+    // Phase 3: Codex accounts (derived from codexAccountState)
+    property var codexAccounts: root.codexAccountState && root.codexAccountState.accounts ? root.codexAccountState.accounts : []
+
     Component.onCompleted: TrayViewModel.requestCostUsageViewData()
     onCostExpandedChanged: refreshProviderCostRows()
 
@@ -39,6 +42,12 @@ Rectangle {
         function onCostUsageRefreshingChanged() { root.refreshCostSummary() }
         function onCostDataChanged() { root.refreshCostSummary() }
         function onProviderCostRowsChanged() { root.refreshProviderCostRows() }
+        function onCodexAccountStateChanged() {
+            root.codexAccountState = TrayViewModel.codexAccountState || ({})
+        }
+        function onProviderDataChanged() {
+            detailFlickable.refreshDetailData()
+        }
         function onIsRefreshingChanged() {
             root.isRefreshing = TrayViewModel.isRefreshing
             if (root.isRefreshing) {
@@ -151,7 +160,6 @@ Rectangle {
         }
 
         // === Codex Account Switcher (Phase 3) ===
-        property var codexAccounts: root.codexAccountState && root.codexAccountState.accounts ? root.codexAccountState.accounts : []
         Components.CodexAccountSwitcher {
             id: codexAccountSwitcher
             Layout.fillWidth: true
@@ -1212,14 +1220,21 @@ Rectangle {
             contentHeight: detailColumn.implicitHeight
             clip: true
 
-            property var detailData: TrayViewModel.providerData(root.selectedProviderID) || ({})
+            property var detailData: ({})
+
+            function refreshDetailData() {
+                detailData = TrayViewModel.providerData(root.selectedProviderID) || ({})
+            }
+
+            Component.onCompleted: refreshDetailData()
+            onVisibleChanged: if (visible) refreshDetailData()
 
             Column {
                 id: detailColumn
                 width: parent.width
                 spacing: 4
 
-                // Token Account Switcher (Phase 3)
+                // Token Account Switcher (Phase 3) - for non-codex providers
                 Components.TokenAccountSwitcher {
                     id: tokenAccountSwitcher
                     width: parent.width - 24

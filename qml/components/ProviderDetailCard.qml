@@ -532,6 +532,7 @@ Rectangle {
                     providerId: root.providerId
                     hasTertiarySeries: snap.hasTertiary === true
                     tertiarySeriesLabel: snap.opusLabel || qsTr("Opus")
+                    dataRevision: TrayViewModel.providerDataRevision
                 }
             }
 

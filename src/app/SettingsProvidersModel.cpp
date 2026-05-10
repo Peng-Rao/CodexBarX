@@ -439,7 +439,7 @@ void SettingsProvidersModel::syncTokenOperationState()
 void SettingsProvidersModel::syncCodexState()
 {
     QVariantMap next;
-    if (m_store && m_selectedProvider == QLatin1String("codex")) {
+    if (m_store) {
         next = m_store->codexAccountState();
     }
     if (m_codexAccountState != next) {

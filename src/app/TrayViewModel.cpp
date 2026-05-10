@@ -35,8 +35,18 @@ TrayViewModel::TrayViewModel(UsageStore* store, QObject* parent)
             this, &TrayViewModel::providerSwitcherListChanged);
     connect(m_store, &UsageStore::snapshotRevisionChanged,
             this, &TrayViewModel::providerSwitcherListChanged);
+    connect(m_store, &UsageStore::snapshotRevisionChanged,
+            this, [this]() {
+        ++m_providerDataRevision;
+        emit providerDataChanged();
+    });
     connect(m_store, &UsageStore::codexAccountStateChanged,
-            this, &TrayViewModel::codexAccountStateChanged);
+            this, [this]() {
+        emit codexAccountStateChanged();
+        // Also update provider data when codex account state changes
+        ++m_providerDataRevision;
+        emit providerDataChanged();
+    });
 
     syncCostData();
 }

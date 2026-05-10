@@ -12,16 +12,15 @@ Rectangle {
 
     signal selectAccount(string accountID)
 
-    width: parent ? parent.width - 24 : 276
-    implicitHeight: accounts.length > 1 ? 34 : 0
+    implicitWidth: 276
+    implicitHeight: accounts.length > 1 ? 40 : 0
     height: implicitHeight
     radius: AppTheme.radiusMd
     color: AppTheme.bgSecondary
     visible: accounts.length > 1
 
-    property int perRow: accounts.length <= 3 ? accounts.length : Math.ceil(accounts.length / 2)
-
     Row {
+        id: buttonRow
         anchors.fill: parent
         anchors.margins: 4
         spacing: 4
@@ -29,47 +28,88 @@ Rectangle {
         Repeater {
             model: root.accounts
 
-            Rectangle {
-                id: btn
-                width: Math.max(44, Math.floor((root.width - 8 - Math.max(0, root.perRow - 1) * 4) / root.perRow))
-                height: 26
-                radius: 6
+            Item {
+                id: btnContainer
+                width: 32
+                height: 32 + (tooltip.visible ? tooltip.height + 6 : 0)
 
-                property bool isSelected: modelData.id === root.selectedAccountID
+                property bool isAccountActive: modelData.isActive === true
+                property bool isAccountLive: modelData.isLive === true
 
-                color: {
-                    if (isSelected) return AppTheme.accentColor
-                    if (btnHover.hovered) return AppTheme.bgHover
-                    return "transparent"
-                }
+                Rectangle {
+                    id: btn
+                    width: 32
+                    height: 32
+                    radius: 16
+                    anchors.top: parent.top
 
-                Behavior on color {
-                    ColorAnimation { duration: 120; easing.type: Easing.OutQuad }
-                }
+                    // 背景色：系统账户绿色，其他账户紫色
+                    color: btnContainer.isAccountLive ? "#4CAF50" : "#6b6bff"
 
-                Text {
-                    anchors.centerIn: parent
-                    text: modelData.displayName || modelData.email || "Account"
-                    font.pixelSize: AppTheme.fontSizeSm
-                    color: btn.isSelected ? "#ffffff" : AppTheme.textSecondary
-                    elide: Text.ElideRight
-                    maximumLineCount: 1
-                    width: parent.width - 8
-                    horizontalAlignment: Text.AlignHCenter
-                }
+                    // 选中的账户显示白色边框
+                    border.width: btnContainer.isAccountActive ? 2 : 0
+                    border.color: "#ffffff"
 
-                TapHandler {
-                    enabled: !root.isSwitching
-                    onTapped: {
-                        if (modelData.id !== root.selectedAccountID) {
-                            root.selectAccount(modelData.id)
+                    // 首字母
+                    Text {
+                        anchors.centerIn: parent
+                        property string name: modelData.displayName || ""
+                        property string email: modelData.email || ""
+                        text: btnContainer.isAccountLive ? "S" : (name ? name.charAt(0).toUpperCase() :
+                                              (email ? email.charAt(0).toUpperCase() : "A"))
+                        color: "#ffffff"
+                        font.pixelSize: 14
+                        font.bold: true
+                    }
+
+                    MouseArea {
+                        id: mouseArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        enabled: !root.isSwitching
+                        onClicked: {
+                            if (!btnContainer.isAccountActive) {
+                                root.selectAccount(modelData.id)
+                            }
                         }
+                    }
+
+                    Behavior on color {
+                        ColorAnimation { duration: 120; easing.type: Easing.OutQuad }
                     }
                 }
 
-                HoverHandler {
-                    id: btnHover
-                    cursorShape: Qt.PointingHandCursor
+                // Tooltip 显示在上方
+                Rectangle {
+                    id: tooltip
+                    visible: mouseArea.containsMouse
+                    x: btn.width / 2 - width / 2
+                    y: -height - 6
+                    width: tooltipText.implicitWidth + 12
+                    height: tooltipText.implicitHeight + 8
+                    radius: 4
+                    color: "#1a1a2e"
+                    border.color: "#2a2a4a"
+                    border.width: 1
+                    z: 1000
+
+                    Text {
+                        id: tooltipText
+                        anchors.centerIn: parent
+                        property string name: modelData.displayName || ""
+                        property string email: modelData.email || ""
+                        text: {
+                            var parts = []
+                            if (name) parts.push(name)
+                            if (email && email !== name) parts.push(email)
+                            if (btnContainer.isAccountLive) parts.push("(" + qsTr("System") + ")")
+                            return parts.length > 0 ? parts.join("\n") : "Account"
+                        }
+                        color: "#ffffff"
+                        font.pixelSize: 11
+                        wrapMode: Text.WordWrap
+                    }
                 }
             }
         }

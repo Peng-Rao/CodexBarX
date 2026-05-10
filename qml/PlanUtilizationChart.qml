@@ -14,6 +14,7 @@ Rectangle {
     property string tertiarySeriesLabel: qsTr("Opus")
     property string noDataText: qsTr("No session utilization data yet.")
     property int rev: LanguageManager.translationRevision
+    property int dataRevision: 0
     property bool ready: false
 
     color: "#1c1c32"
@@ -202,6 +203,10 @@ Rectangle {
     }
 
     onTertiarySeriesLabelChanged: {
+        refreshChart()
+    }
+
+    onDataRevisionChanged: {
         refreshChart()
     }
 
