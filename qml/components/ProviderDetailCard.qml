@@ -546,6 +546,26 @@ Rectangle {
                 }
             }
 
+            // Credits History Chart (Phase C) — Codex only
+            Loader {
+                Layout.fillWidth: true
+                Layout.preferredHeight: active ? item.implicitHeight : 0
+                active: root.providerId === "codex"
+                sourceComponent: CreditsHistoryChart {
+                    points: UsageStore.creditsHistoryData()
+                }
+            }
+
+            // Usage Breakdown Chart (Phase C) — Codex only
+            Loader {
+                Layout.fillWidth: true
+                Layout.preferredHeight: active ? item.implicitHeight : 0
+                active: root.providerId === "codex"
+                sourceComponent: UsageBreakdownChart {
+                    points: UsageStore.usageBreakdownData(root.providerId)
+                }
+            }
+
             // Codex Dashboard Details
             ColumnLayout {
                 Layout.fillWidth: true

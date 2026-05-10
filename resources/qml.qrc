@@ -31,6 +31,8 @@
         <file alias="qml/components/DeleteConfirmationDialog.qml">../qml/components/DeleteConfirmationDialog.qml</file>
         <file alias="qml/components/ChartHoverDetail.qml">../qml/components/ChartHoverDetail.qml</file>
         <file alias="qml/components/CostHistoryChart.qml">../qml/components/CostHistoryChart.qml</file>
+        <file alias="qml/components/CreditsHistoryChart.qml">../qml/components/CreditsHistoryChart.qml</file>
+        <file alias="qml/components/UsageBreakdownChart.qml">../qml/components/UsageBreakdownChart.qml</file>
         <file alias="qml/components/CodexAccountsPane.qml">../qml/components/CodexAccountsPane.qml</file>
         <file alias="qml/components/TokenAccountsPane.qml">../qml/components/TokenAccountsPane.qml</file>
         <file alias="qml/panes/GeneralPane.qml">../qml/panes/GeneralPane.qml</file>
