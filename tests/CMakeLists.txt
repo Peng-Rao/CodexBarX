@@ -500,3 +500,10 @@ target_include_directories(tst_ClaudeCLISession PRIVATE ${COMMON_INCLUDE})
 target_compile_definitions(tst_ClaudeCLISession PRIVATE ${COMMON_DEFINES})
 target_link_libraries(tst_ClaudeCLISession PRIVATE codexbar_core Qt6::Core Qt6::Test)
 add_wincodexbar_test(tst_ClaudeCLISession tst_ClaudeCLISession)
+
+# ClaudePersistentCLISession unit tests
+add_executable(tst_ClaudePersistentCLISession tst_ClaudePersistentCLISession.cpp)
+target_include_directories(tst_ClaudePersistentCLISession PRIVATE ${COMMON_INCLUDE})
+target_compile_definitions(tst_ClaudePersistentCLISession PRIVATE ${COMMON_DEFINES})
+target_link_libraries(tst_ClaudePersistentCLISession PRIVATE codexbar_core Qt6::Core Qt6::Test)
+add_wincodexbar_test(tst_ClaudePersistentCLISession tst_ClaudePersistentCLISession)

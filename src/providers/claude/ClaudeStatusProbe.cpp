@@ -4,26 +4,33 @@
 #include <QRegularExpression>
 #include <QStringList>
 
-ClaudeStatusProbe::ParseResult ClaudeStatusProbe::parse(const QString& usageOutput)
+ClaudeStatusProbe::ParseResult ClaudeStatusProbe::parse(const QString& usageOutput, const QString& statusOutput)
 {
     ParseResult result;
 
     // Strip ANSI escape codes
     QString clean = TextParser::stripAnsiEscapes(usageOutput);
-    if (clean.isEmpty()) {
+    QString cleanStatus = TextParser::stripAnsiEscapes(statusOutput);
+    QString combined = clean;
+    if (!cleanStatus.isEmpty()) {
+        if (!combined.isEmpty()) combined.append('\n');
+        combined.append(cleanStatus);
+    }
+
+    if (combined.isEmpty()) {
         result.error = ParseError::EmptyOutput;
         result.errorMessage = "Empty output from Claude CLI";
         return result;
     }
 
     // Check for errors first
-    if (auto error = extractError(clean)) {
+    if (auto error = extractError(combined)) {
         result.errorMessage = *error;
-        if (isNotLoggedInError(clean)) {
+        if (isNotLoggedInError(combined)) {
             result.error = ParseError::NotLoggedIn;
-        } else if (isTokenExpiredError(clean)) {
+        } else if (isTokenExpiredError(combined)) {
             result.error = ParseError::TokenExpired;
-        } else if (isTrustPrompt(clean)) {
+        } else if (isTrustPrompt(combined)) {
             result.error = ParseError::TrustPrompt;
         } else {
             result.error = ParseError::ParseFailed;
@@ -88,11 +95,12 @@ ClaudeStatusProbe::ParseResult ClaudeStatusProbe::parse(const QString& usageOutp
     result.snapshot.opusResetDescription = extractResetDescription("Current week (Opus)", panelText);
 
     // Extract account info
-    result.snapshot.accountEmail = extractEmail(clean);
-    result.snapshot.accountOrganization = extractOrganization(clean);
-    result.snapshot.loginMethod = extractLoginMethod(clean);
+    const QString identityText = cleanStatus.isEmpty() ? clean : cleanStatus + '\n' + clean;
+    result.snapshot.accountEmail = extractEmail(identityText);
+    result.snapshot.accountOrganization = extractOrganization(identityText);
+    result.snapshot.loginMethod = extractLoginMethod(identityText);
 
-    result.snapshot.rawText = clean;
+    result.snapshot.rawText = combined;
     result.success = true;
     return result;
 }
@@ -113,6 +121,10 @@ std::optional<QString> ClaudeStatusProbe::extractError(const QString& text)
 
     if (isTrustPrompt(text)) {
         return "Claude CLI is waiting for a folder trust prompt. Open claude once and choose 'Yes, proceed'.";
+    }
+
+    if (isNotLoggedInError(text)) {
+        return "Claude CLI is not logged in. Run `claude login`.";
     }
 
     if (lower.contains("token_expired") || lower.contains("token has expired")) {

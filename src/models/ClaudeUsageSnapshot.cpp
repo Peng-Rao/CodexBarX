@@ -17,6 +17,20 @@ std::optional<QDateTime> ClaudeOAuthWindow::resetsAtTime() const {
     return std::nullopt;
 }
 
+static void applyReset(RateWindow& rw, const ClaudeOAuthWindow& window)
+{
+    if (auto resetTime = window.resetsAtTime()) {
+        rw.resetsAt = *resetTime;
+        return;
+    }
+    if (window.resetsAt.has_value()) {
+        QString resetDescription = window.resetsAt->trimmed();
+        if (!resetDescription.isEmpty()) {
+            rw.resetDescription = resetDescription;
+        }
+    }
+}
+
 bool ClaudeUsageSnapshot::isValid() const {
     return fiveHour.utilization.has_value() || sevenDay.utilization.has_value();
 }
@@ -28,7 +42,7 @@ UsageSnapshot ClaudeUsageSnapshot::toUsageSnapshot() const {
         RateWindow rw;
         rw.usedPercent = *fiveHour.utilization;
         rw.windowMinutes = 300;
-        rw.resetsAt = fiveHour.resetsAtTime();
+        applyReset(rw, fiveHour);
         snap.primary = rw;
     }
 
@@ -36,7 +50,7 @@ UsageSnapshot ClaudeUsageSnapshot::toUsageSnapshot() const {
         RateWindow rw;
         rw.usedPercent = *sevenDay.utilization;
         rw.windowMinutes = 10080;
-        rw.resetsAt = sevenDay.resetsAtTime();
+        applyReset(rw, sevenDay);
         snap.secondary = rw;
     }
 
@@ -50,8 +64,8 @@ UsageSnapshot ClaudeUsageSnapshot::toUsageSnapshot() const {
         RateWindow rw;
         rw.usedPercent = *opusPercent;
         rw.windowMinutes = 10080;
-        if (sevenDaySonnet.has_value()) rw.resetsAt = sevenDaySonnet->resetsAtTime();
-        else if (sevenDayOpus.has_value()) rw.resetsAt = sevenDayOpus->resetsAtTime();
+        if (sevenDaySonnet.has_value()) applyReset(rw, *sevenDaySonnet);
+        else if (sevenDayOpus.has_value()) applyReset(rw, *sevenDayOpus);
         snap.tertiary = rw;
     }
 
@@ -61,7 +75,7 @@ UsageSnapshot ClaudeUsageSnapshot::toUsageSnapshot() const {
         nrw.title = "Designs";
         nrw.window.usedPercent = *sevenDayDesign->utilization;
         nrw.window.windowMinutes = 10080;
-        nrw.window.resetsAt = sevenDayDesign->resetsAtTime();
+        applyReset(nrw.window, *sevenDayDesign);
         snap.extraRateWindows.append(nrw);
     }
 
@@ -71,7 +85,7 @@ UsageSnapshot ClaudeUsageSnapshot::toUsageSnapshot() const {
         nrw.title = "Routines";
         nrw.window.usedPercent = *sevenDayRoutines->utilization;
         nrw.window.windowMinutes = 10080;
-        nrw.window.resetsAt = sevenDayRoutines->resetsAtTime();
+        applyReset(nrw.window, *sevenDayRoutines);
         snap.extraRateWindows.append(nrw);
     }
 
@@ -81,7 +95,7 @@ UsageSnapshot ClaudeUsageSnapshot::toUsageSnapshot() const {
         nrw.title = "OAuth Apps";
         nrw.window.usedPercent = *sevenDayOAuthApps->utilization;
         nrw.window.windowMinutes = 10080;
-        nrw.window.resetsAt = sevenDayOAuthApps->resetsAtTime();
+        applyReset(nrw.window, *sevenDayOAuthApps);
         snap.extraRateWindows.append(nrw);
     }
 
@@ -90,7 +104,7 @@ UsageSnapshot ClaudeUsageSnapshot::toUsageSnapshot() const {
         nrw.id = "claude-iguana-necktie";
         nrw.title = "Iguana Necktie";
         nrw.window.usedPercent = *iguanaNecktie->utilization;
-        nrw.window.resetsAt = iguanaNecktie->resetsAtTime();
+        applyReset(nrw.window, *iguanaNecktie);
         snap.extraRateWindows.append(nrw);
     }
 

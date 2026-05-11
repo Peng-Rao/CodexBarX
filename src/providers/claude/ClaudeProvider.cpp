@@ -319,7 +319,7 @@ ProviderFetchResult ClaudeCLIStrategy::fetchSync(const ProviderFetchContext& ctx
     session.setEnvironment(ctx.env);
     session.setTimeout(ctx.networkTimeoutMs);
 
-    auto captureResult = session.captureUsage(ctx.networkTimeoutMs);
+    auto captureResult = session.captureUsageAndStatus(ctx.networkTimeoutMs);
     if (!captureResult.success) {
         result.success = false;
         result.errorMessage = captureResult.errorMessage;
@@ -327,7 +327,8 @@ ProviderFetchResult ClaudeCLIStrategy::fetchSync(const ProviderFetchContext& ctx
     }
 
     // 3. Parse output
-    auto parseResult = ClaudeStatusProbe::parse(captureResult.output);
+    auto parseResult = ClaudeStatusProbe::parse(captureResult.usageOutput,
+                                                captureResult.statusOutput);
     if (!parseResult.success) {
         result.success = false;
         result.errorMessage = parseResult.errorMessage;

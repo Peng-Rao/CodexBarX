@@ -51,7 +51,7 @@ public:
     };
 
     // Main parsing entry point
-    static ParseResult parse(const QString& usageOutput);
+    static ParseResult parse(const QString& usageOutput, const QString& statusOutput = {});
 
     // Utility methods
     static bool hasRelevantOutput(const QString& text);
