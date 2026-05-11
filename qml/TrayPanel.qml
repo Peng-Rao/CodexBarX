@@ -7,8 +7,8 @@ import "components" as Components
 
 Rectangle {
     id: root
-    width: 300
-    height: 600
+    width: 360
+    height: 720
     color: "#1a1a2e"
     radius: 12
     clip: true

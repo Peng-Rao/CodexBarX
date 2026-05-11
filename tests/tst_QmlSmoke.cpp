@@ -240,6 +240,8 @@ public:
     Q_INVOKABLE QVariantMap codexAccountState() const { return {}; }
     Q_INVOKABLE QVariantList codexFetchAttempts() const { return {}; }
     Q_INVOKABLE QVariantList utilizationChartData(const QString&, const QString&) const { return {}; }
+    Q_INVOKABLE QVariantList storageBreakdownData(const QString&) const { return {}; }
+    Q_INVOKABLE QVariantList storageCleanupData(const QString&) const { return {}; }
     Q_INVOKABLE QVariantList costHistoryChartData(const QString& providerId) const {
         ++costHistoryChartDataCalls;
         lastCostHistoryProvider = providerId;

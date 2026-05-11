@@ -3,6 +3,7 @@
 #include "ChartDataProvider.h"
 #include "CostUsageService.h"
 #include "Localization.h"
+#include "ProviderStorageScanner.h"
 #include "PlanUtilizationHistoryStore.h"
 #include "SessionQuotaNotifications.h"
 #include "UsageBackend.h"
@@ -1318,6 +1319,22 @@ void UsageStore::handleBackendResult(const UsageBackendResult& result)
         return;
     }
 
+    if (result.kind == QLatin1String("storageBreakdown")) {
+        const QVariantMap wrapper = result.payload.toMap();
+        const QString pid = wrapper.value("providerId").toString();
+        m_storageBreakdownRequestProviders.remove(result.generation);
+        if (!result.success) {
+            qWarning() << "Storage breakdown build failed:" << result.message;
+            return;
+        }
+        const QVariantList storageItems = wrapper.value("storageItems").toList();
+        const QVariantList cleanupItems = wrapper.value("cleanupItems").toList();
+        m_storageBreakdownCache.insert(pid, storageItems);
+        m_storageCleanupCache.insert(pid, cleanupItems);
+        emit storageBreakdownChanged(pid);
+        return;
+    }
+
     if (result.kind == QLatin1String("codexAccountReconciliation")) {
         if (!result.success) {
             qWarning() << "Codex account reconciliation backend job failed:" << result.message;
@@ -1637,6 +1654,82 @@ QVariantList UsageStore::usageBreakdownData(const QString& providerId) const
         self->requestUsageBreakdown(providerId);
     }, Qt::QueuedConnection);
     return {};
+}
+
+QVariantList UsageStore::storageBreakdownData(const QString& providerId) const
+{
+    auto it = m_storageBreakdownCache.find(providerId);
+    if (it != m_storageBreakdownCache.end() && !it->isEmpty()) {
+        return *it;
+    }
+    auto self = const_cast<UsageStore*>(this);
+    QMetaObject::invokeMethod(self, [self, providerId]() {
+        self->requestStorageBreakdown(providerId);
+    }, Qt::QueuedConnection);
+    return {};
+}
+
+QVariantList UsageStore::storageCleanupData(const QString& providerId) const
+{
+    auto it = m_storageCleanupCache.find(providerId);
+    if (it != m_storageCleanupCache.end()) {
+        return *it;
+    }
+    return {};
+}
+
+void UsageStore::requestStorageBreakdown(const QString& providerId)
+{
+    const QString scopedProviderId = providerId.trimmed();
+    if (scopedProviderId.isEmpty()) {
+        return;
+    }
+
+    // Check cache
+    if (m_storageBreakdownCache.contains(scopedProviderId)) {
+        return;
+    }
+
+    // Scan storage on background thread
+    const auto request = m_backend->dispatchValueJob(QStringLiteral("storageBreakdown"), 0,
+        [scopedProviderId]() -> QVariant {
+            ProviderStorageFootprint footprint = ProviderStorageScanner::scanProvider(scopedProviderId);
+            QVariantMap wrapper;
+            wrapper["providerId"] = scopedProviderId;
+            wrapper["storageItems"] = ChartDataProvider::buildStorageBreakdown(
+                [](const ProviderStorageFootprint& fp) -> QVector<StorageComponent> {
+                    QVector<StorageComponent> result;
+                    for (const auto& c : fp.components) {
+                        StorageComponent sc;
+                        sc.path = c.path;
+                        sc.bytes = c.bytes;
+                        sc.canCopy = c.canCopy;
+                        result.append(sc);
+                    }
+                    return result;
+                }(footprint),
+                8);
+            wrapper["cleanupItems"] = ChartDataProvider::buildCleanupItems(
+                [](const ProviderStorageFootprint& fp) -> QVector<StorageCleanupItem> {
+                    QVector<StorageCleanupItem> result;
+                    for (const auto& s : fp.cleanupSuggestions) {
+                        StorageCleanupItem item;
+                        item.title = s.title;
+                        item.path = s.path;
+                        item.bytes = s.bytes;
+                        item.consequence = s.consequence;
+                        result.append(item);
+                    }
+                    return result;
+                }(footprint));
+            return wrapper;
+        });
+
+    if (request.requestId.isEmpty()) {
+        return;
+    }
+
+    m_storageBreakdownRequestProviders[request.generation] = scopedProviderId;
 }
 
 void UsageStore::requestCostHistory(const QString& providerId)

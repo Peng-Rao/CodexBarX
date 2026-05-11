@@ -107,9 +107,12 @@ public:
     Q_INVOKABLE QVariantList costHistoryChartData(const QString& providerId) const;
     Q_INVOKABLE QVariantList creditsHistoryData() const;
     Q_INVOKABLE QVariantList usageBreakdownData(const QString& providerId) const;
+    Q_INVOKABLE QVariantList storageBreakdownData(const QString& providerId) const;
+    Q_INVOKABLE QVariantList storageCleanupData(const QString& providerId) const;
     void requestCostHistory(const QString& providerId);
     void requestCreditsHistory();
     void requestUsageBreakdown(const QString& providerId);
+    void requestStorageBreakdown(const QString& providerId);
     QVariantMap codexConsumerProjectionData() const;
     QString lastKnownSessionWindowSource() const;
 
@@ -215,6 +218,7 @@ signals:
     void costHistoryChanged();
     void creditsHistoryChanged();
     void usageBreakdownChanged();
+    void storageBreakdownChanged(const QString& providerId);
 
 private:
     struct CodexAccountRefreshGuard {
@@ -356,6 +360,11 @@ private:
     mutable int m_usageBreakdownBuildGeneration = 0;
     mutable bool m_creditsHistoryBuildQueued = false;
     mutable bool m_usageBreakdownBuildQueued = false;
+
+    // Storage breakdown caches (Phase D)
+    mutable QHash<QString, QVariantList> m_storageBreakdownCache;
+    mutable QHash<QString, QVariantList> m_storageCleanupCache;
+    mutable QHash<int, QString> m_storageBreakdownRequestProviders;
 
     // Codex credits cache
     struct CodexCreditsCache {

@@ -126,6 +126,7 @@ set(CORE_SOURCES
 
     src/app/AppTheme.cpp
     src/app/ChartDataProvider.cpp
+    src/app/ProviderStorageScanner.cpp
     src/app/CostUsageService.cpp
     src/app/SettingsStore.cpp
     src/app/SettingsProvidersModel.cpp
@@ -259,6 +260,7 @@ set(CORE_HEADERS
 
     src/app/AppTheme.h
     src/app/ChartDataProvider.h
+    src/app/ProviderStorageScanner.h
     src/app/CostUsageService.h
     src/app/SettingsStore.h
     src/app/SettingsProvidersModel.h

@@ -566,6 +566,18 @@ Rectangle {
                 }
             }
 
+            // Storage Breakdown View (Phase D) — Codex and Claude
+            Loader {
+                Layout.fillWidth: true
+                Layout.preferredHeight: active ? item.implicitHeight : 0
+                active: root.providerId === "codex" || root.providerId === "claude"
+                sourceComponent: StorageBreakdownView {
+                    storageItems: UsageStore.storageBreakdownData(root.providerId)
+                    cleanupItems: UsageStore.storageCleanupData(root.providerId)
+                    barColor: root.brandColor
+                }
+            }
+
             // Codex Dashboard Details
             ColumnLayout {
                 Layout.fillWidth: true
