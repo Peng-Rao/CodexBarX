@@ -10,6 +10,7 @@
 #include <optional>
 
 struct UsageSnapshot;
+struct ClaudeStatusSnapshot;
 
 struct ClaudeOAuthWindow {
     std::optional<double> utilization;
@@ -47,6 +48,7 @@ struct ClaudeUsageSnapshot {
 
     static ClaudeUsageSnapshot fromOAuthJson(const QJsonObject& json);
     static ClaudeUsageSnapshot fromWebJson(const QJsonObject& json);
+    static ClaudeUsageSnapshot fromCLIOutput(const ClaudeStatusSnapshot& cli);
 };
 
 struct ClaudeOAuthCredentials {

@@ -1,5 +1,6 @@
 #include "ClaudeUsageSnapshot.h"
 #include "UsageSnapshot.h"
+#include "../providers/claude/ClaudeStatusProbe.h"
 
 #include <QJsonDocument>
 #include <QJsonArray>
@@ -276,4 +277,42 @@ ClaudePlan claudePlanFromRateLimitTier(const QString& tier) {
     if (lower == "enterprise" || lower == "rate_limit_tier_enterprise") return ClaudePlan::Enterprise;
     if (lower == "ultra" || lower == "rate_limit_tier_ultra") return ClaudePlan::Ultra;
     return ClaudePlan::Unknown;
+}
+
+ClaudeUsageSnapshot ClaudeUsageSnapshot::fromCLIOutput(const ClaudeStatusSnapshot& cli) {
+    ClaudeUsageSnapshot snap;
+
+    // Map sessionPercentLeft → fiveHour (convert "left" to "used")
+    if (cli.sessionPercentLeft.has_value()) {
+        snap.fiveHour.utilization = 100.0 - *cli.sessionPercentLeft;
+        if (!cli.sessionResetDescription.isEmpty()) {
+            snap.fiveHour.resetsAt = cli.sessionResetDescription;
+        }
+    }
+
+    // Map weeklyPercentLeft → sevenDay
+    if (cli.weeklyPercentLeft.has_value()) {
+        snap.sevenDay.utilization = 100.0 - *cli.weeklyPercentLeft;
+        if (!cli.weeklyResetDescription.isEmpty()) {
+            snap.sevenDay.resetsAt = cli.weeklyResetDescription;
+        }
+    }
+
+    // Map opusPercentLeft → sevenDayOpus
+    if (cli.opusPercentLeft.has_value()) {
+        ClaudeOAuthWindow opus;
+        opus.utilization = 100.0 - *cli.opusPercentLeft;
+        if (!cli.opusResetDescription.isEmpty()) {
+            opus.resetsAt = cli.opusResetDescription;
+        }
+        snap.sevenDayOpus = opus;
+    }
+
+    // Account info
+    snap.accountEmail = cli.accountEmail;
+    snap.accountOrganization = cli.accountOrganization;
+    snap.loginMethod = cli.loginMethod;
+
+    snap.updatedAt = QDateTime::currentDateTime();
+    return snap;
 }

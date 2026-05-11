@@ -97,6 +97,8 @@ set(CORE_SOURCES
     src/providers/codex/CodexActiveSource.cpp
     src/providers/codex/CodexPromotionInterfaces.cpp
     src/providers/claude/ClaudeProvider.cpp
+    src/providers/claude/ClaudeCLISession.cpp
+    src/providers/claude/ClaudeStatusProbe.cpp
     src/providers/cursor/CursorProvider.cpp
     src/providers/kimi/KimiProvider.cpp
     src/providers/kimi/KimiTokenResolver.cpp
@@ -210,6 +212,9 @@ set(CORE_HEADERS
     src/providers/codex/CodexOpenAIWorkspaceIdentityCache.h
     src/providers/codex/ManagedCodexAccountService.h
     src/providers/codex/CodexLoginRunner.h
+    src/providers/claude/ClaudeProvider.h
+    src/providers/claude/ClaudeCLISession.h
+    src/providers/claude/ClaudeStatusProbe.h
     src/providers/kimi/KimiProvider.h
     src/providers/kimi/KimiAPIError.h
     src/providers/kimi/KimiTokenResolver.h

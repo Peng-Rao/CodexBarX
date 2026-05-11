@@ -1,4 +1,6 @@
 #include "ClaudeProvider.h"
+#include "ClaudeCLISession.h"
+#include "ClaudeStatusProbe.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/CookieImporter.h"
 #include "../../models/ClaudeUsageSnapshot.h"
@@ -9,8 +11,18 @@
 ClaudeProvider::ClaudeProvider(QObject* parent) : IProvider(parent) {}
 
 QVector<IFetchStrategy*> ClaudeProvider::createStrategies(const ProviderFetchContext& ctx) {
-    Q_UNUSED(ctx)
-    return { new ClaudeOAuthStrategy(), new ClaudeWebStrategy() };
+    QString mode = ctx.settings.get("sourceMode").toString();
+
+    if (mode == "cli") {
+        return { new ClaudeCLIStrategy() };
+    } else if (mode == "oauth") {
+        return { new ClaudeOAuthStrategy() };
+    } else if (mode == "web") {
+        return { new ClaudeWebStrategy() };
+    }
+
+    // Auto mode: OAuth → CLI → Web
+    return { new ClaudeOAuthStrategy(), new ClaudeCLIStrategy(), new ClaudeWebStrategy() };
 }
 
 ClaudeOAuthStrategy::ClaudeOAuthStrategy(QObject* parent) : IFetchStrategy(parent) {}
@@ -267,6 +279,68 @@ ProviderFetchResult ClaudeWebStrategy::fetchSync(const ProviderFetchContext& ctx
 
     auto email = fetchAccountEmail(sessionKey, ctx.networkTimeoutMs);
     if (email.has_value()) snap.accountEmail = email;
+
+    result.usage = snap.toUsageSnapshot();
+    result.success = true;
+    return result;
+}
+
+// --- ClaudeCLIStrategy ---
+
+ClaudeCLIStrategy::ClaudeCLIStrategy(QObject* parent) : IFetchStrategy(parent) {}
+
+bool ClaudeCLIStrategy::isAvailable(const ProviderFetchContext& ctx) const {
+    Q_UNUSED(ctx)
+    return ClaudeCLISession::isClaudeInstalled();
+}
+
+bool ClaudeCLIStrategy::shouldFallback(const ProviderFetchResult& result,
+                                        const ProviderFetchContext& ctx) const {
+    Q_UNUSED(ctx)
+    return !result.success;
+}
+
+ProviderFetchResult ClaudeCLIStrategy::fetchSync(const ProviderFetchContext& ctx) {
+    ProviderFetchResult result;
+    result.strategyID = id();
+    result.strategyKind = kind();
+    result.sourceLabel = "cli";
+
+    // 1. Resolve binary path
+    QString claudeBinary = ClaudeCLISession::resolveBinaryPath();
+    if (claudeBinary.isEmpty()) {
+        result.success = false;
+        result.errorMessage = "Claude CLI not found in PATH. Install from https://claude.ai/download";
+        return result;
+    }
+
+    // 2. Create session and capture output
+    ClaudeCLISession session;
+    session.setEnvironment(ctx.env);
+    session.setTimeout(ctx.networkTimeoutMs);
+
+    auto captureResult = session.captureUsage(ctx.networkTimeoutMs);
+    if (!captureResult.success) {
+        result.success = false;
+        result.errorMessage = captureResult.errorMessage;
+        return result;
+    }
+
+    // 3. Parse output
+    auto parseResult = ClaudeStatusProbe::parse(captureResult.output);
+    if (!parseResult.success) {
+        result.success = false;
+        result.errorMessage = parseResult.errorMessage;
+        return result;
+    }
+
+    // 4. Convert to UsageSnapshot
+    ClaudeUsageSnapshot snap = ClaudeUsageSnapshot::fromCLIOutput(parseResult.snapshot);
+    if (!snap.isValid()) {
+        result.success = false;
+        result.errorMessage = "No valid usage data from Claude CLI";
+        return result;
+    }
 
     result.usage = snap.toUsageSnapshot();
     result.success = true;

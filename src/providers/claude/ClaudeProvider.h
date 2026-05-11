@@ -35,12 +35,12 @@ public:
     QVector<ProviderSettingsDescriptor> settingsDescriptors() const override {
         return {
             {"sourceMode", "Data source", "picker", QVariant(QStringLiteral("auto")),
-             { {"auto", "Auto"}, {"oauth", "OAuth"}, {"web", "Web"} }},
+             { {"auto", "Auto"}, {"oauth", "OAuth"}, {"cli", "CLI"}, {"web", "Web"} }},
             {"manualCookieHeader", "Manual cookie header", "secret", QVariant(),
              {}, "com.codexbarx.cookie.claude", {}, "sessionKey=...", "Stored in Windows Credential Manager", true, true}
         };
     }
-    QVector<QString> supportedSourceModes() const override { return {"auto", "oauth", "web"}; }
+    QVector<QString> supportedSourceModes() const override { return {"auto", "oauth", "cli", "web"}; }
 };
 
 class ClaudeOAuthStrategy : public IFetchStrategy {
@@ -72,4 +72,16 @@ private:
     static ClaudeUsageSnapshot fetchUsageData(const QString& orgId, const QString& sessionKey, int timeoutMs);
     static std::optional<ProviderCostSnapshot> fetchOverageCost(const QString& orgId, const QString& sessionKey, int timeoutMs);
     static std::optional<QString> fetchAccountEmail(const QString& sessionKey, int timeoutMs);
+};
+
+class ClaudeCLIStrategy : public IFetchStrategy {
+    Q_OBJECT
+public:
+    explicit ClaudeCLIStrategy(QObject* parent = nullptr);
+
+    QString id() const override { return "claude.cli"; }
+    int kind() const override { return ProviderFetchKind::CLI; }
+    bool isAvailable(const ProviderFetchContext& ctx) const override;
+    ProviderFetchResult fetchSync(const ProviderFetchContext& ctx) override;
+    bool shouldFallback(const ProviderFetchResult& result, const ProviderFetchContext& ctx) const override;
 };
