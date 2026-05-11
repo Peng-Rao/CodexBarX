@@ -38,3 +38,70 @@ jobs:
 
       - name: Run unit tests
         run: ctest --test-dir build -C Release --output-on-failure
+
+  build-and-test-macos:
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    env:
+      CMAKE_GENERATOR: Ninja
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 1G
+      CCACHE_COMPRESS: "1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build tooling (ninja + ccache)
+        run: |
+          brew install ninja ccache
+          ccache --version
+          ninja --version
+
+      - name: Install Qt 6.5.3
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.5.3'
+          host: 'mac'
+          target: 'desktop'
+          arch: 'clang_64'
+          modules: 'qtwebsockets'
+          cache: true
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-macos-ci-${{ github.sha }}
+          restore-keys: |
+            ccache-macos-ci-
+
+      - name: Configure ccache
+        run: |
+          ccache --zero-stats
+          ccache --set-config=max_size=${CCACHE_MAXSIZE}
+          ccache --show-config
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_PREFIX_PATH="${{ env.Qt6_DIR }}" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build
+        run: |
+          NPROC=$(sysctl -n hw.ncpu)
+          echo "Building with ${NPROC} parallel jobs"
+          cmake --build build --parallel "${NPROC}"
+
+      - name: Show ccache statistics
+        if: always()
+        run: ccache --show-stats
+
+      - name: Run unit tests
+        run: ctest --test-dir build --output-on-failure
