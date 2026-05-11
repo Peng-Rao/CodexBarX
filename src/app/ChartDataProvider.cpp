@@ -53,7 +53,9 @@ QVariantList ChartDataProvider::buildCostHistory(
     // Find peak index
     int peakIdx = findPeakIndex(result, "costUSD");
     if (peakIdx >= 0 && peakIdx < result.size()) {
-        result[peakIdx].toMap()["isPeak"] = true;
+        QVariantMap peakPoint = result[peakIdx].toMap();
+        peakPoint["isPeak"] = true;
+        result[peakIdx] = peakPoint;
     }
 
     return result;
@@ -97,7 +99,9 @@ QVariantList ChartDataProvider::buildCreditsHistory(
     // Find peak
     int peakIdx = findPeakIndex(result, "creditsUsed");
     if (peakIdx >= 0 && peakIdx < result.size()) {
-        result[peakIdx].toMap()["isPeak"] = true;
+        QVariantMap peakPoint = result[peakIdx].toMap();
+        peakPoint["isPeak"] = true;
+        result[peakIdx] = peakPoint;
     }
 
     return result;
