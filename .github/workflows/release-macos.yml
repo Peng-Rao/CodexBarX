@@ -1,0 +1,160 @@
+name: Release macOS
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag for the build (e.g. v0.1.0)'
+        required: true
+        default: 'v0.0.0-dev'
+      upload_to_release:
+        description: 'Attach artifacts to an existing GitHub Release (only meaningful when version matches an existing tag)'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: release-macos-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-macos:
+    name: Build macOS (Universal arm64 + x86_64)
+    runs-on: macos-latest
+    timeout-minutes: 120
+
+    env:
+      VERSION_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+      CMAKE_GENERATOR: Ninja
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 2G
+      CCACHE_COMPRESS: "1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build tooling (ninja + ccache)
+        run: |
+          brew install ninja ccache
+          ccache --version
+          ninja --version
+
+      - name: Install Qt 6.5.3
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.5.3'
+          host: 'mac'
+          target: 'desktop'
+          arch: 'clang_64'
+          modules: 'qtwebsockets'
+          cache: true
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ccache-macos-universal-${{ github.sha }}
+          restore-keys: |
+            ccache-macos-universal-
+
+      - name: Configure ccache
+        run: |
+          ccache --zero-stats
+          ccache --set-config=max_size=${CCACHE_MAXSIZE}
+          ccache --show-config
+
+      - name: Configure CMake (Release, Universal binary, no tests, Ninja)
+        run: |
+          # CMAKE_OSX_ARCHITECTURES="arm64;x86_64" produces a universal
+          # binary that runs natively on both Apple Silicon (M1/M2/M3) and
+          # Intel Macs. Qt 6.5.3 macOS binaries are universal, so cross-
+          # compiling the x86_64 slice on an arm64 runner works out of the
+          # box with AppleClang.
+          cmake -B build -G Ninja \
+            -DCMAKE_PREFIX_PATH="${{ env.Qt6_DIR }}" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_OBJCXX_COMPILER_LAUNCHER=ccache \
+            -DBUILD_TESTS=OFF \
+            -DBUILD_E2E_TESTS=OFF
+
+      - name: Build CodexBarX (target only, parallel)
+        run: |
+          NPROC=$(sysctl -n hw.ncpu)
+          echo "Building with ${NPROC} parallel jobs"
+          cmake --build build --target CodexBarX --parallel "${NPROC}"
+
+      - name: Show ccache statistics
+        if: always()
+        run: ccache --show-stats
+
+      - name: Verify universal slices in main binary
+        run: |
+          BIN="build/CodexBarX.app/Contents/MacOS/CodexBarX"
+          echo "lipo -info $BIN:"
+          lipo -info "$BIN"
+          ARCHS=$(lipo -archs "$BIN")
+          echo "Architectures: $ARCHS"
+          echo "$ARCHS" | grep -q arm64  || { echo "::error::Missing arm64 slice";  exit 1; }
+          echo "$ARCHS" | grep -q x86_64 || { echo "::error::Missing x86_64 slice"; exit 1; }
+
+      - name: Deploy Qt dependencies (macdeployqt)
+        run: |
+          "${{ env.Qt6_DIR }}/bin/macdeployqt" build/CodexBarX.app -qmldir=qml
+
+      - name: Copy translations
+        run: |
+          if [ -d "build/translations" ]; then
+            mkdir -p build/CodexBarX.app/Contents/MacOS/translations
+            cp build/translations/*.qm build/CodexBarX.app/Contents/MacOS/translations/
+          fi
+
+      - name: Ad-hoc sign the bundle
+        run: |
+          codesign --deep --force --sign - build/CodexBarX.app
+          codesign --verify --deep --strict --verbose=2 build/CodexBarX.app
+
+      - name: Create ZIP package
+        run: |
+          ditto -c -k --keepParent build/CodexBarX.app "CodexBarX-${VERSION_TAG}-macOS.zip"
+
+      - name: Create DMG package
+        run: |
+          rm -rf dmg_staging
+          mkdir -p dmg_staging
+          cp -R build/CodexBarX.app dmg_staging/
+          ln -s /Applications dmg_staging/Applications
+          hdiutil create \
+            -volname "CodexBarX" \
+            -srcfolder dmg_staging \
+            -ov -format UDZO \
+            "CodexBarX-${VERSION_TAG}-macOS.dmg"
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: CodexBarX-${{ env.VERSION_TAG }}-macOS
+          path: |
+            CodexBarX-${{ env.VERSION_TAG }}-macOS.zip
+            CodexBarX-${{ env.VERSION_TAG }}-macOS.dmg
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload to GitHub Release
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.upload_to_release)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION_TAG }}
+          files: |
+            CodexBarX-${{ env.VERSION_TAG }}-macOS.zip
+            CodexBarX-${{ env.VERSION_TAG }}-macOS.dmg
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
