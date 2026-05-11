@@ -1,33 +1,115 @@
 #include "ClaudeProvider.h"
 #include "ClaudeCLISession.h"
 #include "ClaudeStatusProbe.h"
+#include "ClaudeSourcePlanner.h"
+#include "ClaudeCredentialRouting.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/CookieImporter.h"
 #include "../../models/ClaudeUsageSnapshot.h"
+#include "../../account/TokenAccountStore.h"
 
 #include <QJsonDocument>
 #include <QJsonArray>
 
+namespace {
+
+std::optional<QString> extractClaudeSessionKey(const QVector<QNetworkCookie>& cookies)
+{
+    for (const auto& cookie : cookies) {
+        if (cookie.name() == "sessionKey") {
+            QString value = QString::fromUtf8(cookie.value()).trimmed();
+            if (value.startsWith("sk-ant-")) return value;
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<QString> extractClaudeSessionKeyFromHeader(const QString& header)
+{
+    for (const auto& pair : header.split(';', Qt::SkipEmptyParts)) {
+        QString trimmed = pair.trimmed();
+        int eq = trimmed.indexOf('=');
+        if (eq <= 0) continue;
+
+        QString name = trimmed.left(eq).trimmed();
+        QString value = trimmed.mid(eq + 1).trimmed();
+        if (name == "sessionKey" && value.startsWith("sk-ant-")) {
+            return value;
+        }
+    }
+    return std::nullopt;
+}
+
+bool hasStoredClaudeSessionCookie()
+{
+    QStringList domains = {QStringLiteral("claude.ai")};
+    for (auto browser : CookieImporter::importOrder()) {
+        if (!CookieImporter::isBrowserInstalled(browser)) continue;
+        if (extractClaudeSessionKey(CookieImporter::importCookies(browser, domains)).has_value()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
+
 ClaudeProvider::ClaudeProvider(QObject* parent) : IProvider(parent) {}
 
 QVector<IFetchStrategy*> ClaudeProvider::createStrategies(const ProviderFetchContext& ctx) {
-    QString mode = ctx.settings.get("sourceMode").toString();
+    // Build planning input
+    ClaudeSourcePlanningInput input;
+    input.selectedSource = ClaudeSourcePlanner::dataSourceFromString(ctx.settings.get("sourceMode").toString());
 
-    if (mode == "cli") {
-        return { new ClaudeCLIStrategy() };
-    } else if (mode == "oauth") {
-        return { new ClaudeOAuthStrategy() };
-    } else if (mode == "web") {
-        return { new ClaudeWebStrategy() };
+    // Check for TokenAccount credentials first
+    bool hasTokenAccountOAuth = ctx.accountCredentials.hasCredentialsFor(ProviderFetchKind::OAuth);
+    bool hasTokenAccountWeb = ctx.accountCredentials.hasCredentialsFor(ProviderFetchKind::Web);
+
+    // Fall back to system credentials if no TokenAccount
+    input.hasOAuthCredentials = hasTokenAccountOAuth || ClaudeOAuthCredentials::load(ctx.env).has_value();
+    input.hasCLI = ClaudeCLISession::isClaudeInstalled();
+    input.hasWebSession = hasTokenAccountWeb || hasWebSessionCookie(ctx);
+    input.isCLIRuntime = !ctx.isAppRuntime;
+
+    // Resolve execution plan
+    ClaudeFetchPlan plan = ClaudeSourcePlanner::resolve(input);
+
+    // Build strategies from plan
+    QVector<IFetchStrategy*> strategies;
+    for (const auto& step : plan.orderedSteps) {
+        switch (step.dataSource) {
+        case ClaudeDataSource::OAuth:
+            strategies.append(new ClaudeOAuthStrategy());
+            break;
+        case ClaudeDataSource::CLI:
+            strategies.append(new ClaudeCLIStrategy());
+            break;
+        case ClaudeDataSource::Web:
+            strategies.append(new ClaudeWebStrategy());
+            break;
+        default:
+            break;
+        }
     }
 
-    // Auto mode: OAuth → CLI → Web
-    return { new ClaudeOAuthStrategy(), new ClaudeCLIStrategy(), new ClaudeWebStrategy() };
+    return strategies;
+}
+
+bool ClaudeProvider::hasWebSessionCookie(const ProviderFetchContext& ctx) const {
+    if (ctx.manualCookieHeader.has_value() && !ctx.manualCookieHeader->isEmpty()) {
+        return extractClaudeSessionKeyFromHeader(*ctx.manualCookieHeader).has_value();
+    }
+    return hasStoredClaudeSessionCookie();
 }
 
 ClaudeOAuthStrategy::ClaudeOAuthStrategy(QObject* parent) : IFetchStrategy(parent) {}
 
 bool ClaudeOAuthStrategy::isAvailable(const ProviderFetchContext& ctx) const {
+    // Check TokenAccount credentials first
+    if (ctx.accountCredentials.hasCredentialsFor(ProviderFetchKind::OAuth)) {
+        return true;
+    }
+    // Fall back to system OAuth credentials
     return ClaudeOAuthCredentials::load(ctx.env).has_value();
 }
 
@@ -43,17 +125,29 @@ ProviderFetchResult ClaudeOAuthStrategy::fetchSync(const ProviderFetchContext& c
     result.strategyKind = kind();
     result.sourceLabel = "oauth";
 
-    auto credsOpt = ClaudeOAuthCredentials::load(ctx.env);
-    if (!credsOpt.has_value()) {
-        result.success = false;
-        result.errorMessage = "Claude OAuth credentials not found. Run `claude` to authenticate.";
-        return result;
+    QString accessToken;
+    std::optional<QString> rateLimitTier;
+
+    // Try TokenAccount credentials first
+    if (ctx.accountCredentials.hasCredentialsFor(ProviderFetchKind::OAuth) &&
+        ctx.accountCredentials.oauth.has_value()) {
+        accessToken = ctx.accountCredentials.oauth->accessToken.toString();
     }
 
-    ClaudeOAuthCredentials creds = *credsOpt;
+    // Fall back to system credentials
+    if (accessToken.isEmpty()) {
+        auto credsOpt = ClaudeOAuthCredentials::load(ctx.env);
+        if (!credsOpt.has_value()) {
+            result.success = false;
+            result.errorMessage = "Claude OAuth credentials not found. Run `claude` to authenticate.";
+            return result;
+        }
+        accessToken = credsOpt->accessToken;
+        rateLimitTier = credsOpt->rateLimitTier;
+    }
 
     QHash<QString, QString> headers;
-    headers["Authorization"] = "Bearer " + creds.accessToken;
+    headers["Authorization"] = "Bearer " + accessToken;
     headers["Accept"] = "application/json";
     headers["Content-Type"] = "application/json";
     headers["anthropic-beta"] = "oauth-2025-04-20";
@@ -81,8 +175,8 @@ ProviderFetchResult ClaudeOAuthStrategy::fetchSync(const ProviderFetchContext& c
         return result;
     }
 
-    if (creds.rateLimitTier.has_value()) {
-        snap.loginMethod = claudePlanDisplayName(claudePlanFromRateLimitTier(*creds.rateLimitTier));
+    if (rateLimitTier.has_value()) {
+        snap.loginMethod = claudePlanDisplayName(claudePlanFromRateLimitTier(*rateLimitTier));
     }
 
     result.usage = snap.toUsageSnapshot();
@@ -93,13 +187,16 @@ ProviderFetchResult ClaudeOAuthStrategy::fetchSync(const ProviderFetchContext& c
 ClaudeWebStrategy::ClaudeWebStrategy(QObject* parent) : IFetchStrategy(parent) {}
 
 bool ClaudeWebStrategy::isAvailable(const ProviderFetchContext& ctx) const {
-    if (ctx.manualCookieHeader.has_value() && !ctx.manualCookieHeader->isEmpty()) {
+    // Check TokenAccount credentials first
+    if (ctx.accountCredentials.hasCredentialsFor(ProviderFetchKind::Web)) {
         return true;
     }
-    for (auto browser : CookieImporter::importOrder()) {
-        if (CookieImporter::isBrowserInstalled(browser)) return true;
+    // Check manual cookie header
+    if (ctx.manualCookieHeader.has_value() && !ctx.manualCookieHeader->isEmpty()) {
+        return extractClaudeSessionKeyFromHeader(*ctx.manualCookieHeader).has_value();
     }
-    return false;
+    // Check stored browser cookies
+    return hasStoredClaudeSessionCookie();
 }
 
 bool ClaudeWebStrategy::shouldFallback(const ProviderFetchResult& result,
@@ -109,13 +206,7 @@ bool ClaudeWebStrategy::shouldFallback(const ProviderFetchResult& result,
 }
 
 std::optional<QString> ClaudeWebStrategy::extractSessionKey(const QVector<QNetworkCookie>& cookies) {
-    for (const auto& cookie : cookies) {
-        if (cookie.name() == "sessionKey") {
-            QString value = QString::fromUtf8(cookie.value()).trimmed();
-            if (value.startsWith("sk-ant-")) return value;
-        }
-    }
-    return std::nullopt;
+    return extractClaudeSessionKey(cookies);
 }
 
 QString ClaudeWebStrategy::fetchOrgId(const QString& sessionKey, int timeoutMs) {
@@ -217,22 +308,18 @@ ProviderFetchResult ClaudeWebStrategy::fetchSync(const ProviderFetchContext& ctx
 
     QString sessionKey;
 
-    if (ctx.manualCookieHeader.has_value() && !ctx.manualCookieHeader->isEmpty()) {
-        QString header = *ctx.manualCookieHeader;
-        for (const auto& pair : header.split(';', Qt::SkipEmptyParts)) {
-            QString trimmed = pair.trimmed();
-            int eq = trimmed.indexOf('=');
-            if (eq > 0) {
-                QString name = trimmed.left(eq).trimmed();
-                QString value = trimmed.mid(eq + 1).trimmed();
-                if (name == "sessionKey" && value.startsWith("sk-ant-")) {
-                    sessionKey = value;
-                    break;
-                }
-            }
-        }
+    // Try TokenAccount credentials first
+    if (ctx.accountCredentials.hasCredentialsFor(ProviderFetchKind::Web) &&
+        ctx.accountCredentials.web.has_value()) {
+        sessionKey = ctx.accountCredentials.web->cookieValue.toString();
     }
 
+    // Fall back to manual cookie header
+    if (sessionKey.isEmpty() && ctx.manualCookieHeader.has_value() && !ctx.manualCookieHeader->isEmpty()) {
+        sessionKey = extractClaudeSessionKeyFromHeader(*ctx.manualCookieHeader).value_or(QString());
+    }
+
+    // Fall back to browser cookies
     if (sessionKey.isEmpty()) {
         QStringList domains = {"claude.ai"};
         for (auto browser : CookieImporter::importOrder()) {

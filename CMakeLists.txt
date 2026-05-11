@@ -100,6 +100,8 @@ set(CORE_SOURCES
     src/providers/claude/ClaudeCLISession.cpp
     src/providers/claude/ClaudeStatusProbe.cpp
     src/providers/claude/ClaudePersistentCLISession.cpp
+    src/providers/claude/ClaudeSourcePlanner.cpp
+    src/providers/claude/ClaudeCredentialRouting.cpp
     src/providers/cursor/CursorProvider.cpp
     src/providers/kimi/KimiProvider.cpp
     src/providers/kimi/KimiTokenResolver.cpp
@@ -217,6 +219,8 @@ set(CORE_HEADERS
     src/providers/claude/ClaudeCLISession.h
     src/providers/claude/ClaudeStatusProbe.h
     src/providers/claude/ClaudePersistentCLISession.h
+    src/providers/claude/ClaudeSourcePlanner.h
+    src/providers/claude/ClaudeCredentialRouting.h
     src/providers/kimi/KimiProvider.h
     src/providers/kimi/KimiAPIError.h
     src/providers/kimi/KimiTokenResolver.h

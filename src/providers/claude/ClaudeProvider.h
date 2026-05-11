@@ -26,6 +26,10 @@ public:
     QString cliName() const override { return "claude"; }
     bool defaultEnabled() const override { return true; }
 
+    // Multi-account support
+    bool supportsMultipleAccounts() const override { return true; }
+    QVector<QString> requiredCredentialTypes() const override { return {"oauth", "web"}; }
+
     QVector<IFetchStrategy*> createStrategies(const ProviderFetchContext& ctx) override;
 
     QString dashboardURL() const override { return "https://claude.ai"; }
@@ -41,6 +45,9 @@ public:
         };
     }
     QVector<QString> supportedSourceModes() const override { return {"auto", "oauth", "cli", "web"}; }
+
+private:
+    bool hasWebSessionCookie(const ProviderFetchContext& ctx) const;
 };
 
 class ClaudeOAuthStrategy : public IFetchStrategy {

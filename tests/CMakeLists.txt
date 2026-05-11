@@ -507,3 +507,17 @@ target_include_directories(tst_ClaudePersistentCLISession PRIVATE ${COMMON_INCLU
 target_compile_definitions(tst_ClaudePersistentCLISession PRIVATE ${COMMON_DEFINES})
 target_link_libraries(tst_ClaudePersistentCLISession PRIVATE codexbar_core Qt6::Core Qt6::Test)
 add_wincodexbar_test(tst_ClaudePersistentCLISession tst_ClaudePersistentCLISession)
+
+# ClaudeSourcePlanner unit tests
+add_executable(tst_ClaudeSourcePlanner tst_ClaudeSourcePlanner.cpp)
+target_include_directories(tst_ClaudeSourcePlanner PRIVATE ${COMMON_INCLUDE})
+target_compile_definitions(tst_ClaudeSourcePlanner PRIVATE ${COMMON_DEFINES})
+target_link_libraries(tst_ClaudeSourcePlanner PRIVATE codexbar_core Qt6::Core Qt6::Test)
+add_wincodexbar_test(tst_ClaudeSourcePlanner tst_ClaudeSourcePlanner)
+
+# ClaudeCredentialRouting unit tests
+add_executable(tst_ClaudeCredentialRouting tst_ClaudeCredentialRouting.cpp)
+target_include_directories(tst_ClaudeCredentialRouting PRIVATE ${COMMON_INCLUDE})
+target_compile_definitions(tst_ClaudeCredentialRouting PRIVATE ${COMMON_DEFINES})
+target_link_libraries(tst_ClaudeCredentialRouting PRIVATE codexbar_core Qt6::Core Qt6::Test)
+add_wincodexbar_test(tst_ClaudeCredentialRouting tst_ClaudeCredentialRouting)
