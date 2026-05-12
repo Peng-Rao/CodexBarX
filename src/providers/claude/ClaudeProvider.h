@@ -40,6 +40,8 @@ public:
         return {
             {"sourceMode", "Data source", "picker", QVariant(QStringLiteral("auto")),
              { {"auto", "Auto"}, {"oauth", "OAuth"}, {"cli", "CLI"}, {"web", "Web"} }},
+            {"webExtrasEnabled", "Web Extras", "bool", QVariant(false),
+             {}, QString(), {}, QString(), "Fetch extra rate windows from Web API when using CLI or OAuth"},
             {"manualCookieHeader", "Manual cookie header", "secret", QVariant(),
              {}, "com.codexbarx.cookie.claude", {}, "sessionKey=...", "Stored in Windows Credential Manager", true, true}
         };
@@ -73,9 +75,10 @@ public:
     ProviderFetchResult fetchSync(const ProviderFetchContext& ctx) override;
     bool shouldFallback(const ProviderFetchResult& result, const ProviderFetchContext& ctx) const override;
 
+    static QString fetchOrgId(const QString& sessionKey, int timeoutMs);
+
 private:
     static std::optional<QString> extractSessionKey(const QVector<QNetworkCookie>& cookies);
-    static QString fetchOrgId(const QString& sessionKey, int timeoutMs);
     static ClaudeUsageSnapshot fetchUsageData(const QString& orgId, const QString& sessionKey, int timeoutMs);
     static std::optional<ProviderCostSnapshot> fetchOverageCost(const QString& orgId, const QString& sessionKey, int timeoutMs);
     static std::optional<QString> fetchAccountEmail(const QString& sessionKey, int timeoutMs);

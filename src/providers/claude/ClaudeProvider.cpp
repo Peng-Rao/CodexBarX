@@ -3,6 +3,7 @@
 #include "ClaudeStatusProbe.h"
 #include "ClaudeSourcePlanner.h"
 #include "ClaudeCredentialRouting.h"
+#include "ClaudeWebExtraFetcher.h"
 #include "../../network/NetworkManager.h"
 #include "../../providers/shared/CookieImporter.h"
 #include "../../models/ClaudeUsageSnapshot.h"
@@ -177,6 +178,56 @@ ProviderFetchResult ClaudeOAuthStrategy::fetchSync(const ProviderFetchContext& c
 
     if (rateLimitTier.has_value()) {
         snap.loginMethod = claudePlanDisplayName(claudePlanFromRateLimitTier(*rateLimitTier));
+    }
+
+    // Fetch Web extras if enabled and available
+    bool webExtrasEnabled = ctx.settings.get("webExtrasEnabled").toBool();
+    if (webExtrasEnabled && ctx.isAppRuntime) {
+        QString sessionKey;
+
+        // Try TokenAccount credentials first
+        if (ctx.accountCredentials.hasCredentialsFor(ProviderFetchKind::Web) &&
+            ctx.accountCredentials.web.has_value()) {
+            sessionKey = ctx.accountCredentials.web->cookieValue.toString();
+        }
+
+        // Fall back to manual cookie header
+        if (sessionKey.isEmpty() && ctx.manualCookieHeader.has_value() && !ctx.manualCookieHeader->isEmpty()) {
+            sessionKey = extractClaudeSessionKeyFromHeader(*ctx.manualCookieHeader).value_or(QString());
+        }
+
+        // Fall back to browser cookies
+        if (sessionKey.isEmpty()) {
+            QStringList domains = {"claude.ai"};
+            for (auto browser : CookieImporter::importOrder()) {
+                if (!CookieImporter::isBrowserInstalled(browser)) continue;
+                QVector<QNetworkCookie> cookies = CookieImporter::importCookies(browser, domains);
+                auto key = extractClaudeSessionKey(cookies);
+                if (key.has_value()) {
+                    sessionKey = *key;
+                    break;
+                }
+            }
+        }
+
+        if (!sessionKey.isEmpty()) {
+            QString orgId = ClaudeWebStrategy::fetchOrgId(sessionKey, ctx.networkTimeoutMs);
+            if (!orgId.isEmpty()) {
+                auto extras = ClaudeWebExtraFetcher::instance().fetch(sessionKey, orgId, ctx.networkTimeoutMs);
+                if (!extras.extraRateWindows.isEmpty()) {
+                    UsageSnapshot usage = snap.toUsageSnapshot();
+                    if (usage.extraRateWindows.isEmpty()) {
+                        usage.extraRateWindows = extras.extraRateWindows;
+                    }
+                    if (!usage.providerCost.has_value() && extras.providerCost.has_value()) {
+                        usage.providerCost = extras.providerCost;
+                    }
+                    result.usage = usage;
+                    result.success = true;
+                    return result;
+                }
+            }
+        }
     }
 
     result.usage = snap.toUsageSnapshot();
@@ -428,6 +479,56 @@ ProviderFetchResult ClaudeCLIStrategy::fetchSync(const ProviderFetchContext& ctx
         result.success = false;
         result.errorMessage = "No valid usage data from Claude CLI";
         return result;
+    }
+
+    // 5. Fetch Web extras if enabled and available
+    bool webExtrasEnabled = ctx.settings.get("webExtrasEnabled").toBool();
+    if (webExtrasEnabled && ctx.isAppRuntime) {
+        QString sessionKey;
+
+        // Try TokenAccount credentials first
+        if (ctx.accountCredentials.hasCredentialsFor(ProviderFetchKind::Web) &&
+            ctx.accountCredentials.web.has_value()) {
+            sessionKey = ctx.accountCredentials.web->cookieValue.toString();
+        }
+
+        // Fall back to manual cookie header
+        if (sessionKey.isEmpty() && ctx.manualCookieHeader.has_value() && !ctx.manualCookieHeader->isEmpty()) {
+            sessionKey = extractClaudeSessionKeyFromHeader(*ctx.manualCookieHeader).value_or(QString());
+        }
+
+        // Fall back to browser cookies
+        if (sessionKey.isEmpty()) {
+            QStringList domains = {"claude.ai"};
+            for (auto browser : CookieImporter::importOrder()) {
+                if (!CookieImporter::isBrowserInstalled(browser)) continue;
+                QVector<QNetworkCookie> cookies = CookieImporter::importCookies(browser, domains);
+                auto key = extractClaudeSessionKey(cookies);
+                if (key.has_value()) {
+                    sessionKey = *key;
+                    break;
+                }
+            }
+        }
+
+        if (!sessionKey.isEmpty()) {
+            QString orgId = ClaudeWebStrategy::fetchOrgId(sessionKey, ctx.networkTimeoutMs);
+            if (!orgId.isEmpty()) {
+                auto extras = ClaudeWebExtraFetcher::instance().fetch(sessionKey, orgId, ctx.networkTimeoutMs);
+                if (!extras.extraRateWindows.isEmpty()) {
+                    UsageSnapshot usage = snap.toUsageSnapshot();
+                    if (usage.extraRateWindows.isEmpty()) {
+                        usage.extraRateWindows = extras.extraRateWindows;
+                    }
+                    if (!usage.providerCost.has_value() && extras.providerCost.has_value()) {
+                        usage.providerCost = extras.providerCost;
+                    }
+                    result.usage = usage;
+                    result.success = true;
+                    return result;
+                }
+            }
+        }
     }
 
     result.usage = snap.toUsageSnapshot();

@@ -89,6 +89,7 @@ QString ClaudeFetchPlan::diagnosticDescription() const
     lines << QStringLiteral("    hasCLI: %2").arg(input.hasCLI);
     lines << QStringLiteral("    hasWebSession: %3").arg(input.hasWebSession);
     lines << QStringLiteral("    isCLIRuntime: %4").arg(input.isCLIRuntime);
+    lines << QStringLiteral("    webExtrasEnabled: %5").arg(input.webExtrasEnabled);
     lines << QStringLiteral("  Steps:");
     for (const auto& step : orderedSteps) {
         lines << QStringLiteral("    - %1 (available: %2, reason: %3)")

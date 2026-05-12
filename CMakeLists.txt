@@ -103,6 +103,7 @@ set(CORE_SOURCES
     src/providers/claude/ClaudeSourcePlanner.cpp
     src/providers/claude/ClaudeCredentialRouting.cpp
     src/providers/claude/ClaudePeakHours.cpp
+    src/providers/claude/ClaudeWebExtraFetcher.cpp
     src/providers/cursor/CursorProvider.cpp
     src/providers/kimi/KimiProvider.cpp
     src/providers/kimi/KimiTokenResolver.cpp
@@ -353,15 +354,15 @@ elseif(APPLE)
 endif()
 
 if(WINCODEXBAR_QT_RUNTIME_FOUND)
-    set(WINCODEXBAR_APP_SOURCES
+    set(CODEXBAR_APP_SOURCES
         src/main.cpp
         resources/qml.qrc
     )
     if(WIN32)
-        list(APPEND WINCODEXBAR_APP_SOURCES resources/codexbarx.rc)
+        list(APPEND CODEXBAR_APP_SOURCES resources/codexbarx.rc)
     endif()
 
-    add_executable(CodexBarX WIN32 MACOSX_BUNDLE ${WINCODEXBAR_APP_SOURCES})
+    add_executable(CodexBarX WIN32 MACOSX_BUNDLE ${CODEXBAR_APP_SOURCES})
     target_link_libraries(CodexBarX PRIVATE
         codexbar_core
         Qt6::Quick Qt6::Qml Qt6::Widgets

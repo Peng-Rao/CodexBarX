@@ -36,6 +36,7 @@ struct ClaudeSourcePlanningInput {
     bool hasCLI = false;
     bool hasWebSession = false;
     bool isCLIRuntime = false;
+    bool webExtrasEnabled = false;
 };
 
 struct ClaudeFetchPlan {
