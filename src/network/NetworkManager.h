@@ -50,6 +50,13 @@ public:
                                                        const QByteArray& contentType = {},
                                                        int timeoutMs = -1,
                                                        bool http2Allowed = true);
+    // Returns {jsonBody, httpStatusCode, responseHeaders}. For providers that need rate limit headers.
+    std::tuple<QJsonObject, int, QHash<QString, QString>> postJsonSyncWithHeaders(
+        const QUrl& url,
+        const QJsonObject& body,
+        const QHash<QString, QString>& headers = {},
+        int timeoutMs = -1,
+        bool http2Allowed = true);
     QJsonObject postFormSync(const QUrl& url,
                              const QByteArray& formData,
                              const QHash<QString, QString>& headers = {},

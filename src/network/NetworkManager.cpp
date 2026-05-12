@@ -35,6 +35,7 @@ void applyHeaders(QNetworkRequest& request,
 struct ReplyResult {
     QByteArray data;
     int httpStatus = 0;
+    QHash<QString, QString> headers;
 };
 
 ReplyResult waitForReplyWithStatus(QNetworkReply* reply, int timeoutMs)
@@ -72,6 +73,10 @@ ReplyResult waitForReplyWithStatus(QNetworkReply* reply, int timeoutMs)
         result.httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (reply->error() == QNetworkReply::NoError) {
             result.data = reply->readAll();
+        }
+        // 提取响应头
+        for (const QNetworkReply::RawHeaderPair& header : reply->rawHeaderPairs()) {
+            result.headers.insert(QString::fromUtf8(header.first), QString::fromUtf8(header.second));
         }
     } else {
         reply->abort();
@@ -218,6 +223,25 @@ std::pair<QByteArray, int> NetworkManager::postBytesSyncWithStatus(
         nam->post(request, body),
         timeoutMs > 0 ? timeoutMs : m_defaultTimeout);
     return {result.data, result.httpStatus};
+}
+
+std::tuple<QJsonObject, int, QHash<QString, QString>> NetworkManager::postJsonSyncWithHeaders(
+    const QUrl& url,
+    const QJsonObject& body,
+    const QHash<QString, QString>& headers,
+    int timeoutMs,
+    bool http2Allowed)
+{
+    QNetworkAccessManager* nam = threadLocalNam();
+    QNetworkRequest request(url);
+    request.setAttribute(QNetworkRequest::Http2AllowedAttribute, http2Allowed);
+    applyHeaders(request, headers);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    QByteArray data = QJsonDocument(body).toJson();
+    auto result = waitForReplyWithStatus(
+        nam->post(request, data),
+        timeoutMs > 0 ? timeoutMs : m_defaultTimeout);
+    return {parseJsonObject(result.data), result.httpStatus, result.headers};
 }
 
 QFuture<QJsonObject> NetworkManager::getJson(

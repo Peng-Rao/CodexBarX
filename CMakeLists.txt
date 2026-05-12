@@ -129,6 +129,16 @@ set(CORE_SOURCES
     src/providers/windsurf/WindsurfProvider.cpp
     src/providers/windsurf/WindsurfDevinSessionImporter.cpp
 
+    # === Missing Providers (Phase 1-6) ===
+    src/providers/commandcode/CommandCodeProvider.cpp
+    src/providers/crof/CrofProvider.cpp
+    src/providers/doubao/DoubaoProvider.cpp
+    src/providers/manus/ManusProvider.cpp
+    src/providers/mimo/MiMoProvider.cpp
+    src/providers/openaiapi/OpenAIAPIProvider.cpp
+    src/providers/stepfun/StepFunProvider.cpp
+    src/providers/venice/VeniceProvider.cpp
+
     src/network/NetworkManager.cpp
 
     src/app/AppTheme.cpp
@@ -248,6 +258,16 @@ set(CORE_HEADERS
     src/providers/codebuff/CodebuffProvider.h
     src/providers/windsurf/WindsurfProvider.h
     src/providers/windsurf/WindsurfDevinSessionImporter.h
+
+    # === Missing Providers (Phase 1-6) ===
+    src/providers/commandcode/CommandCodeProvider.h
+    src/providers/crof/CrofProvider.h
+    src/providers/doubao/DoubaoProvider.h
+    src/providers/manus/ManusProvider.h
+    src/providers/mimo/MiMoProvider.h
+    src/providers/openaiapi/OpenAIAPIProvider.h
+    src/providers/stepfun/StepFunProvider.h
+    src/providers/venice/VeniceProvider.h
 
     src/providers/IProvider.h
     src/providers/IFetchStrategy.h
