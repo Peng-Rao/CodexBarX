@@ -137,6 +137,34 @@ jobs:
             -ov -format UDZO \
             "CodexBarX-${VERSION_TAG}-macOS.dmg"
 
+      - name: Wait for release to be created
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Waiting for release $VERSION_TAG to be created by release.yml..."
+          for i in {1..60}; do
+            if gh release view "$VERSION_TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+              echo "Release found after $i attempts"
+              gh release view "$VERSION_TAG" --repo "${{ github.repository }}"
+              exit 0
+            fi
+            echo "Attempt $i/60: Release not yet available, waiting 30s..."
+            sleep 30
+          done
+          echo "::error::Release $VERSION_TAG was not created within 30 minutes"
+          exit 1
+
+      - name: Upload to GitHub Release
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.upload_to_release)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "$VERSION_TAG" \
+            "CodexBarX-${VERSION_TAG}-macOS.zip" \
+            "CodexBarX-${VERSION_TAG}-macOS.dmg" \
+            --repo "${{ github.repository }}" \
+            --clobber
+
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -146,15 +174,3 @@ jobs:
             CodexBarX-${{ env.VERSION_TAG }}-macOS.dmg
           if-no-files-found: error
           retention-days: 30
-
-      - name: Upload to GitHub Release
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.upload_to_release)
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.VERSION_TAG }}
-          files: |
-            CodexBarX-${{ env.VERSION_TAG }}-macOS.zip
-            CodexBarX-${{ env.VERSION_TAG }}-macOS.dmg
-          fail_on_unmatched_files: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
