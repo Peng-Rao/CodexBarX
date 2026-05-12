@@ -343,6 +343,12 @@ set(CORE_HEADERS
 )
 
 add_library(codexbar_core STATIC ${CORE_SOURCES} ${CORE_HEADERS})
+set_target_properties(codexbar_core PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+    ARCHIVE_OUTPUT_DIRECTORY_DEBUG "${CMAKE_BINARY_DIR}/lib/Debug"
+    ARCHIVE_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/lib/Release"
+    INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE
+)
 target_include_directories(codexbar_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 if(WIN32)
     target_compile_definitions(codexbar_core PUBLIC NOMINMAX)
@@ -383,6 +389,9 @@ if(WINCODEXBAR_QT_RUNTIME_FOUND)
     endif()
 
     add_executable(CodexBarX WIN32 MACOSX_BUNDLE ${CODEXBAR_APP_SOURCES})
+    set_target_properties(CodexBarX PROPERTIES
+        INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE
+    )
     target_link_libraries(CodexBarX PRIVATE
         codexbar_core
         Qt6::Quick Qt6::Qml Qt6::Widgets
