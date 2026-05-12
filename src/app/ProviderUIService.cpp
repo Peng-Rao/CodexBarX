@@ -7,6 +7,7 @@
 #include "../providers/ProviderCredentialManager.h"
 #include "../providers/ProviderCatalogSnapshot.h"
 #include "../providers/codex/CodexConsumerProjection.h"
+#include "../providers/claude/ClaudePeakHours.h"
 #include "../account/TokenAccountStore.h"
 #include "../app/SettingsStore.h"
 #include "../util/UsagePaceText.h"
@@ -803,6 +804,16 @@ QVariantMap ProviderUIService::providerUsageSnapshot(const QString& providerId, 
     if (snap.tertiary.has_value()) {
         result["tertiary"] = metricMap(*snap.tertiary);
     }
+    return result;
+}
+
+QVariantMap ProviderUIService::claudePeakStatus() const
+{
+    ClaudePeakStatus status = ClaudePeakHours::status();
+    QVariantMap result;
+    result["isPeak"] = status.isPeak;
+    result["label"] = status.label;
+    result["minutesUntilChange"] = status.minutesUntilChange;
     return result;
 }
 

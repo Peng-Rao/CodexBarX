@@ -63,6 +63,29 @@ Rectangle {
             }
         }
 
+        // === Peak hours indicator (Claude only) ===
+        Row {
+            Layout.fillWidth: true
+            spacing: 4
+            visible: root.providerId === "claude" && SettingsStore.claudePeakHoursEnabled
+
+            property var peakStatus: ProviderUIService.claudePeakStatus()
+
+            Rectangle {
+                width: 8
+                height: 8
+                radius: 4
+                color: parent.peakStatus.isPeak ? "#FFC107" : "#4CAF50"
+                anchors.verticalCenter: parent.verticalCenter
+            }
+            Text {
+                text: parent.peakStatus.label
+                color: parent.peakStatus.isPeak ? "#FFC107" : "#888"
+                font.pixelSize: 9
+                anchors.verticalCenter: parent.verticalCenter
+            }
+        }
+
         Rectangle {
             Layout.fillWidth: true
             height: 1

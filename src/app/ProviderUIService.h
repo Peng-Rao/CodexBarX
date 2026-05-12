@@ -48,6 +48,8 @@ public:
     QVariantMap snapshotData(const QString& providerId, const UsageSnapshot& snap) const;
     QVariantMap providerUsageSnapshot(const QString& providerId, const UsageSnapshot& snap) const;
 
+    Q_INVOKABLE QVariantMap claudePeakStatus() const;
+
     // === Cache Invalidation ===
     void invalidateProviderListCache();
     void invalidateDescriptorCache(const QString& providerId);

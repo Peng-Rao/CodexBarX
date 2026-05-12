@@ -24,6 +24,7 @@ SettingsStore::SettingsStore(QObject* parent)
     m_resetTimesShowAbsolute = m_settings.value("resetTimesShowAbsolute", false).toBool();
     m_showOptionalCreditsAndExtraUsage = m_settings.value("showOptionalCreditsAndExtraUsage", true).toBool();
     m_sessionQuotaNotificationsEnabled = m_settings.value("sessionQuotaNotificationsEnabled", true).toBool();
+    m_claudePeakHoursEnabled = m_settings.value("claudePeakHoursEnabled", true).toBool();
     m_language = m_settings.value("language", "en").toString();
     loadConfig();
 
@@ -136,6 +137,14 @@ void SettingsStore::setSessionQuotaNotificationsEnabled(bool enable) {
         m_sessionQuotaNotificationsEnabled = enable;
         m_settings.setValue("sessionQuotaNotificationsEnabled", enable);
         emit sessionQuotaNotificationsEnabledChanged();
+    }
+}
+
+void SettingsStore::setClaudePeakHoursEnabled(bool enable) {
+    if (m_claudePeakHoursEnabled != enable) {
+        m_claudePeakHoursEnabled = enable;
+        m_settings.setValue("claudePeakHoursEnabled", enable);
+        emit claudePeakHoursEnabledChanged();
     }
 }
 
@@ -257,6 +266,7 @@ void SettingsStore::resetToDefaults() {
     setResetTimesShowAbsolute(false);
     setShowOptionalCreditsAndExtraUsage(true);
     setSessionQuotaNotificationsEnabled(true);
+    setClaudePeakHoursEnabled(true);
     setLanguage("en");
     m_providerSettings.clear();
     m_providerOrder.clear();

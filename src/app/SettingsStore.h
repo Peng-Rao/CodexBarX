@@ -21,6 +21,7 @@ class SettingsStore : public QObject {
     Q_PROPERTY(bool resetTimesShowAbsolute READ resetTimesShowAbsolute WRITE setResetTimesShowAbsolute NOTIFY resetTimesShowAbsoluteChanged)
     Q_PROPERTY(bool showOptionalCreditsAndExtraUsage READ showOptionalCreditsAndExtraUsage WRITE setShowOptionalCreditsAndExtraUsage NOTIFY showOptionalCreditsAndExtraUsageChanged)
     Q_PROPERTY(bool sessionQuotaNotificationsEnabled READ sessionQuotaNotificationsEnabled WRITE setSessionQuotaNotificationsEnabled NOTIFY sessionQuotaNotificationsEnabledChanged)
+    Q_PROPERTY(bool claudePeakHoursEnabled READ claudePeakHoursEnabled WRITE setClaudePeakHoursEnabled NOTIFY claudePeakHoursEnabledChanged)
     Q_PROPERTY(QString language READ language WRITE setLanguage NOTIFY languageChanged)
 
 public:
@@ -62,6 +63,9 @@ public:
     bool sessionQuotaNotificationsEnabled() const { return m_sessionQuotaNotificationsEnabled; }
     void setSessionQuotaNotificationsEnabled(bool enable);
 
+    bool claudePeakHoursEnabled() const { return m_claudePeakHoursEnabled; }
+    void setClaudePeakHoursEnabled(bool enable);
+
     QString language() const { return m_language; }
     void setLanguage(const QString& lang);
 
@@ -98,6 +102,7 @@ signals:
     void resetTimesShowAbsoluteChanged();
     void showOptionalCreditsAndExtraUsageChanged();
     void sessionQuotaNotificationsEnabledChanged();
+    void claudePeakHoursEnabledChanged();
     void languageChanged();
     void providerOrderChanged();
     void providerSettingChanged(const QString& providerID, const QString& key);
@@ -119,6 +124,7 @@ private:
     bool m_resetTimesShowAbsolute = false;
     bool m_showOptionalCreditsAndExtraUsage = true;
     bool m_sessionQuotaNotificationsEnabled = true;
+    bool m_claudePeakHoursEnabled = true;
     QString m_language;
     QStringList m_providerOrder;
     QHash<QString, QHash<QString, QVariant>> m_providerSettings;

@@ -102,6 +102,7 @@ set(CORE_SOURCES
     src/providers/claude/ClaudePersistentCLISession.cpp
     src/providers/claude/ClaudeSourcePlanner.cpp
     src/providers/claude/ClaudeCredentialRouting.cpp
+    src/providers/claude/ClaudePeakHours.cpp
     src/providers/cursor/CursorProvider.cpp
     src/providers/kimi/KimiProvider.cpp
     src/providers/kimi/KimiTokenResolver.cpp

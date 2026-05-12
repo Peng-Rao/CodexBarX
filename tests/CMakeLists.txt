@@ -521,3 +521,10 @@ target_include_directories(tst_ClaudeCredentialRouting PRIVATE ${COMMON_INCLUDE}
 target_compile_definitions(tst_ClaudeCredentialRouting PRIVATE ${COMMON_DEFINES})
 target_link_libraries(tst_ClaudeCredentialRouting PRIVATE codexbar_core Qt6::Core Qt6::Test)
 add_wincodexbar_test(tst_ClaudeCredentialRouting tst_ClaudeCredentialRouting)
+
+# ClaudePeakHours unit tests
+add_executable(tst_ClaudePeakHours tst_ClaudePeakHours.cpp)
+target_include_directories(tst_ClaudePeakHours PRIVATE ${COMMON_INCLUDE})
+target_compile_definitions(tst_ClaudePeakHours PRIVATE ${COMMON_DEFINES})
+target_link_libraries(tst_ClaudePeakHours PRIVATE codexbar_core Qt6::Core Qt6::Test)
+add_wincodexbar_test(tst_ClaudePeakHours tst_ClaudePeakHours)
