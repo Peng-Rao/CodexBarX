@@ -10,6 +10,7 @@
 #include <QDateTime>
 #include <QtConcurrent>
 #include <algorithm>
+#include <tuple>
 #include <QElapsedTimer>
 
 // Performance probe: logs when a scoped block exceeds thresholdMicros.
@@ -38,7 +39,7 @@ PlanUtilizationHistoryStore::PlanUtilizationHistoryStore(QObject* parent)
             // Serialize on main thread (reads m_buckets), write on background thread
             auto doc = serializeProvider(it.key());
             QString path = filePath(it.key());
-            QtConcurrent::run([doc, path]() {
+            std::ignore = QtConcurrent::run([doc, path]() {
                 QDir().mkpath(QFileInfo(path).absolutePath());
                 QSaveFile file(path);
                 if (file.open(QIODevice::WriteOnly)) {
