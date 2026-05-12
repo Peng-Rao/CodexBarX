@@ -569,10 +569,13 @@ ScrollView {
 
                                 Component {
                                     id: boolFieldComponent
-                                    SettingsSwitch {
-                                        checked: modelData.value || false
-                                        onToggled: function(checked) {
-                                            root.settingChanged(modelData.key, checked)
+                                    RowLayout {
+                                        Item { Layout.fillWidth: true }
+                                        SettingsSwitch {
+                                            checked: modelData.value || false
+                                            onToggled: function(checked) {
+                                                root.settingChanged(modelData.key, checked)
+                                            }
                                         }
                                     }
                                 }

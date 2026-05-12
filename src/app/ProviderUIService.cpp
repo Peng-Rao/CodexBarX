@@ -583,6 +583,30 @@ QVariantMap ProviderUIService::snapshotData(const QString& id, const UsageSnapsh
     } else {
         m["hasTertiary"] = false;
     }
+
+    // === Extra Rate Windows (Designs, Routines, etc.) ===
+    if (!snap.extraRateWindows.isEmpty()) {
+        QVariantList extraList;
+        for (const auto& nrw : snap.extraRateWindows) {
+            QVariantMap item;
+            item["id"] = nrw.id;
+            item["title"] = nrw.title;
+            item["usedPercent"] = nrw.window.usedPercent;
+            item["remainingPercent"] = nrw.window.remainingPercent();
+            if (nrw.window.resetsAt.has_value()) {
+                item["resetsAt"] = nrw.window.resetsAt->toMSecsSinceEpoch();
+            }
+            if (nrw.window.resetDescription.has_value()) {
+                item["resetDesc"] = nrw.window.resetDescription.value();
+            }
+            extraList.append(item);
+        }
+        m["extraRateWindows"] = extraList;
+        m["hasExtraRateWindows"] = true;
+    } else {
+        m["hasExtraRateWindows"] = false;
+    }
+
     if (snap.identity.has_value() && snap.identity->loginMethod.has_value()) {
         m["loginMethod"] = snap.identity->loginMethod.value();
     }

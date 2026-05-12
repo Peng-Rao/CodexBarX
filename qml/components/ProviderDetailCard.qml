@@ -372,6 +372,66 @@ Rectangle {
             }
         }
 
+        // === Extra Rate Windows (Designs, Routines, etc.) ===
+        Repeater {
+            model: snap.extraRateWindows || []
+
+            delegate: ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 4
+
+                property var window: modelData
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 6
+                    Text {
+                        text: window.title || ""
+                        color: "#aaa"
+                        font.pixelSize: 11
+                        font.bold: true
+                        Layout.preferredWidth: 80
+                    }
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: 6
+                        radius: 3
+                        color: "#2a2a4a"
+                        Rectangle {
+                            width: Math.max(0, parent.width * (window.usedPercent || 0) / 100)
+                            height: parent.height
+                            radius: 3
+                            color: root.brandColor
+                            Behavior on width { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
+                        }
+                    }
+                    Text {
+                        text: (window.remainingPercent !== undefined ? window.remainingPercent : 100).toFixed(0) + "%"
+                        color: window.remainingPercent > 50 ? "#4CAF50"
+                             : window.remainingPercent > 20 ? "#FFC107"
+                             : "#F44336"
+                        font.pixelSize: 11
+                        font.bold: true
+                        Layout.preferredWidth: 50
+                        horizontalAlignment: Text.AlignRight
+                    }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: window.resetDesc !== undefined && window.resetDesc !== ""
+                    spacing: 4
+                    Item { Layout.preferredWidth: 80 }
+                    Text {
+                        text: qsTr("Resets") + " " + (window.resetDesc || "")
+                        color: "#666"
+                        font.pixelSize: 10
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                    }
+                }
+            }
+        }
+
         // === Codex Credits ===
         Rectangle {
             Layout.fillWidth: true
