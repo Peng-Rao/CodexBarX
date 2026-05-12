@@ -17,6 +17,49 @@ $installerDir = Join-Path $projectRoot "installer"
 $buildDir = Join-Path $projectRoot "build"
 $releaseDir = Join-Path $buildDir $BuildType
 
+function Set-InstallerConfigValue {
+    param(
+        [Parameter(Mandatory=$true)]
+        [System.Xml.XmlDocument]$Xml,
+
+        [Parameter(Mandatory=$true)]
+        [string]$Name,
+
+        [Parameter(Mandatory=$true)]
+        [string]$Value
+    )
+
+    $node = $Xml.Installer.SelectSingleNode($Name)
+    if (-not $node) {
+        $node = $Xml.CreateElement($Name)
+        [void]$Xml.Installer.AppendChild($node)
+    }
+
+    $node.InnerText = $Value
+}
+
+function Save-Utf8Xml {
+    param(
+        [Parameter(Mandatory=$true)]
+        [System.Xml.XmlDocument]$Xml,
+
+        [Parameter(Mandatory=$true)]
+        [string]$Path
+    )
+
+    $settings = New-Object System.Xml.XmlWriterSettings
+    $settings.Encoding = New-Object System.Text.UTF8Encoding -ArgumentList $false
+    $settings.Indent = $true
+    $settings.NewLineChars = "`r`n"
+
+    $writer = [System.Xml.XmlWriter]::Create($Path, $settings)
+    try {
+        $Xml.Save($writer)
+    } finally {
+        $writer.Close()
+    }
+}
+
 Write-Host "=== CodexBarX Installer Builder ===" -ForegroundColor Cyan
 Write-Host "Version: $Version"
 Write-Host "Build Type: $BuildType"
@@ -127,19 +170,38 @@ $configXml = Join-Path $installerDir "config\config.xml"
 $packageXml = Join-Path $metaDir "package.xml"
 $releaseDate = Get-Date -Format "yyyy-MM-dd"
 
-# Keep the Qt IFW stylesheet as a file reference. The <StyleSheet> element
-# expects a filename relative to config.xml, not inline QSS content.
-$stylesheetPath = Join-Path $installerDir "config\stylesheet.qss"
-if (-not (Test-Path $stylesheetPath)) {
-    Write-Error "Installer stylesheet not found: $stylesheetPath"
+# Keep Qt IFW visual resources as file references relative to config.xml.
+$requiredInstallerResources = @(
+    "stylesheet.qss",
+    "controller.qs",
+    "watermark.png"
+)
+
+foreach ($resource in $requiredInstallerResources) {
+    $resourcePath = Join-Path $installerDir "config\$resource"
+    if (-not (Test-Path $resourcePath -PathType Leaf)) {
+        Write-Error "Installer resource not found: $resourcePath"
+        exit 1
+    }
+}
+
+[xml]$configContent = Get-Content $configXml -Raw
+Set-InstallerConfigValue -Xml $configContent -Name "Version" -Value $Version
+Set-InstallerConfigValue -Xml $configContent -Name "WizardStyle" -Value "Classic"
+Set-InstallerConfigValue -Xml $configContent -Name "StyleSheet" -Value "stylesheet.qss"
+Set-InstallerConfigValue -Xml $configContent -Name "TitleColor" -Value "#ffffff"
+Set-InstallerConfigValue -Xml $configContent -Name "WizardShowPageList" -Value "false"
+Set-InstallerConfigValue -Xml $configContent -Name "Watermark" -Value "watermark.png"
+Set-InstallerConfigValue -Xml $configContent -Name "ControlScript" -Value "controller.qs"
+Save-Utf8Xml -Xml $configContent -Path $configXml
+
+$configValidationScript = Join-Path $scriptDir "Test-InstallerConfig.ps1"
+if (-not (Test-Path $configValidationScript -PathType Leaf)) {
+    Write-Error "Installer config validation script not found: $configValidationScript"
     exit 1
 }
 
-$configContent = Get-Content $configXml -Raw
-$configContent = $configContent -replace '<Version>[^<]*</Version>', "<Version>$Version</Version>"
-$configContent = $configContent -replace '<StyleSheet>[\s\S]*?</StyleSheet>', '<StyleSheet>stylesheet.qss</StyleSheet>'
-$configContent = $configContent -replace '\s*<DisableLicenseAutoAcceptCheckBox>[^<]*</DisableLicenseAutoAcceptCheckBox>', ''
-Set-Content $configXml $configContent -NoNewline
+& $configValidationScript -ConfigPath $configXml
 
 # Update package.xml
 $packageContent = Get-Content $packageXml -Raw
