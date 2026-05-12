@@ -24,19 +24,48 @@ Write-Host "Project Root: $projectRoot"
 
 # Find Qt Installer Framework
 if ([string]::IsNullOrEmpty($QtIFWPath)) {
-    $possiblePaths = @(
-        "C:\Qt\Tools\QtInstallerFramework\4.7\bin",
-        "C:\Qt\Tools\QtInstallerFramework\4.6\bin",
-        "C:\Qt\Tools\QtInstallerFramework\4.5\bin",
-        "${env:ProgramFiles}\Qt\Tools\QtInstallerFramework\4.7\bin",
-        "${env:ProgramFiles(x86)}\Qt\Tools\QtInstallerFramework\4.7\bin"
-    )
-    
-    foreach ($path in $possiblePaths) {
-        if (Test-Path $path) {
-            $QtIFWPath = Split-Path -Parent $path
-            Write-Host "Found Qt IFW at: $QtIFWPath" -ForegroundColor Green
-            break
+    $qtToolsRoots = @()
+    if (-not [string]::IsNullOrEmpty($env:Qt6_DIR)) {
+        $qtToolsRoots += Join-Path $env:Qt6_DIR "..\..\Tools\QtInstallerFramework"
+    }
+
+    foreach ($root in $qtToolsRoots) {
+        if (Test-Path $root) {
+            $ifwBin = Get-ChildItem -Path $root -Filter "binarycreator.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($ifwBin) {
+                $QtIFWPath = Split-Path -Parent (Split-Path -Parent $ifwBin.FullName)
+                Write-Host "Found Qt IFW at: $QtIFWPath" -ForegroundColor Green
+                break
+            }
+        }
+    }
+
+    if ([string]::IsNullOrEmpty($QtIFWPath)) {
+        $possiblePaths = @(
+            "D:\Qt\Tools\QtInstallerFramework\4.11\bin",
+            "D:\Qt\Tools\QtInstallerFramework\4.10\bin",
+            "D:\Qt\Tools\QtInstallerFramework\4.7\bin",
+            "D:\Qt\Tools\QtInstallerFramework\4.6\bin",
+            "D:\Qt\Tools\QtInstallerFramework\4.5\bin",
+            "C:\Qt\Tools\QtInstallerFramework\4.11\bin",
+            "C:\Qt\Tools\QtInstallerFramework\4.10\bin",
+            "C:\Qt\Tools\QtInstallerFramework\4.7\bin",
+            "C:\Qt\Tools\QtInstallerFramework\4.6\bin",
+            "C:\Qt\Tools\QtInstallerFramework\4.5\bin",
+            "${env:ProgramFiles}\Qt\Tools\QtInstallerFramework\4.11\bin",
+            "${env:ProgramFiles}\Qt\Tools\QtInstallerFramework\4.10\bin",
+            "${env:ProgramFiles}\Qt\Tools\QtInstallerFramework\4.7\bin",
+            "${env:ProgramFiles(x86)}\Qt\Tools\QtInstallerFramework\4.11\bin",
+            "${env:ProgramFiles(x86)}\Qt\Tools\QtInstallerFramework\4.10\bin",
+            "${env:ProgramFiles(x86)}\Qt\Tools\QtInstallerFramework\4.7\bin"
+        )
+
+        foreach ($path in $possiblePaths) {
+            if (Test-Path $path) {
+                $QtIFWPath = Split-Path -Parent $path
+                Write-Host "Found Qt IFW at: $QtIFWPath" -ForegroundColor Green
+                break
+            }
         }
     }
     
@@ -70,8 +99,8 @@ if (-not (Test-Path $exePath)) {
 
 # Prepare data directory
 Write-Host "`n=== Preparing installer data ===" -ForegroundColor Cyan
-$dataDir = Join-Path $installerDir "packages\com.wincodexbar.app\data"
-$metaDir = Join-Path $installerDir "packages\com.wincodexbar.app\meta"
+$dataDir = Join-Path $installerDir "packages\com.codexbarx.app\data"
+$metaDir = Join-Path $installerDir "packages\com.codexbarx.app\meta"
 
 if (Test-Path $dataDir) {
     Remove-Item -Recurse -Force $dataDir
@@ -98,9 +127,18 @@ $configXml = Join-Path $installerDir "config\config.xml"
 $packageXml = Join-Path $metaDir "package.xml"
 $releaseDate = Get-Date -Format "yyyy-MM-dd"
 
-# Update config.xml
+# Keep the Qt IFW stylesheet as a file reference. The <StyleSheet> element
+# expects a filename relative to config.xml, not inline QSS content.
+$stylesheetPath = Join-Path $installerDir "config\stylesheet.qss"
+if (-not (Test-Path $stylesheetPath)) {
+    Write-Error "Installer stylesheet not found: $stylesheetPath"
+    exit 1
+}
+
 $configContent = Get-Content $configXml -Raw
 $configContent = $configContent -replace '<Version>[^<]*</Version>', "<Version>$Version</Version>"
+$configContent = $configContent -replace '<StyleSheet>[\s\S]*?</StyleSheet>', '<StyleSheet>stylesheet.qss</StyleSheet>'
+$configContent = $configContent -replace '\s*<DisableLicenseAutoAcceptCheckBox>[^<]*</DisableLicenseAutoAcceptCheckBox>', ''
 Set-Content $configXml $configContent -NoNewline
 
 # Update package.xml

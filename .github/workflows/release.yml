@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*.*.*'
 
+permissions:
+  contents: write
+
 jobs:
   build-and-release:
     runs-on: windows-latest
@@ -62,9 +65,15 @@ jobs:
             "Qt63DExtras.dll",
             "Qt63DAnimation.dll",
             "Qt63DCore.dll",
+            "Qt63DInput.dll",
+            "Qt63DLogic.dll",
+            "Qt63DQuickScene2D.dll",
             "Qt6QuickParticles.dll",
+            "Qt6Quick3DUtils.dll",
             "Qt6VirtualKeyboard.dll",
-            "Qt6ShaderTools.dll"
+            "Qt6ShaderTools.dll",
+            "Qt6StateMachine.dll",
+            "Qt6StateMachineQml.dll"
           )
           
           foreach ($dll in $unneededDlls) {
@@ -75,14 +84,52 @@ jobs:
             }
           }
           
-          $qml2Dir = Join-Path $releaseDir "QtQml"
-          if (Test-Path $qml2Dir) {
-            $unneededQml = @("Pdf", "3D", "VirtualKeyboard", "QuickParticles")
-            foreach ($dir in $unneededQml) {
-              $targetDir = Join-Path $qml2Dir $dir
+          $unneededDirs = @(
+            "geometryloaders",
+            "renderers",
+            "renderplugins",
+            "sceneparsers",
+            "qmltooling",
+            "networkinformation",
+            "platforminputcontexts",
+            "generic"
+          )
+          foreach ($dir in $unneededDirs) {
+            $dirPath = Join-Path $releaseDir $dir
+            if (Test-Path $dirPath) {
+              Remove-Item $dirPath -Recurse -Force
+              Write-Host "Removed dir: $dir"
+            }
+          }
+
+          $sqldriversDir = Join-Path $releaseDir "sqldrivers"
+          if (Test-Path $sqldriversDir) {
+            Remove-Item (Join-Path $sqldriversDir "qsqlodbc.dll") -Force -ErrorAction SilentlyContinue
+            Remove-Item (Join-Path $sqldriversDir "qsqlpsql.dll") -Force -ErrorAction SilentlyContinue
+            Write-Host "Removed unused SQL drivers (ODBC, PostgreSQL)"
+          }
+
+          $qmlDir = Join-Path $releaseDir "qml"
+          if (Test-Path $qmlDir) {
+            $unneededQml = @(
+              "QtQuick\VirtualKeyboard",
+              "QtQuick\Pdf",
+              "QtQuick\Scene3D",
+              "QtQuick\Scene2D",
+              "QtQuick\Particles",
+              "QtQuick\tooling",
+              "QtQuick\NativeStyle",
+              "QtQuick\Dialogs",
+              "QtQuick\Effects",
+              "QtQuick\Timeline",
+              "QtQuick\LocalStorage",
+              "QtQuick\Shapes"
+            )
+            foreach ($relPath in $unneededQml) {
+              $targetDir = Join-Path $qmlDir $relPath
               if (Test-Path $targetDir) {
                 Remove-Item $targetDir -Recurse -Force
-                Write-Host "Removed QML dir: $dir"
+                Write-Host "Removed QML: $relPath"
               }
             }
           }
@@ -100,7 +147,7 @@ jobs:
           
           if (Test-Path "build\translations") {
             New-Item -ItemType Directory -Path "release_package\translations" -Force | Out-Null
-            Copy-Item -Path "build\translations\*.qm" -Destination "release_package\translations" -Force
+            Copy-Item -Path "build\translations\CodexBarX_*.qm" -Destination "release_package\translations" -Force
           }
           
           Compress-Archive -Path "release_package\*" -DestinationPath "$packageName.zip" -Force
@@ -109,49 +156,7 @@ jobs:
         run: |
           $tagName = "${{ github.ref_name }}"
           $version = $tagName -replace '^v', ''
-          
-          # Find Qt IFW bin directory
-          $ifwBin = Get-ChildItem -Path "${{ env.Qt6_DIR }}\..\..\Tools\QtInstallerFramework" -Filter "binarycreator.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $ifwBin) {
-            Write-Host "Searching in Qt Tools directory..."
-            $ifwBin = Get-ChildItem -Path "C:\Qt\Tools\QtInstallerFramework" -Filter "binarycreator.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-          }
-          
-          if ($ifwBin) {
-            $binDir = Split-Path $ifwBin.FullName
-            $env:PATH = "$binDir;$env:PATH"
-            Write-Host "Found Qt IFW at: $binDir"
-          } else {
-            Write-Warning "Qt IFW not found, skipping installer build"
-            exit 0
-          }
-          
-          # Prepare installer data
-          $dataDir = "installer\packages\com.CodexBarX.app\data"
-          if (Test-Path $dataDir) { Remove-Item -Recurse -Force $dataDir }
-          New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
-          Copy-Item -Path "build\Release\*" -Destination $dataDir -Recurse -Force
-          
-          if (Test-Path "build\translations") {
-            Copy-Item -Path "build\translations" -Destination $dataDir -Recurse -Force
-          }
-          
-          # Update version
-          $releaseDate = Get-Date -Format "yyyy-MM-dd"
-          $configXml = "installer\config\config.xml"
-          $packageXml = "installer\packages\com.CodexBarX.app\meta\package.xml"
-          
-          (Get-Content $configXml) -replace '<Version>[^<]*</Version>', "<Version>$version</Version>" | Set-Content $configXml
-          (Get-Content $packageXml) -replace '<Version>[^<]*</Version>', "<Version>$version</Version>" -replace '<ReleaseDate>[^<]*</ReleaseDate>', "<ReleaseDate>$releaseDate</ReleaseDate>" | Set-Content $packageXml
-          
-          # Build installer
-          Push-Location installer
-          try {
-            binarycreator.exe -c "config\config.xml" -p "packages" "..\CodexBarX-$version-Installer.exe"
-          } finally {
-            Pop-Location
-          }
-          
+          .\Scripts\build-installer.ps1 -Version $version -BuildType Release
           Write-Host "Installer created: CodexBarX-$version-Installer.exe"
 
       - name: Create Release and upload assets

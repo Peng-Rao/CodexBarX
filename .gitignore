@@ -7,9 +7,20 @@
 /cmake_install.cmake
 /CTestTestfile.cmake
 /_deps/
+/Testing/
+/.ccache/
 
 # Installer data (generated during build)
 /installer/packages/*/data/
+
+# Release/package artifacts
+/CodexBarX-*-Installer.exe
+/CodexBarX-*-portable.zip
+/CodexBarX-*-macOS.zip
+/CodexBarX-*-macOS.dmg
+/release_package/
+/dmg_staging/
+/installer-style-check*.png
 
 # Generated project files
 /*.sln

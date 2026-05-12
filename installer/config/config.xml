@@ -13,5 +13,7 @@
     <RunProgramDescription>Launch CodexBarX after installation</RunProgramDescription>
     <MaintenanceToolName>Uninstall</MaintenanceToolName>
     <AllowNonAsciiCharacters>true</AllowNonAsciiCharacters>
-    <DisableLicenseAutoAcceptCheckBox>false</DisableLicenseAutoAcceptCheckBox>
+    <WizardStyle>Classic</WizardStyle>
+    <StyleSheet>stylesheet.qss</StyleSheet>
+    <TitleColor>#ffffff</TitleColor>
 </Installer>
