@@ -240,6 +240,8 @@ public:
 #ifdef Q_OS_WIN
         QString cmd = QString("start cmd /k \"%1\"").arg(command);
         QProcess::startDetached("cmd", {"/c", QString("start cmd /k %1").arg(command)});
+#elif defined(Q_OS_MAC)
+        QProcess::startDetached("osascript", {"-e", QString("tell application \"Terminal\" to do script \"%1\"").arg(command)});
 #else
         QProcess::startDetached("x-terminal-emulator", {"-e", command});
 #endif
