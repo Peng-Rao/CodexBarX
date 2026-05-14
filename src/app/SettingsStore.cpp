@@ -5,12 +5,13 @@
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QProcess>
 #include <QStandardPaths>
 #include <QSettings>
 
 SettingsStore::SettingsStore(QObject* parent)
     : QObject(parent)
-    , m_settings("HKEY_CURRENT_USER\\Software\\CodexBar", QSettings::NativeFormat)
+    , m_settings("CodexBarX", "CodexBarX")
 {
     m_refreshFrequency = m_settings.value("refreshFrequency", 5).toInt();
     m_launchAtLogin = m_settings.value("launchAtLogin", false).toBool();
@@ -49,6 +50,7 @@ void SettingsStore::setLaunchAtLogin(bool enable) {
     if (m_launchAtLogin != enable) {
         m_launchAtLogin = enable;
         m_settings.setValue("launchAtLogin", enable);
+#ifdef Q_OS_WIN
         QSettings runReg("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
                          QSettings::NativeFormat);
         if (enable) {
@@ -56,6 +58,27 @@ void SettingsStore::setLaunchAtLogin(bool enable) {
         } else {
             runReg.remove("CodexBarX");
         }
+#elif defined(Q_OS_MAC)
+        const QString appPath = QCoreApplication::applicationFilePath();
+        QString bundlePath = appPath;
+        const int appIdx = bundlePath.indexOf(QStringLiteral(".app/"));
+        if (appIdx >= 0) {
+            bundlePath = bundlePath.left(appIdx + 4);
+        }
+        QString script;
+        if (enable) {
+            script = QString::fromLatin1(
+                        "tell application \"System Events\" to "
+                        "make login item at end with properties "
+                        "{name:\"CodexBarX\", path:\"%1\", hidden:false}")
+                         .arg(bundlePath);
+        } else {
+            script = QString::fromLatin1(
+                        "tell application \"System Events\" to "
+                        "delete login item \"CodexBarX\"");
+        }
+        QProcess::startDetached("osascript", {"-e", script});
+#endif
         emit launchAtLoginChanged();
     }
 }

@@ -240,6 +240,16 @@ public:
 #ifdef Q_OS_WIN
         QString cmd = QString("start cmd /k \"%1\"").arg(command);
         QProcess::startDetached("cmd", {"/c", QString("start cmd /k %1").arg(command)});
+#elif defined(Q_OS_MAC)
+        QString escaped = command;
+        escaped.replace("\\", "\\\\").replace("\"", "\\\"");
+        const QString script = QString::fromLatin1(
+                                   "tell application \"Terminal\"\n"
+                                   "    activate\n"
+                                   "    do script \"%1\"\n"
+                                   "end tell")
+                                   .arg(escaped);
+        QProcess::startDetached("osascript", {"-e", script});
 #else
         QProcess::startDetached("x-terminal-emulator", {"-e", command});
 #endif

@@ -310,8 +310,12 @@ Rectangle {
                             onSetCodexActiveAccount: function(accountId) {
                                 SettingsProvidersModel.setCodexActiveAccount(accountId)
                             }
-                            onAddCodexAccount: SettingsProvidersModel.addCodexAccount()
-                            onCancelCodexAuthentication: SettingsProvidersModel.cancelCodexAuthentication()
+                            onAddCodexAccount: function() {
+                                SettingsProvidersModel.addCodexAccount()
+                            }
+                            onCancelCodexAuthentication: function() {
+                                SettingsProvidersModel.cancelCodexAuthentication()
+                            }
                             onRemoveCodexAccount: function(accountId) {
                                 SettingsProvidersModel.removeCodexAccount(accountId)
                             }

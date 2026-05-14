@@ -51,8 +51,11 @@ public:
 
     void clear() {
         if (!m_data.isEmpty()) {
-            // Overwrite with zeros
-            std::fill(m_data.begin(), m_data.end(), 0);
+            volatile char* p = m_data.data();
+            const int n = m_data.size();
+            for (int i = 0; i < n; ++i) {
+                p[i] = 0;
+            }
             m_data.clear();
         }
     }
